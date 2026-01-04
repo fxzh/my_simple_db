@@ -1,20 +1,181 @@
 #include <iostream>
 #include <string>
 #include <cstring>
+#include <vector>
+#include <memory>
+#include <thread>
+#include <mutex>
+#include <atomic>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 
 #define PORT 8123
+#define MAX_CLIENTS 100
 #define BUFFER_SIZE 1024
 
+// 客户端连接信息
+struct ClientInfo {
+    int socket;
+    int client_id;
+    std::string ip_address;
+    std::thread thread;
+    
+    ClientInfo(int sock, int id, const std::string& ip) 
+        : socket(sock), client_id(id), ip_address(ip) {}
+    
+    ~ClientInfo() {
+        if (thread.joinable()) {
+            thread.detach();
+        }
+    }
+};
+
+// 全局变量
+std::vector<std::shared_ptr<ClientInfo>> clients;
+std::mutex clients_mutex;
+std::atomic<int> client_counter{0};
+std::atomic<bool> server_running{true};
+std::mutex cout_mutex;  // 保护标准输出
+
+// 线程安全的输出
+void safe_cout(const std::string& message) {
+    std::lock_guard<std::mutex> lock(cout_mutex);
+    std::cout << message << std::endl;
+}
+
+// 处理单个客户端的函数
+void handle_client(int client_socket, int client_id, const std::string& client_ip) {
+    char buffer[BUFFER_SIZE] = {0};
+    char client_name[BUFFER_SIZE];
+    
+    // 首次读取客户端名称
+    int name_read = read(client_socket, client_name, BUFFER_SIZE - 1);
+    if (name_read <= 0) {
+        close(client_socket);
+        return;
+    }
+    client_name[name_read] = '\0';
+    
+    std::string welcome_msg = "客户端 [" + std::string(client_name) + 
+                              "] ID:" + std::to_string(client_id) + 
+                              " 已连接 (" + client_ip + ")";
+    safe_cout(welcome_msg);
+    
+    // 发送欢迎消息
+    std::string welcome_client = "欢迎 " + std::string(client_name) + 
+                                 "! 你是第 " + std::to_string(client_id) + 
+                                 " 个连接。发送 'quit' 或 'exit' 退出。";
+    send(client_socket, welcome_client.c_str(), welcome_client.length(), 0);
+    
+    // 处理客户端消息循环
+    while (server_running) {
+        memset(buffer, 0, BUFFER_SIZE);
+        
+        // 接收客户端消息
+        int valread = read(client_socket, buffer, BUFFER_SIZE - 1);
+        if (valread <= 0) {
+            if (valread == 0) {
+                std::string disconnect_msg = "客户端 [" + std::string(client_name) + 
+                                             "] ID:" + std::to_string(client_id) + " 断开连接";
+                safe_cout(disconnect_msg);
+            } else {
+                std::string error_msg = "从客户端 [" + std::string(client_name) + 
+                                       "] ID:" + std::to_string(client_id) + " 读取数据失败";
+                safe_cout(error_msg);
+            }
+            break;
+        }
+        
+        std::string msg_str(buffer);
+        std::string log_msg = "来自 [" + std::string(client_name) + 
+                             "] ID:" + std::to_string(client_id) + " 的消息: " + msg_str;
+        safe_cout(log_msg);
+        
+        // 检查是否收到退出指令
+        if (msg_str == "quit" || msg_str == "exit") {
+            std::string goodbye_msg = "再见，" + std::string(client_name) + "!";
+            send(client_socket, goodbye_msg.c_str(), goodbye_msg.length(), 0);
+            
+            std::string leave_msg = "客户端 [" + std::string(client_name) + 
+                                   "] ID:" + std::to_string(client_id) + " 主动退出";
+            safe_cout(leave_msg);
+            break;
+        }
+        
+        // 处理特殊指令
+        if (msg_str == "list") {
+            std::lock_guard<std::mutex> lock(clients_mutex);
+            std::string list_msg = "当前在线客户端 (" + std::to_string(clients.size()) + " 个):\n";
+            for (const auto& client : clients) {
+                if (client->socket != client_socket) {
+                    list_msg += "  ID:" + std::to_string(client->client_id) + 
+                               " [" + client->ip_address + "]\n";
+                }
+            }
+            if (clients.size() <= 1) {
+                list_msg += "  没有其他客户端在线\n";
+            }
+            send(client_socket, list_msg.c_str(), list_msg.length(), 0);
+            continue;
+        }
+        
+        if (msg_str == "help") {
+            std::string help_msg = "可用命令:\n"
+                                  "  help     - 显示帮助信息\n"
+                                  "  list     - 显示在线客户端列表\n"
+                                  "  quit/exit - 退出连接\n"
+                                  "  其他消息 - 服务器会回显您的消息";
+            send(client_socket, help_msg.c_str(), help_msg.length(), 0);
+            continue;
+        }
+        
+        // 普通消息：回显给客户端
+        std::string echo_msg = "服务器回显: " + msg_str;
+        send(client_socket, echo_msg.c_str(), echo_msg.length(), 0);
+    }
+    
+    // 清理客户端连接
+    {
+        std::lock_guard<std::mutex> lock(clients_mutex);
+        for (auto it = clients.begin(); it != clients.end(); ++it) {
+            if ((*it)->socket == client_socket) {
+                clients.erase(it);
+                break;
+            }
+        }
+    }
+    
+    // 输出当前客户端数量
+    {
+        std::lock_guard<std::mutex> lock(clients_mutex);
+        std::string count_msg = "当前在线客户端数量: " + std::to_string(clients.size());
+        safe_cout(count_msg);
+    }
+    
+    close(client_socket);
+}
+
+// 清理已完成的线程
+void cleanup_threads() {
+    std::lock_guard<std::mutex> lock(clients_mutex);
+    auto it = clients.begin();
+    while (it != clients.end()) {
+        if (!(*it)->thread.joinable()) {
+            it = clients.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+// 服务器主函数
 int main() {
     int server_fd, new_socket;
     struct sockaddr_in address;
     int opt = 1;
     int addrlen = sizeof(address);
-    char buffer[BUFFER_SIZE] = {0};
     
     // 创建socket文件描述符
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
@@ -22,7 +183,7 @@ int main() {
         return -1;
     }
     
-    // 设置socket选项，允许端口重用
+    // 设置socket选项
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &opt, sizeof(opt))) {
         std::cerr << "设置socket选项失败" << std::endl;
         return -1;
@@ -35,60 +196,125 @@ int main() {
     // 绑定socket到地址和端口
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
         std::cerr << "绑定端口失败" << std::endl;
+        close(server_fd);
         return -1;
     }
     
     // 开始监听连接
-    if (listen(server_fd, 3) < 0) {
+    if (listen(server_fd, 10) < 0) {  // 增加等待队列长度
         std::cerr << "监听失败" << std::endl;
+        close(server_fd);
         return -1;
     }
     
     std::cout << "服务器已启动，监听端口 " << PORT << "..." << std::endl;
+    std::cout << "支持最多 " << MAX_CLIENTS << " 个客户端同时连接" << std::endl;
     std::cout << "等待客户端连接..." << std::endl;
     
-    // 接受客户端连接
-    if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
-        std::cerr << "接受连接失败" << std::endl;
-        return -1;
-    }
+    // 启动管理线程来处理控制台输入
+    // std::thread admin_thread([&server_fd]() {
+    //     std::string cmd;
+    //     while (server_running) {
+    //         std::getline(std::cin, cmd);
+    //         if (cmd == "shutdown") {
+    //             std::cout << "正在关闭服务器..." << std::endl;
+    //             server_running = false;
+                
+    //             // 关闭服务器socket以停止accept
+    //             shutdown(server_fd, SHUT_RDWR);
+    //             break;
+    //         } else if (cmd == "list") {
+    //             std::lock_guard<std::mutex> lock(clients_mutex);
+    //             std::cout << "当前在线客户端 (" << clients.size() << " 个):" << std::endl;
+    //             for (const auto& client : clients) {
+    //                 std::cout << "  ID:" << client->client_id 
+    //                          << " [" << client->ip_address << "]" << std::endl;
+    //             }
+    //         } else if (cmd == "help") {
+    //             std::cout << "管理命令:" << std::endl;
+    //             std::cout << "  shutdown - 停止服务器" << std::endl;
+    //             std::cout << "  list     - 显示在线客户端列表" << std::endl;
+    //             std::cout << "  help     - 显示帮助信息" << std::endl;
+    //         } else if (!cmd.empty()) {
+    //             std::cout << "未知命令，输入 'help' 查看可用命令" << std::endl;
+    //         }
+    //     }
+    // });
+    // admin_thread.detach();
     
-    std::cout << "客户端已连接！" << std::endl;
-    std::cout << "客户端IP: " << inet_ntoa(address.sin_addr) << std::endl;
-    std::cout << "客户端端口: " << ntohs(address.sin_port) << std::endl;
-    
-    // 持续接收和回显消息
-    while (true) {
-        memset(buffer, 0, BUFFER_SIZE);
-        
-        // 接收客户端消息
-        int valread = read(new_socket, buffer, BUFFER_SIZE);
-        if (valread <= 0) {
-            if (valread == 0) {
-                std::cout << "客户端断开连接" << std::endl;
-            } else {
-                std::cerr << "读取数据失败" << std::endl;
+    // 主循环：接受客户端连接
+    while (server_running) {
+        // 接受客户端连接
+        new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen);
+        if (new_socket < 0) {
+            if (!server_running) {
+                break;  // 服务器正在关闭
             }
-            break;
+            std::cerr << "接受连接失败" << std::endl;
+            continue;
         }
         
-        std::cout << "收到消息: " << buffer << std::endl;
-        
-        // 检查是否收到退出指令
-        if (strcmp(buffer, "quit") == 0 || strcmp(buffer, "exit") == 0) {
-            std::cout << "收到退出指令，关闭连接..." << std::endl;
-            break;
+        // 检查是否达到最大客户端数
+        {
+            std::lock_guard<std::mutex> lock(clients_mutex);
+            if (clients.size() >= MAX_CLIENTS) {
+                std::string reject_msg = "服务器已达到最大客户端数限制 (" + 
+                                        std::to_string(MAX_CLIENTS) + ")";
+                send(new_socket, reject_msg.c_str(), reject_msg.length(), 0);
+                close(new_socket);
+                std::cout << "拒绝新连接：已达到最大客户端数限制" << std::endl;
+                continue;
+            }
         }
         
-        // 将消息回显给客户端
-        send(new_socket, buffer, strlen(buffer), 0);
-        std::cout << "已回显消息给客户端" << std::endl;
+        // 获取客户端IP地址
+        char client_ip[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &(address.sin_addr), client_ip, INET_ADDRSTRLEN);
+        int client_port = ntohs(address.sin_port);
+        
+        // 创建客户端ID
+        int client_id = ++client_counter;
+        
+        // 创建客户端信息
+        auto client_info = std::make_shared<ClientInfo>(
+            new_socket, client_id, std::string(client_ip) + ":" + std::to_string(client_port)
+        );
+        
+        // 创建线程处理客户端
+        client_info->thread = std::thread(
+            handle_client, 
+            new_socket, 
+            client_id, 
+            client_info->ip_address
+        );
+        client_info->thread.detach();  // 分离线程
+        
+        // 添加到客户端列表
+        {
+            std::lock_guard<std::mutex> lock(clients_mutex);
+            clients.push_back(client_info);
+        }
+        
+        std::cout << "新客户端连接，ID:" << client_id 
+                 << " [" << client_info->ip_address << "]" 
+                 << " 当前客户端数: " << clients.size() << std::endl;
     }
     
-    // 关闭连接
-    close(new_socket);
+    // 等待所有客户端线程结束
+    std::cout << "等待所有客户端断开连接..." << std::endl;
+    {
+        std::lock_guard<std::mutex> lock(clients_mutex);
+        for (auto& client : clients) {
+            shutdown(client->socket, SHUT_RDWR);
+        }
+    }
+    
+    // 等待一段时间让客户端断开
+    std::this_thread::sleep_for(std::chrono::seconds(2));
+    
+    // 清理资源
     close(server_fd);
     
-    std::cout << "服务器已关闭" << std::endl;
+    std::cout << "服务器已安全关闭" << std::endl;
     return 0;
 }
