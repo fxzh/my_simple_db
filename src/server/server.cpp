@@ -10,10 +10,14 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include "log/log.h"
 
 #define PORT 8123
 #define MAX_CLIENTS 100
 #define BUFFER_SIZE 1024
+
+using enum LogModule;
+using enum LogLevel;
 
 // 客户端连接信息
 struct ClientInfo {
@@ -61,7 +65,7 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
     std::string welcome_msg = "客户端 [" + std::string(client_name) + 
                               "] ID:" + std::to_string(client_id) + 
                               " 已连接 (" + client_ip + ")";
-    safe_cout(welcome_msg);
+    LOG(INFO, NETWORK, "%s", welcome_msg.c_str());
     
     // 发送欢迎消息
     std::string welcome_client = "欢迎 " + std::string(client_name) + 
@@ -210,37 +214,6 @@ int main() {
     std::cout << "服务器已启动，监听端口 " << PORT << "..." << std::endl;
     std::cout << "支持最多 " << MAX_CLIENTS << " 个客户端同时连接" << std::endl;
     std::cout << "等待客户端连接..." << std::endl;
-    
-    // 启动管理线程来处理控制台输入
-    // std::thread admin_thread([&server_fd]() {
-    //     std::string cmd;
-    //     while (server_running) {
-    //         std::getline(std::cin, cmd);
-    //         if (cmd == "shutdown") {
-    //             std::cout << "正在关闭服务器..." << std::endl;
-    //             server_running = false;
-                
-    //             // 关闭服务器socket以停止accept
-    //             shutdown(server_fd, SHUT_RDWR);
-    //             break;
-    //         } else if (cmd == "list") {
-    //             std::lock_guard<std::mutex> lock(clients_mutex);
-    //             std::cout << "当前在线客户端 (" << clients.size() << " 个):" << std::endl;
-    //             for (const auto& client : clients) {
-    //                 std::cout << "  ID:" << client->client_id 
-    //                          << " [" << client->ip_address << "]" << std::endl;
-    //             }
-    //         } else if (cmd == "help") {
-    //             std::cout << "管理命令:" << std::endl;
-    //             std::cout << "  shutdown - 停止服务器" << std::endl;
-    //             std::cout << "  list     - 显示在线客户端列表" << std::endl;
-    //             std::cout << "  help     - 显示帮助信息" << std::endl;
-    //         } else if (!cmd.empty()) {
-    //             std::cout << "未知命令，输入 'help' 查看可用命令" << std::endl;
-    //         }
-    //     }
-    // });
-    // admin_thread.detach();
     
     // 主循环：接受客户端连接
     while (server_running) {
