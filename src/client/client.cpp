@@ -5,14 +5,71 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <readline/readline.h>
+#include <readline/history.h>
 
 #define PORT 8123
 #define BUFFER_SIZE 1024
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+#include "client.h"
+int sock = 0;
+char buffer[BUFFER_SIZE] = {0};
+char sql_buffer[10240];
+int sql_pos = 0;
+enum ScannerState scanner_state = STATE_INITIAL;
+    extern int yylex();
+    int yyparse();
+    void reset_parser();
+    extern void* yy_scan_string(const char* s);
+    extern void yy_delete_buffer(void* b);
+    extern FILE* yyin;
+#ifdef __cplusplus
+}
+#endif
+
+void reset_sql_buffer() {
+    sql_pos = 0;
+    sql_buffer[0] = '\0';
+}
+
+void send_to_server() {
+    if (sql_pos > 0) {
+        std::cout << "已发送消息: " << sql_buffer << std::endl;
+        send(sock, sql_buffer, sql_pos, 0);
+        add_history(sql_buffer);
+        reset_sql_buffer();
+
+        // 接收服务器回显
+        memset(buffer, 0, BUFFER_SIZE);
+        int valread = read(sock, buffer, BUFFER_SIZE);
+        
+        if (valread <= 0) {
+            std::cerr << "服务器连接已断开" << std::endl;
+            return;
+        }
+        
+        std::cout << "服务器回显: " << buffer << std::endl;
+    }
+}
+
+void process_input(std::string& input) {
+    if (input.empty()) {
+        return;
+    }
+    
+    // 构造带终止换行的临时字符串（readline 返回的不包含 '\n'）
+    std::string tmp = input + "\n";
+
+    void* buf = yy_scan_string(tmp.c_str());
+    yylex();
+    yy_delete_buffer(buf);
+}
+
 int main() {
-    int sock = 0;
     struct sockaddr_in serv_addr;
-    char buffer[BUFFER_SIZE] = {0};
     
     // 创建socket
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -42,11 +99,17 @@ int main() {
     
     // 持续发送和接收消息
     while (true) {
-        std::string message;
-        
+        const char* prompt = "SQL> ";
+        if (scanner_state == STATE_SINGLE) {
+            prompt = "SQL>' ";
+        } else if (scanner_state == STATE_DOUBLE) {
+            prompt = "SQL>\" ";
+        }
+
         // 获取用户输入
-        std::cout << "请输入消息: ";
-        std::getline(std::cin, message);
+        char* line = readline(prompt);
+        std::string message = std::string(line);
+        free(line);
         
         // 检查退出指令
         if (message == "quit" || message == "exit") {
@@ -54,21 +117,9 @@ int main() {
             std::cout << "正在断开连接..." << std::endl;
             break;
         }
-        
-        // 发送消息到服务器
-        send(sock, message.c_str(), message.length(), 0);
-        std::cout << "已发送消息: " << message << std::endl;
-        
-        // 接收服务器回显
-        memset(buffer, 0, BUFFER_SIZE);
-        int valread = read(sock, buffer, BUFFER_SIZE);
-        
-        if (valread <= 0) {
-            std::cerr << "服务器连接已断开" << std::endl;
-            break;
-        }
-        
-        std::cout << "服务器回显: " << buffer << std::endl;
+
+        // 处理输入
+        process_input(message);
     }
     
     // 关闭socket
@@ -76,4 +127,13 @@ int main() {
     std::cout << "连接已关闭" << std::endl;
     
     return 0;
+}
+
+// flex需要的其他函数
+extern "C" int yywrap() {
+    return 1; // 表示输入结束
+}
+
+extern "C" void yyerror(const char* s) {
+    fprintf(stderr, "解析错误: %s\n", s);
 }

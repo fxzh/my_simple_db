@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(my_simple_db VERSION 0.2.0 LANGUAGES CXX)
+project(my_simple_db VERSION 0.2.0 LANGUAGES C CXX)
 
 # 设置C++标准
 set(CMAKE_CXX_STANDARD 20)
