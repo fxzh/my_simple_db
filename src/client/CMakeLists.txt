@@ -1,7 +1,39 @@
-# 客户端可执行文件
-add_executable(client
+# 源文件
+set(SRC_FILES
     client.cpp
 )
+
+# 查找 flex
+find_package(FLEX REQUIRED)
+
+# 让 flex 生成 scanner
+FLEX_TARGET(ClientLexer
+    ${CMAKE_CURRENT_SOURCE_DIR}/client.l
+    ${CMAKE_CURRENT_BINARY_DIR}/client_lex.c
+)
+
+# 可执行文件包含 flex 生成的 C 文件
+add_executable(client
+    ${SRC_FILES}
+    ${CMAKE_CURRENT_BINARY_DIR}/client_lex.c
+)
+
+# 包含目录：当前源目录与生成目录
+target_include_directories(client PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_BINARY_DIR}
+)
+
+# 链接 readline（或 libedit）在类 Unix 系统
+find_library(READLINE_LIB NAMES readline)
+if(READLINE_LIB)
+    target_link_libraries(client PRIVATE ${READLINE_LIB})
+else()
+    find_library(LIBEDIT_LIB NAMES edit)
+    if(LIBEDIT_LIB)
+        target_link_libraries(client PRIVATE ${LIBEDIT_LIB})
+    endif()
+endif()
 
 # 平台特定的链接库
 if(WIN32)

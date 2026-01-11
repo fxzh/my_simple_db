@@ -2,3 +2,4 @@ Makefile
 CMakeCache.txt
 cmake_install.cmake
 CMakeFiles
+client_lex.c
