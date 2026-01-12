@@ -75,6 +75,7 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
     
     // 处理客户端消息循环
     while (server_running) {
+        try {
         memset(buffer, 0, BUFFER_SIZE);
         
         // 接收客户端消息
@@ -124,6 +125,11 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
             send(client_socket, list_msg.c_str(), list_msg.length(), 0);
             continue;
         }
+
+        // 模拟错误
+        if (msg_str == "error;") {
+            LOG(ERROR, NETWORK, "模拟错误触发于客户端 [%s] ID:%d", client_name, client_id);
+        }
         
         if (msg_str == "help") {
             std::string help_msg = "可用命令:\n"
@@ -138,6 +144,13 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
         // 普通消息：回显给客户端
         std::string echo_msg = "服务器回显: " + msg_str;
         send(client_socket, echo_msg.c_str(), echo_msg.length(), 0);
+        } catch (const std::exception& e) {
+            std::string error_log = "处理客户端 [" + std::string(client_name) + 
+                                    "] ID:" + std::to_string(client_id) + 
+                                    " 时发生异常: " + e.what();
+            safe_cout(error_log);
+            send(client_socket, e.what(), strlen(e.what()), 0);
+        }
     }
     
     // 清理客户端连接
