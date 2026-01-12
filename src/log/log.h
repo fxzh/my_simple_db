@@ -16,6 +16,7 @@
 #include <cstdarg>
 #include <source_location>
 #include <cstdio>
+#include <utility>
 #include <boost/stacktrace.hpp>
 
 // 日志级别枚举
@@ -207,8 +208,9 @@ private:
         }
         
         // 分配缓冲区并格式化
-        std::string result(size, '\0');
-        vsnprintf(result.data(), size + 1, format, args_copy);
+        std::size_t u_size = static_cast<std::size_t>(size);
+        std::string result(u_size, '\0');
+        vsnprintf(result.data(), u_size + 1, format, args_copy);
         va_end(args_copy);
         
         return result;
@@ -290,6 +292,41 @@ public:
             queue_.push(std::move(log_msg));
         }
         queue_cv_.notify_one();
+    }
+
+    // 使用 std::format 的模板化记录方法，支持传入任意 C++ 类型参数
+    template<typename... Args>
+    void logCpp(LogLevel level, LogModule module, std::string_view fmt, Args&&... args) {
+        if (!enabled_ || !modules_enabled_[static_cast<size_t>(module)]) {
+            return;
+        }
+
+        // 使用 std::format 格式化消息
+        std::string message;
+        try {
+            message = std::format(fmt, std::forward<Args>(args)...);
+        } catch (const std::format_error& e) {
+            message = std::string("[format error] ") + e.what();
+        }
+
+        std::string errmsg{};
+        if (level >= LogLevel::ERROR) {
+            errmsg = message;
+            message += "\nStack trace:\n";
+            message += boost::stacktrace::to_string(boost::stacktrace::stacktrace());
+        }
+
+        auto log_msg = std::make_shared<LogMessage>(level, module, std::move(message));
+
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex_);
+            queue_.push(std::move(log_msg));
+        }
+        queue_cv_.notify_one();
+
+        if (level == LogLevel::ERROR) {
+            throw std::runtime_error(errmsg);
+        }
     }
     
     // 启用/禁用日志
@@ -380,5 +417,9 @@ Logger* Logger::instance_ = nullptr;
 #define LOG_SOURCE(level, module, format, ...) \
     Logger::getInstance().logWithSource(level, module, \
         std::source_location::current(), format, ##__VA_ARGS__)
+
+// 使用 std::format 的 C++ 风格日志宏
+#define LOGCPP(level, module, format, ...) \
+    Logger::getInstance().logCpp(level, module, format, ##__VA_ARGS__)
 
 #endif // LOGGER_H

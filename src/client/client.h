@@ -8,8 +8,8 @@ enum ScannerState {
     STATE_COMMENT
 };
 extern enum ScannerState scanner_state;
-extern char sql_buffer[10240];
-extern int sql_pos;
+extern char sql_buffer[];
+extern size_t sql_pos;
 extern void send_to_server();
 extern void reset_sql_buffer();
 

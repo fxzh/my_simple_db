@@ -11,29 +11,16 @@
 #define PORT 8123
 #define BUFFER_SIZE 1024
 
-#ifdef __cplusplus
 extern "C" {
-#endif
-#include "client.h"
-int sock = 0;
-char buffer[BUFFER_SIZE] = {0};
-char sql_buffer[10240];
-int sql_pos = 0;
-enum ScannerState scanner_state = STATE_INITIAL;
+    #include "client.h"
     extern int yylex();
-    int yyparse();
-    void reset_parser();
     extern void* yy_scan_string(const char* s);
     extern void yy_delete_buffer(void* b);
-    extern FILE* yyin;
-#ifdef __cplusplus
 }
-#endif
 
-void reset_sql_buffer() {
-    sql_pos = 0;
-    sql_buffer[0] = '\0';
-}
+int sock = 0;
+char buffer[BUFFER_SIZE] = {0};
+enum ScannerState scanner_state = STATE_INITIAL;
 
 void send_to_server() {
     if (sql_pos > 0) {
@@ -44,7 +31,7 @@ void send_to_server() {
 
         // 接收服务器回显
         memset(buffer, 0, BUFFER_SIZE);
-        int valread = read(sock, buffer, BUFFER_SIZE);
+        auto valread = read(sock, buffer, BUFFER_SIZE);
         
         if (valread <= 0) {
             std::cerr << "服务器连接已断开" << std::endl;
@@ -87,7 +74,7 @@ int main() {
     }
     
     // 连接服务器
-    if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+    if (connect(sock, reinterpret_cast<sockaddr*>(&serv_addr), sizeof(serv_addr)) < 0) {
         std::cerr << "连接服务器失败" << std::endl;
         std::cerr << "请确保服务器已启动" << std::endl;
         return -1;
