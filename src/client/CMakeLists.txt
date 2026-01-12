@@ -40,6 +40,11 @@ if(WIN32)
     target_link_libraries(client ws2_32)
 endif()
 
+# 链接 Boost（如果顶层找到）
+if(Boost_FOUND)
+    target_include_directories(client PRIVATE ${Boost_INCLUDE_DIRS})
+endif()
+
 # 设置可执行文件的属性
 set_target_properties(client PROPERTIES
     OUTPUT_NAME "client"

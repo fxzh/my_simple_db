@@ -16,6 +16,7 @@
 #include <cstdarg>
 #include <source_location>
 #include <cstdio>
+#include <boost/stacktrace.hpp>
 
 // 日志级别枚举
 enum class LogLevel {
@@ -240,6 +241,14 @@ public:
         va_start(args, format);
         std::string message = formatMessage(format, args);
         va_end(args);
+
+        std::string errmsg{};
+
+        if (level >= LogLevel::ERROR) {
+            errmsg = message;
+            message += "\nStack trace:\n";
+            message += boost::stacktrace::to_string(boost::stacktrace::stacktrace());
+        }
         
         // 创建日志消息并加入队列
         auto log_msg = std::make_shared<LogMessage>(level, module, std::move(message));
@@ -249,6 +258,10 @@ public:
             queue_.push(std::move(log_msg));
         }
         queue_cv_.notify_one();
+
+        if (level == LogLevel::ERROR) {
+            throw std::runtime_error(errmsg);
+        }
     }
     
     // 记录日志，带源码位置（可选功能）
