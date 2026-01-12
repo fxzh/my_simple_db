@@ -4,8 +4,16 @@
 #include <string.h>
 #include "client.h"
 
+char sql_buffer[10240];
+size_t sql_pos = 0;
+
+void reset_sql_buffer() {
+    sql_pos = 0;
+    sql_buffer[0] = '\0';
+}
+
 void append_to_sql(const char* text) {
-    int len = strlen(text);
+    size_t len = strlen(text);
     if (sql_pos + len < sizeof(sql_buffer) - 1) {
         strcpy(sql_buffer + sql_pos, text);
         sql_pos += len;
@@ -129,10 +137,3 @@ MINUS       -
 }
 
 %%
-
-// 重置状态函数
-void reset_parser() {
-    reset_sql_buffer();
-    BEGIN(INITIAL);
-    scanner_state = STATE_INITIAL;
-}

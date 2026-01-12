@@ -55,7 +55,7 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
     char client_name[BUFFER_SIZE];
     
     // 首次读取客户端名称
-    int name_read = read(client_socket, client_name, BUFFER_SIZE - 1);
+    auto name_read = read(client_socket, client_name, BUFFER_SIZE - 1);
     if (name_read <= 0) {
         close(client_socket);
         return;
@@ -79,16 +79,16 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
         memset(buffer, 0, BUFFER_SIZE);
         
         // 接收客户端消息
-        int valread = read(client_socket, buffer, BUFFER_SIZE - 1);
+        auto valread = read(client_socket, buffer, BUFFER_SIZE - 1);
         if (valread <= 0) {
             if (valread == 0) {
                 std::string disconnect_msg = "客户端 [" + std::string(client_name) + 
                                              "] ID:" + std::to_string(client_id) + " 断开连接";
-                safe_cout(disconnect_msg);
+                LOG(INFO, NETWORK, "%s", disconnect_msg.c_str());
             } else {
                 std::string error_msg = "从客户端 [" + std::string(client_name) + 
                                        "] ID:" + std::to_string(client_id) + " 读取数据失败";
-                safe_cout(error_msg);
+                LOG(WARNING, NETWORK, "%s", error_msg.c_str());
             }
             break;
         }
@@ -96,7 +96,7 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
         std::string msg_str(buffer);
         std::string log_msg = "来自 [" + std::string(client_name) + 
                              "] ID:" + std::to_string(client_id) + " 的消息: " + msg_str;
-        safe_cout(log_msg);
+        LOG(INFO, NETWORK, "%s", log_msg.c_str());
         
         // 检查是否收到退出指令
         if (msg_str == "quit" || msg_str == "exit") {
@@ -105,7 +105,7 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
             
             std::string leave_msg = "客户端 [" + std::string(client_name) + 
                                    "] ID:" + std::to_string(client_id) + " 主动退出";
-            safe_cout(leave_msg);
+            LOG(INFO, NETWORK, "%s", leave_msg.c_str());
             break;
         }
         
@@ -211,7 +211,7 @@ int main() {
     address.sin_port = htons(PORT);
     
     // 绑定socket到地址和端口
-    if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+    if (bind(server_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
         std::cerr << "绑定端口失败" << std::endl;
         close(server_fd);
         return -1;
@@ -231,7 +231,7 @@ int main() {
     // 主循环：接受客户端连接
     while (server_running) {
         // 接受客户端连接
-        new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen);
+        new_socket = accept(server_fd, reinterpret_cast<sockaddr*>(&address), reinterpret_cast<socklen_t*>(&addrlen));
         if (new_socket < 0) {
             if (!server_running) {
                 break;  // 服务器正在关闭
