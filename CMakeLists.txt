@@ -38,7 +38,7 @@ option(WARNINGS_AS_ERRORS "Treat warnings as errors (add -Werror or /WX)" OFF)
 
 # Warning flags per compiler
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
-    set(COMMON_WARNING_FLAGS
+    set(CXX_WARNING_FLAGS
         -Wall
         -Wextra
         -Wpedantic
@@ -58,22 +58,47 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
         -Wcast-align
         -Winit-self
     )
+    set(C_WARNING_FLAGS
+        -Wall
+        -Wextra
+        -Wpedantic
+        -Wconversion
+        -Wsign-conversion
+        -Wshadow
+        -Wformat=2
+        -Wdouble-promotion
+        -Wmissing-include-dirs
+        -Wduplicated-cond
+        -Wduplicated-branches
+        -Wlogical-op
+        -Wcast-align
+        -Winit-self
+        -Wno-unused-function    # flex/bison may generate unused functions
+    )
+
     if(WARNINGS_AS_ERRORS)
-        list(APPEND COMMON_WARNING_FLAGS -Werror)
+        list(APPEND CXX_WARNING_FLAGS -Werror)
+        list(APPEND C_WARNING_FLAGS -Werror)
     endif()
 elseif(MSVC)
     # /W4 is the highest generally safe warning level; add /permissive- to enforce standard conformance
-    set(COMMON_WARNING_FLAGS /W4 /permissive-)
+    set(CXX_WARNING_FLAGS /W4 /permissive-)
+    set(C_WARNING_FLAGS /W4 /permissive-)
     if(WARNINGS_AS_ERRORS)
-        list(APPEND COMMON_WARNING_FLAGS /WX)
+        list(APPEND CXX_WARNING_FLAGS /WX)
+        list(APPEND C_WARNING_FLAGS /WX)
     endif()
 else()
-    set(COMMON_WARNING_FLAGS )
+    set(CXX_WARNING_FLAGS )
+    set(C_WARNING_FLAGS )
 endif()
 
 # Apply the warning flags globally
-if(COMMON_WARNING_FLAGS)
-    add_compile_options(${COMMON_WARNING_FLAGS})
+if(CXX_WARNING_FLAGS OR C_WARNING_FLAGS)
+    add_compile_options(
+        "$<$<COMPILE_LANGUAGE:CXX>:${CXX_WARNING_FLAGS}>"
+        "$<$<COMPILE_LANGUAGE:C>:${C_WARNING_FLAGS}>"
+    )
 endif()
 
 # ---------------------------------------------------------------------------
