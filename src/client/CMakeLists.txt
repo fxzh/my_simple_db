@@ -32,6 +32,8 @@ else()
     find_library(LIBEDIT_LIB NAMES edit)
     if(LIBEDIT_LIB)
         target_link_libraries(client PRIVATE ${LIBEDIT_LIB})
+    else()
+        message(FATAL_ERROR "readline lib not found.")
     endif()
 endif()
 

@@ -118,7 +118,7 @@ if(BOOST_STACKTRACE_INCLUDE_DIR)
     set(BoostFound TRUE)
     set(Boost_INCLUDE_DIRS ${BOOST_STACKTRACE_INCLUDE_DIR})
 else()
-    message(WARNING "Boost.Stacktrace not found.")
+    message(FATAL_ERROR "Boost.Stacktrace not found.")
 endif()
 
 # 在 UNIX（非 MSVC）上添加 -rdynamic 以便运行时能打印符号表（Boost.Stacktrace 需要）
