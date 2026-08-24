@@ -18,13 +18,16 @@
 }
 
 %code {
-  #include <iostream>
+  #include <sstream>
   #include <FlexLexer.h>
   #include "parser.tab.hh"  // 包含 bison 生成的头文件
 
-  extern yy::parser::semantic_type* yylval;
-  extern yy::parser::location_type* yylloc;
-  yyFlexLexer* lexer = nullptr;
+  extern yy::parser::semantic_type* yylval;  // 定义在 lexer.l
+  extern yy::parser::location_type* yylloc;  // 定义在 lexer.l
+  yyFlexLexer* lexer = nullptr;              // sql_parser.cpp 中指向本次解析的 scanner
+
+  // 语法错误信息缓冲(定义在 sql_parser.cpp, 每次 sql::parse 前清空)
+  extern std::string sql_parse_error;
 
   static int yylex(yy::parser::semantic_type* lval,
                    yy::parser::location_type* lloc)
@@ -37,14 +40,16 @@
   void yy::parser::error(const yy::location& loc,
                          const std::string& msg)
   {
-      std::cerr << loc << ": " << msg << std::endl;
+      if (!sql_parse_error.empty()) {
+          return;  // 词法器已记录过错误(如非法字符), 保留第一个错误
+      }
+      std::ostringstream oss;
+      oss << loc << ": " << msg;
+      sql_parse_error = oss.str();
   }
-
-  // 全局数据库(ast.hh 中只有 extern 声明, 定义放在这里)
-  Database database;
 }
 
-// 修改参数声明
+// 位置由 sql_parser.cpp 传入
 %parse-param { yy::location& loc }
 
 // Token定义
@@ -52,9 +57,6 @@
 %token TOK_ERROR
 %token CREATE TABLE DROP INSERT INTO VALUES
 %token INT FLOAT CHAR DOUBLE
-%token TOK_SHOW
-%token TOK_QUIT
-%token TOK_EXIT
 
 %token <long long> INTEGER
 %token <double> FLOAT_NUM
@@ -76,23 +78,15 @@
 
 %%
 
-// 交互式输入: 每条语句以 ';' 结尾, 语句可以跨行
+// 一条消息: 若干以 ';' 结尾的语句(允许空输入和空语句)
 input: /* empty */
      | input line
      ;
 
 line: statement ';' {
-         $1->execute();
-         std::cout << "> " << std::flush;
+         // 只做语法校验: 语句树构建成功即合法, 在此丢弃(暂不执行)
        }
-    | TOK_SHOW ';' {
-         database.print();
-         std::cout << "> " << std::flush;
-       }
-    | TOK_QUIT ';' { std::cout << "Goodbye!" << std::endl; YYACCEPT; }
-    | TOK_EXIT ';' { std::cout << "Goodbye!" << std::endl; YYACCEPT; }
-    | ';'          { std::cout << "> " << std::flush; }
-    | error ';'    { yyerrok; std::cout << "> " << std::flush; }
+    | ';'          { }
     ;
 
 statement:
@@ -184,4 +178,4 @@ expression:
 
 %%
 
-// main 函数在 main.cc 中
+// 对外入口 sql::parse 在 sql_parser.cpp 中

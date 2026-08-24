@@ -3,6 +3,9 @@ add_executable(server
     server.cpp
 )
 
+# 链接 SQL 词法/语法解析库
+target_link_libraries(server PRIVATE sql_parser)
+
 # 平台特定的链接库
 if(WIN32)
     target_link_libraries(server ws2_32)

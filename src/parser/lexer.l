@@ -1,24 +1,32 @@
 %{
-#include <iostream>
 #include <string>
-#include <cstdlib>
+#include <sstream>
 #include "parser.tab.hh"
 
-// 跟踪行和列
-int yylineno = 1;
-int yycolumn = 1;
+// 跟踪行和列(不用 yylineno 命名: C++ scanner 中它是 yyFlexLexer 的成员名, 会被遮蔽)
+unsigned curr_line = 1;
+unsigned curr_column = 1;
 
-// 位置信息
+// 位置信息(parser.y 的 yylex 包装函数在每次调用前赋值)
 yy::parser::semantic_type* yylval;
 yy::parser::location_type* yylloc;
 
+// 语法错误信息缓冲(定义在 sql_parser.cpp)
+extern std::string sql_parse_error;
+
+// 每次解析一条新消息前重置行列计数(sql_parser.cpp 调用)
+void reset_lexer_location() {
+  curr_line = 1;
+  curr_column = 1;
+}
+
 // 位置更新宏 - 在每个token匹配时自动更新位置
 #define YY_USER_ACTION \
-    yylloc->begin.line = yylineno; \
-    yylloc->begin.column = yycolumn; \
-    yylloc->end.line = yylineno; \
-    yylloc->end.column = yycolumn + yyleng; \
-    yycolumn += yyleng;
+    yylloc->begin.line = curr_line; \
+    yylloc->begin.column = curr_column; \
+    yylloc->end.line = curr_line; \
+    yylloc->end.column = curr_column + static_cast<unsigned>(yyleng); \
+    curr_column += static_cast<unsigned>(yyleng);
 %}
 
 %option noyywrap
@@ -43,9 +51,6 @@ WS       [ \t\r]
 "float"    { return yy::parser::token::FLOAT; }
 "char"     { return yy::parser::token::CHAR; }
 "double"   { return yy::parser::token::DOUBLE; }
-"show"     { return yy::parser::token::TOK_SHOW; }
-"quit"     { return yy::parser::token::TOK_QUIT; }
-"exit"     { return yy::parser::token::TOK_EXIT; }
 
 {DIGIT}+"."{DIGIT}*|"."{DIGIT}+ {
   yylval->build<double>(std::stod(yytext));
@@ -58,8 +63,8 @@ WS       [ \t\r]
 }
 
 '[^'\n]*' {
-  // 去掉首尾引号(bison 的 build 只接受单个参数, 需先显式构造 std::string)
-  yylval->build<std::string>(std::string(yytext + 1, yyleng - 2));
+  // 去掉首尾引号
+  yylval->build<std::string>(std::string(yytext + 1, static_cast<std::size_t>(yyleng) - 2));
   return yy::parser::token::STRING;
 }
 
@@ -73,8 +78,8 @@ WS       [ \t\r]
 }
 
 \n {
-  yylineno++;
-  yycolumn = 1;
+  curr_line++;
+  curr_column = 1;
 }
 
 {WS}+ {
@@ -82,7 +87,11 @@ WS       [ \t\r]
 }
 
 . {
-  std::cerr << "Invalid character: '" << yytext[0] << "'" << std::endl;
+  // 非法字符: 记录错误位置(错误信息由 sql::parse 返回给调用方),
+  // 返回 TOK_ERROR 触发语法错误
+  std::ostringstream oss;
+  oss << *yylloc << ": invalid character '" << yytext[0] << "'";
+  sql_parse_error = oss.str();
   return yy::parser::token::TOK_ERROR;
 }
 

@@ -127,5 +127,6 @@ if(UNIX AND NOT MSVC)
 endif()
 
 # 添加子目录
+add_subdirectory(src/parser)
 add_subdirectory(src/server)
 add_subdirectory(src/client)
