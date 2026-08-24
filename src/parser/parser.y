@@ -11,7 +11,6 @@
   // variant 语义值里出现的所有类型(包括 unique_ptr 指向的 Expr/SQLStatement)
   // 必须在这里就是完整类型: 生成的 basic_symbol 析构是内联的,
   // 会在所有 #include "parser.tab.hh" 的编译单元中被实例化,
-  // 若此处只有前置声明, 就会报 "invalid application of 'sizeof' to incomplete type"
   #include "ast.hh"
 
   class yyFlexLexer;
@@ -37,14 +36,14 @@
       return lexer->yylex();
   }
 
-  void yy::parser::error(const yy::location& loc,
+  void yy::parser::error(const yy::location& err_loc,
                          const std::string& msg)
   {
       if (!sql_parse_error.empty()) {
           return;  // 词法器已记录过错误(如非法字符), 保留第一个错误
       }
       std::ostringstream oss;
-      oss << loc << ": " << msg;
+      oss << err_loc << ": " << msg;
       sql_parse_error = oss.str();
   }
 }
