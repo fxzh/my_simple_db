@@ -6,4 +6,5 @@ ip 192.168.31.231
 代码路径 /home/hz/test
 /home/hz/updatewin.sh 用于增量同步windows代码
 /home/hz/recopywin.sh 用于删除一切后全量同步windows代码
+如果要生成临时文件，建议直接在远端生成，而不是先在windows生成再上传到linux
 注意：虚拟机并不是永远开着的，如果无法连接就不要再尝试了

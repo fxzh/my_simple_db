@@ -9,13 +9,13 @@ find_package(FLEX REQUIRED)
 # 让 flex 生成 scanner
 FLEX_TARGET(ClientLexer
     ${CMAKE_CURRENT_SOURCE_DIR}/client.l
-    ${CMAKE_CURRENT_BINARY_DIR}/client_lex.c
+    ${CMAKE_CURRENT_BINARY_DIR}/client_lex.yy.cc
 )
 
-# 可执行文件包含 flex 生成的 C 文件
+# 可执行文件包含 flex 生成的 C++ 文件
 add_executable(client
     ${SRC_FILES}
-    ${CMAKE_CURRENT_BINARY_DIR}/client_lex.c
+    ${FLEX_ClientLexer_OUTPUTS}
 )
 
 # 包含目录：当前源目录与生成目录
@@ -23,6 +23,15 @@ target_include_directories(client PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
 )
+
+# flex 生成代码不检查警告
+if(MSVC)
+    set_source_files_properties(${FLEX_ClientLexer_OUTPUTS}
+        PROPERTIES COMPILE_OPTIONS "/w")
+else()
+    set_source_files_properties(${FLEX_ClientLexer_OUTPUTS}
+        PROPERTIES COMPILE_OPTIONS "-w")
+endif()
 
 # 链接 readline（或 libedit）在类 Unix 系统
 find_library(READLINE_LIB NAMES readline)

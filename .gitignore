@@ -2,6 +2,6 @@ Makefile
 CMakeCache.txt
 cmake_install.cmake
 CMakeFiles
-client_lex.c
+client_lex.yy.cc
 .claude/
 .vscode/
