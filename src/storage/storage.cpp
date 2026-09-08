@@ -93,12 +93,12 @@ uint32_t Database::create_table(const std::string& name,
 
 void Database::drop_table(const std::string& name) {
     std::lock_guard<std::mutex> lock(mutex_);
-    const TableMeta& meta = get_table(name);
+    const uint32_t tid = get_table(name).table_id;
     catalog_.erase(name);
     catalog_.save(catalog_path_of(dir_));
-    files_.remove_table_file(meta.table_id);
-    pool_.drop_table(meta.table_id);
-    tail_pages_.erase(meta.table_id);
+    files_.remove_table_file(tid);
+    pool_.drop_table(tid);
+    tail_pages_.erase(tid);
 }
 
 uint32_t Database::link_header_to_first_data_page(uint32_t table_id) {

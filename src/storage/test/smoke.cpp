@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "codec.h"
 #include "storage.h"
 
 using namespace st;
@@ -25,6 +26,25 @@ int main() {
     std::filesystem::remove_all(dir);
 
     try {
+        // 类型名解析
+        {
+            ColType t;
+            uint16_t n = 0;
+            check(parse_column_type("int", &t, &n) && t == ColType::Int, "parse int");
+            check(parse_column_type("bigint", &t, &n) && t == ColType::BigInt, "parse bigint");
+            check(parse_column_type("double", &t, &n) && t == ColType::Double, "parse double");
+            check(parse_column_type("float", &t, &n) && t == ColType::Float, "parse float");
+            check(parse_column_type("char", &t, &n) && t == ColType::Char && n == 1, "parse char default 1");
+            check(parse_column_type("char(8)", &t, &n) && t == ColType::Char && n == 8, "parse char(8)");
+            check(parse_column_type("varchar", &t, &n) && t == ColType::VarChar && n == 0, "parse varchar dynamic");
+            check(parse_column_type("varchar(20)", &t, &n) && t == ColType::VarChar && n == 20, "parse varchar(20)");
+            check(!parse_column_type("char(0)", &t, &n), "reject char(0)");
+            check(!parse_column_type("char(abc)", &t, &n), "reject non-digit length");
+            check(!parse_column_type("char(3", &t, &n), "reject missing paren");
+            check(!parse_column_type("int(5)", &t, &n), "reject length on fixed type");
+            check(!parse_column_type("blob", &t, &n), "reject unknown type");
+        }
+
         {
             Database db(dir);
             db.open();
@@ -60,6 +80,28 @@ int main() {
                 db.insert("t", {Value{int64_t{3}}, Value{std::string{"spam"}}});
             }
             check(db.row_count("t") == 402, "insert 402 rows");
+
+            // float/char 列: 往返 + 越界拒绝
+            db.create_table("t2", {
+                    {"score", ColType::Float, 0},
+                    {"grade", ColType::Char, 3},
+            });
+            db.insert("t2", {Value{0.5}, Value{std::string{"A"}}});
+            db.insert("t2", {Value{-1.25}, Value{std::string{"XYZ"}}});
+            bool float_overflow = false;
+            try {
+                db.insert("t2", {Value{3.5e38}, Value{std::string{"A"}}});
+            } catch (const std::runtime_error&) {
+                float_overflow = true;
+            }
+            bool char_overlong = false;
+            try {
+                db.insert("t2", {Value{1.0}, Value{std::string{"long"}}});
+            } catch (const std::runtime_error&) {
+                char_overlong = true;
+            }
+            check(float_overflow, "float overflow insert throws");
+            check(char_overlong, "char overlong insert throws");
             db.close();
         }
 
@@ -88,6 +130,26 @@ int main() {
             check(n == 402, "scan returns 402 rows");
             check(order_ok, "scan row order and values");
 
+            size_t n2 = 0;
+            bool t2_ok = true;
+            {
+                auto s = db.scan("t2");
+                Row r;
+                while (s->next(&r)) {
+                    ++n2;
+                    if (n2 == 1) {
+                        t2_ok = std::get<double>(r.values[0]) == 0.5 &&
+                                        std::get<std::string>(r.values[1]) == "A";
+                    }
+                    if (n2 == 2) {
+                        t2_ok = t2_ok && std::get<double>(r.values[0]) == -1.25 &&
+                                 std::get<std::string>(r.values[1]) == "XYZ";
+                    }
+                }
+            }
+            check(n2 == 2, "scan t2 returns 2 rows");
+            check(t2_ok, "scan t2 float/char values");
+
             // drop 后再访问报错, 且重启后仍不存在
             db.drop_table("t");
             bool gone = false;
@@ -98,6 +160,7 @@ int main() {
             }
             check(gone, "drop_table removes table");
             check(!std::filesystem::exists(dir + "/t_1.dat"), "drop_table removes data file");
+            check(std::filesystem::exists(dir + "/t_2.dat"), "drop_table keeps other tables' data file");
             db.close();
         }
 

@@ -99,7 +99,7 @@ void Catalog::load(const std::string& path) {
         }
         for (uint16_t j = 0; j < col_count; ++j) {
             ColumnSpec col;
-            if (!r.str(&col.name) || !r.u16(&col.varchar_len)) {
+            if (!r.str(&col.name) || !r.u16(&col.length)) {
                 throw std::runtime_error("目录列损坏");
             }
             uint8_t type = 0;
@@ -126,7 +126,7 @@ void Catalog::save(const std::string& path) const {
         put_u16(out, static_cast<uint16_t>(meta.cols.size()));
         for (const ColumnSpec& col : meta.cols) {
             put_bytes(out, col.name);
-            put_u16(out, col.varchar_len);
+            put_u16(out, col.length);
             out.push_back(static_cast<uint8_t>(col.type));
         }
     }

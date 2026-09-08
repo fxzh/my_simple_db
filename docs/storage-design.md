@@ -130,7 +130,9 @@ struct Slot {
 |---|---|---|---|
 | int | Int | int32 小端 | 4 |
 | bigint | BigInt | int64 小端 | 8 |
+| float | Float | IEEE754 单精度 | 4 |
 | double | Double | IEEE754 | 8 |
+| char(n) | Char | 定长 n 字节, 不足补空格(缺省 n=1) | n |
 | varchar(n) | VarChar | uint16 长度前缀 + 字节 | ≤ 65535 |
 
 其他类型（date/datetime/bool）后续按需加，每加一类只改 codec 的类型分派。
@@ -139,7 +141,7 @@ struct Slot {
 
 ```
 [记录长度 uint16][列数据区]
-列数据区 = 固定类型 inline 累加 + varchar 各带长度前缀
+列数据区 = 固定类型 inline 累加 + varchar 各带长度前缀 + char 定长 n 字节无前缀
 ```
 
 - 长度上限：`PAGE_SIZE - 页头 - 槽`，约 4000 字节；**超长行暂不支持**
@@ -156,7 +158,7 @@ rowid（§8 详述）：表内自增 int64，是聚簇索引键。叶子节点�
 struct TableMeta {
   uint32_t     table_id;           // 全局唯一, 自增
   std::string  name;
-  std::vector<ColumnSpec> cols;    // {name, type, varchar_len}
+  std::vector<ColumnSpec> cols;    // {name, type, length}
 };
 ```
 

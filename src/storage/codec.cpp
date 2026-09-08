@@ -1,6 +1,7 @@
 // codec.cpp: 行序列化/反序列化
 #include "codec.h"
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -114,6 +115,33 @@ bool encode_row(const std::vector<ColumnSpec>& cols,
                 out.insert(out.end(), v.begin(), v.end());
                 break;
             }
+            case ColType::Float: {
+                double v = 0.0;
+                if (!get_double(values[i], &v)) {
+                    return false;
+                }
+                const float f = static_cast<float>(v);
+                if (std::isfinite(v) && !std::isfinite(f)) {
+                    return false;  // 超出 float 可表示范围
+                }
+                uint32_t bits = 0;
+                std::memcpy(&bits, &f, sizeof(bits));
+                put_u32(out, bits);
+                break;
+            }
+            case ColType::Char: {
+                std::string v;
+                if (!get_string(values[i], &v)) {
+                    return false;
+                }
+                const uint16_t n = col.length;
+                if (v.size() > n) {
+                    return false;  // 超长拒绝
+                }
+                out.insert(out.end(), v.begin(), v.end());
+                out.insert(out.end(), static_cast<size_t>(n) - v.size(), ' ');  // 不足补空格
+                break;
+            }
         }
     }
 
@@ -183,27 +211,103 @@ bool decode_row(const std::vector<ColumnSpec>& cols,
                 pos += slen;
                 break;
             }
+            case ColType::Float: {
+                if (pos + 4 > len) {
+                    return false;
+                }
+                uint32_t bits = read_u32(data + pos);
+                float f = 0.0f;
+                std::memcpy(&f, &bits, sizeof(f));
+                out.emplace_back(static_cast<double>(f));
+                pos += 4;
+                break;
+            }
+            case ColType::Char: {
+                if (pos + col.length > len) {
+                    return false;
+                }
+                std::string v(reinterpret_cast<const char*>(data + pos), col.length);
+                pos += col.length;
+                // 去掉尾部填充空格(定长 char 语义)
+                while (!v.empty() && v.back() == ' ') {
+                    v.pop_back();
+                }
+                out.emplace_back(std::move(v));
+                break;
+            }
         }
     }
     return true;
 }
 
-bool parse_column_type(std::string_view type_str, ColType* type, uint16_t* varchar_len) {
-    if (type_str == "int") {
+bool parse_column_type(std::string_view type_str, ColType* type, uint16_t* len) {
+    // 拆出基本类型名与可选的 (长度) 后缀
+    const size_t lp = type_str.find('(');
+    const std::string_view base = type_str.substr(0, lp);
+    uint16_t param = 0;
+    bool has_param = false;
+    if (lp != std::string_view::npos) {
+        const size_t rp = type_str.rfind(')');
+        if (rp == std::string_view::npos || rp != type_str.size() - 1) {
+            return false;  // ')' 必须紧跟类型名末尾
+        }
+        const std::string_view num = type_str.substr(lp + 1, rp - lp - 1);
+        if (num.empty()) {
+            return false;
+        }
+        unsigned n = 0;
+        for (const char c : num) {
+            if (c < '0' || c > '9') {
+                return false;
+            }
+            n = n * 10 + static_cast<unsigned>(c - '0');
+            if (n > UINT16_MAX) {
+                return false;
+            }
+        }
+        if (n == 0) {
+            return false;
+        }
+        param = static_cast<uint16_t>(n);
+        has_param = true;
+    }
+
+    if (base == "int") {
+        if (has_param) {
+            return false;
+        }
         *type = ColType::Int;
         return true;
     }
-    if (type_str == "bigint") {
+    if (base == "bigint") {
+        if (has_param) {
+            return false;
+        }
         *type = ColType::BigInt;
         return true;
     }
-    if (type_str == "double") {
+    if (base == "double") {
+        if (has_param) {
+            return false;
+        }
         *type = ColType::Double;
         return true;
     }
-    if (type_str == "varchar") {
+    if (base == "float") {
+        if (has_param) {
+            return false;
+        }
+        *type = ColType::Float;
+        return true;
+    }
+    if (base == "char") {
+        *type = ColType::Char;
+        *len = has_param ? param : 1;  // 缺省 char(1)
+        return true;
+    }
+    if (base == "varchar") {
         *type = ColType::VarChar;
-        *varchar_len = 0;  // 动态大小
+        *len = has_param ? param : 0;  // 缺省动态大小
         return true;
     }
     return false;

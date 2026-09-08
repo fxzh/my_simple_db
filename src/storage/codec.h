@@ -8,8 +8,8 @@
 
 namespace st {
 
-// 行值转记录字节: [记录长度 uint16][固定类型 inline][varchar: 长度 uint16 + 字节]
-// 值类型与列类型不匹配或 Int 越界时返回 false
+// 行值转记录字节: [记录长度 uint16][固定类型 inline][varchar: 长度 u16 + 字节]
+// char: 定长 n 字节无前缀; 值类型与列类型不匹配/越界返回 false
 bool encode_row(const std::vector<ColumnSpec>& cols,
                                 const std::vector<Value>& values,
                                 std::vector<uint8_t>& out);
@@ -20,9 +20,9 @@ bool decode_row(const std::vector<ColumnSpec>& cols,
                                 size_t len,
                                 std::vector<Value>& out);
 
-// 解析类型名: int/bigint/double/varchar(n), 未知类型返回 false
-// varchar_len 仅在 varchar 时输出
-bool parse_column_type(std::string_view type_str, ColType* type, uint16_t* varchar_len);
+// 解析类型名: int/bigint/float/double/char(n)/varchar(n), 未知类型返回 false
+// char 缺省长度 1; varchar 缺省 0(动态); len 仅在 char/varchar 时输出
+bool parse_column_type(std::string_view type_str, ColType* type, uint16_t* len);
 
 }  // namespace st
 #endif

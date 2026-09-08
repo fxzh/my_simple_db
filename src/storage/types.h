@@ -33,13 +33,20 @@ constexpr uint32_t page_no(PageId p) {
 enum class PageType : uint8_t { FileHeader = 1, Heap = 2 };
 
 // 列类型
-enum class ColType : uint8_t { Int = 1, BigInt = 2, Double = 3, VarChar = 4 };
+enum class ColType : uint8_t {
+    Int = 1,
+    BigInt = 2,
+    Double = 3,
+    VarChar = 4,
+    Float = 5,  // 单精度 4B
+    Char = 6,   // 定长文本
+};
 
 // 列定义
 struct ColumnSpec {
     std::string name;
     ColType type;
-    uint16_t varchar_len = 0;  // VarChar 专用
+    uint16_t length = 0;  // Char/VarChar 的声明长度
 };
 
 // 表元数据(目录条目)
