@@ -90,12 +90,19 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
             break;
         }
 
-        // SQL 解析: 合法则返回原始语句, 非法则返回错误信息
+        // SQL 解析: 已支持语法的语句暂不执行, 回复"暂不支持"; 空语句原样回显
         std::string parse_error;
-        if (sql::parse(msg_str, parse_error)) {
+        std::string stmt_kind;
+        if (sql::parse(msg_str, parse_error, stmt_kind)) {
             std::string ok_log = "SQL解析成功 ID:" + std::to_string(client_id) + ": " + msg_str;
             LOG(INFO, PARSER, "%s", ok_log.c_str());
-            send(client_socket, msg_str.c_str(), msg_str.length(), 0);
+            if (stmt_kind.empty()) {
+                // 空输入或仅 ";", 无实际语句
+                send(client_socket, msg_str.c_str(), msg_str.length(), 0);
+            } else {
+                std::string unsupported = "ERROR: " + stmt_kind + " 暂不支持";
+                send(client_socket, unsupported.c_str(), unsupported.length(), 0);
+            }
         } else {
             std::string err_log = "SQL解析失败 ID:" + std::to_string(client_id) + ": " + parse_error;
             LOG(WARNING, PARSER, "%s", err_log.c_str());

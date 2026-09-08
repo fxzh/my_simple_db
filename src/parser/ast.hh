@@ -105,6 +105,8 @@ class SQLStatement {
 public:
   virtual ~SQLStatement() = default;
   virtual void print(std::ostream& os, int indent = 0) const = 0;
+  // 语句种类名称, 供上层识别(create table / drop table / insert into)
+  virtual std::string statement_kind() const = 0;
 };
 
 // CREATE TABLE 表名 (列定义列表)
@@ -121,6 +123,8 @@ public:
       os << std::string(static_cast<std::size_t>(indent + 2), ' ') << col.name << " " << col.type << std::endl;
     }
   }
+
+  std::string statement_kind() const override { return "create table"; }
 };
 
 // DROP TABLE 表名
@@ -132,6 +136,8 @@ public:
   void print(std::ostream& os, int indent) const override {
     os << std::string(static_cast<std::size_t>(indent), ' ') << "DropTable: " << table << std::endl;
   }
+
+  std::string statement_kind() const override { return "drop table"; }
 };
 
 // INSERT INTO 表名 VALUES (值列表)
@@ -148,6 +154,8 @@ public:
       e->print(os, indent + 2);
     }
   }
+
+  std::string statement_kind() const override { return "insert into"; }
 };
 
 #endif  // PARSER_AST_HH

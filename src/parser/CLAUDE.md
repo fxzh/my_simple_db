@@ -6,7 +6,8 @@ lexer.l         扫描器：关键字/标识符/数字/字符串字面量，非�
 parser.y        文法(%language "c++"、variant 语义值、%locations)：支持 CREATE TABLE / DROP TABLE /
                 INSERT INTO ... VALUES，含 + - * / 与一元 +/- 的完整表达式层
 ast.hh          AST 节点(Expr/SQLStatement 派生)；bison variant 析构内联要求其先于生成头被 include
-sql_parser.h/.cpp   唯一对外入口 sql::parse(stmt, error)；flex/bison 依赖全局状态
+sql_parser.h/.cpp   唯一对外入口 sql::parse(stmt, error, stmt_kind)；stmt_kind 输出识别出的首个语句种类
+                (create table/drop table/insert into, 空语句为空)；flex/bison 依赖全局状态
                 (lexer/yylval/yylloc)，用静态 mutex 串行化整个解析，可多线程调用
 
 # 注意

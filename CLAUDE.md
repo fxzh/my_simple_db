@@ -7,7 +7,7 @@
 # 目录结构
 src/client   交互式客户端：readline 收输入，flex(client.l) 累积 SQL，遇 ';' 发往服务端
 src/parser   服务端 SQL 解析静态库(sql_parser)：flex c++ + bison c++，仅语法校验，被 server 链接
-src/server   多线程 TCP 服务端：每客户端一个线程，sql::parse 校验后原样回显或返回 ERROR
+src/server   多线程 TCP 服务端：每客户端一个线程，sql::parse 校验后对已支持语法回复"暂不支持"或返回 ERROR
 src/log      日志库(log.h)：纯头文件单例，异步队列写 simple.log
 src/storage 存储引擎静态库(storage)：M1 已实现堆页追加+全表扫描(页/缓冲池/目录/编解码)，B+树与WAL为后续里程碑，设计见 docs/storage-design.md
 
@@ -16,4 +16,4 @@ CMake + flex/bison + readline；顶层强制要求 Boost.Stacktrace(缺失即报
 客户端词法器生成 C，服务端解析器生成 C++，因此编译选项对 C/C++ 分开设置
 
 # 远程连接
-代码在linux虚拟机中运行，ip 192.168.31.231，用户 hz，密码 hz，但要注意虚拟机并不是永远开着的，如果无法连接就不要再尝试了
+当用户明确要求连接远端虚拟机时，可读取remote.md并进行连接

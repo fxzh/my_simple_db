@@ -50,6 +50,8 @@
 
 // 位置由 sql_parser.cpp 传入
 %parse-param { yy::location& loc }
+// 语句种类输出(识别出的首个语句), 由 sql::parse 传入并返回给调用方
+%parse-param { std::string& stmt_kind }
 
 // Token定义
 %token END 0 "end of file"
@@ -83,7 +85,10 @@ input: /* empty */
      ;
 
 line: statement ';' {
-         // 只做语法校验: 语句树构建成功即合法, 在此丢弃(暂不执行)
+         // 语法校验: 语句树构建成功即合法; 记录首个语句种类
+         if (stmt_kind.empty()) {
+             stmt_kind = $1->statement_kind();
+         }
        }
     | ';'          { }
     ;

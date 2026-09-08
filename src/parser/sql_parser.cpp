@@ -21,13 +21,14 @@ std::string sql_parse_error;
 
 namespace sql {
 
-bool parse(const std::string& stmt, std::string& error)
+bool parse(const std::string& stmt, std::string& error, std::string& stmt_kind)
 {
     // flex/bison 的接口基于全局状态, 多线程必须串行访问
     static std::mutex parse_mutex;
     std::lock_guard<std::mutex> lock(parse_mutex);
 
     sql_parse_error.clear();
+    stmt_kind.clear();
     reset_lexer_location();
 
     // 用字符串流作为本次解析的输入源
@@ -36,7 +37,7 @@ bool parse(const std::string& stmt, std::string& error)
     lexer = &flexLexer;
 
     yy::location loc;
-    yy::parser parser(loc);
+    yy::parser parser(loc, stmt_kind);
     int ret = parser.parse();
 
     lexer = nullptr;  // flexLexer 离开作用域前先解除引用
