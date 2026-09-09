@@ -19,6 +19,7 @@ FLEX_TARGET(DBLexer
 
 add_library(sql_parser STATIC
     sql_parser.cpp
+    sql_scanner.cpp
     ${BISON_DBParser_OUTPUTS}
     ${FLEX_DBLexer_OUTPUTS}
 )

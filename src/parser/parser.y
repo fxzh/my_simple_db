@@ -13,29 +13,24 @@
   // 会在所有 #include "parser.tab.hh" 的编译单元中被实例化,
   #include "ast.hh"
 
-  class yyFlexLexer;
+  class SQLScanner;  // %lex-param 只出现在生成实现的 yylex 调用中
 }
 
 %code {
   #include <sstream>
-  #include <FlexLexer.h>
   #include "parser.tab.hh"  // 包含 bison 生成的头文件
+  #include "sql_scanner.h"
 
-  extern yy::parser::semantic_type* yylval;  // 定义在 lexer.l
-  extern yy::parser::location_type* yylloc;  // 定义在 lexer.l
-  yyFlexLexer* lexer = nullptr;              // sql_parser.cpp 中指向本次解析的 scanner
-
-  // 语法错误信息缓冲(定义在 sql_parser.cpp, 每次 sql::parse 前清空)
-  extern std::string sql_parse_error;
-
+  // 词法接口: 扫描器实例经 %lex-param 传入, 无需任何全局状态
   static int yylex(yy::parser::semantic_type* lval,
-                   yy::parser::location_type* lloc)
+                   yy::parser::location_type* lloc,
+                   SQLScanner* scanner)
   {
-      yylval = lval;
-      yylloc = lloc;
-      return lexer->yylex();
+      return scanner->yylex(lval, lloc);
   }
 
+  // 语法错误信息写入 parse-param(lalr1.cc 将其存为 parser 成员),
+  // 与词法器经 scanner 写入的是同一个缓冲
   void yy::parser::error(const yy::location& err_loc,
                          const std::string& msg)
   {
@@ -52,6 +47,12 @@
 %parse-param { yy::location& loc }
 // 语句种类输出(识别出的首个语句), 由 sql::parse 传入并返回给调用方
 %parse-param { std::string& stmt_kind }
+// 语法错误缓冲: parser 直接使用, 词法器经 scanner 写入同一缓冲
+%parse-param { std::string& sql_parse_error }
+// 扫描器实例: 存为 parser 成员供 yylex 包装函数(%lex-param)引用
+%parse-param { SQLScanner* scanner }
+// 扫描器实例: 追加到 yylex 调用的实参
+%lex-param { SQLScanner* scanner }
 
 // Token定义
 %token END 0 "end of file"

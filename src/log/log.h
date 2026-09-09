@@ -385,6 +385,7 @@ public:
     void setConsoleOutput(bool enable) {
         // 这里可以扩展，目前是硬编码为总是输出到控制台
         // 如果需要动态控制，可以添加一个成员变量
+        (void)enable;
     }
 };
 

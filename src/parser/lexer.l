@@ -2,37 +2,25 @@
 #include <string>
 #include <sstream>
 #include "parser.tab.hh"
+#include "sql_scanner.h"
 
-// 跟踪行和列(不用 yylineno 命名: C++ scanner 中它是 yyFlexLexer 的成员名, 会被遮蔽)
-unsigned curr_line = 1;
-unsigned curr_column = 1;
+// C++ 扫描器: 词法状态全部存放于 SQLScanner 实例成员(见 sql_scanner.h),
+// 无模块级全局变量, 可与其他解析并发执行
 
-// 位置信息(parser.y 的 yylex 包装函数在每次调用前赋值)
-yy::parser::semantic_type* yylval;
-yy::parser::location_type* yylloc;
-
-// 语法错误信息缓冲(定义在 sql_parser.cpp)
-extern std::string sql_parse_error;
-
-// 每次解析一条新消息前重置行列计数(sql_parser.cpp 调用)
-void reset_lexer_location() {
-  curr_line = 1;
-  curr_column = 1;
-}
-
-// 位置更新宏 - 在每个token匹配时自动更新位置
+// 位置更新宏: 在每个token匹配时写入扫描器实例成员(与 yylloc/line/column 配套)
 #define YY_USER_ACTION \
-    yylloc->begin.line = curr_line; \
-    yylloc->begin.column = curr_column; \
-    yylloc->end.line = curr_line; \
-    yylloc->end.column = curr_column + static_cast<unsigned>(yyleng); \
-    curr_column += static_cast<unsigned>(yyleng);
+    yylloc->begin.line = line; \
+    yylloc->begin.column = column; \
+    yylloc->end.line = line; \
+    yylloc->end.column = column + static_cast<unsigned>(yyleng); \
+    column += static_cast<unsigned>(yyleng);
 %}
 
 %option noyywrap
 %option nounput
 %option noinput
 %option c++
+%option yyclass="SQLScanner"
 %option case-insensitive
 
 DIGIT    [0-9]
@@ -78,8 +66,8 @@ WS       [ \t\r]
 }
 
 \n {
-  curr_line++;
-  curr_column = 1;
+  line++;
+  column = 1;
 }
 
 {WS}+ {
@@ -91,7 +79,7 @@ WS       [ \t\r]
   // 返回 TOK_ERROR 触发语法错误
   std::ostringstream oss;
   oss << *yylloc << ": invalid character '" << yytext[0] << "'";
-  sql_parse_error = oss.str();
+  *err_buf = oss.str();
   return yy::parser::token::TOK_ERROR;
 }
 
