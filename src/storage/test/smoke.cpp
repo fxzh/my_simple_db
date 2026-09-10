@@ -1,11 +1,13 @@
-// smoke.cpp: 存储引擎 M1 冒烟测试(建表/插入/扫描/持久化/删表)
+// smoke.cpp: 存储引擎 M1 冒烟测试(建表/插入/删除/扫描/持久化/删表)
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 #include "codec.h"
+#include "page.h"
 #include "storage.h"
 
 using namespace st;
@@ -43,6 +45,56 @@ int main() {
             check(!parse_column_type("char(3", &t, &n), "reject missing paren");
             check(!parse_column_type("int(5)", &t, &n), "reject length on fixed type");
             check(!parse_column_type("blob", &t, &n), "reject unknown type");
+        }
+
+        // 页级删除与整理: 墓碑标记 + 尾槽收缩 + 页内整理
+        {
+            char page[PAGE_SIZE];
+            init_page(page, MAGIC_HEAP, PageType::Heap);
+            const uint8_t r0[] = {0x01, 0x02, 0x03};
+            const uint8_t r1[] = {0x04, 0x05};
+            const uint8_t r2[] = {0x06, 0x07, 0x08, 0x09};
+            uint16_t s0 = 0, s1 = 0, s2 = 0;
+            check(heap_append(page, r0, sizeof(r0), &s0), "delete: append r0");
+            check(heap_append(page, r1, sizeof(r1), &s1), "delete: append r1");
+            check(heap_append(page, r2, sizeof(r2), &s2), "delete: append r2");
+            check(s0 == 0 && s1 == 1 && s2 == 2, "delete: slot order");
+
+            // 删除中间行制造洞
+            heap_delete(page, 1);
+            check(header(page)->slot_count == 3, "delete: middle tombstone keeps count");
+            check(slot_tombstone(page, 1), "delete: slot 1 tombstoned");
+            check(!slot_tombstone(page, 0) && !slot_tombstone(page, 2), "delete: live slots untouched");
+
+            // 删除尾行触发尾槽收缩
+            heap_delete(page, 2);
+            check(header(page)->slot_count == 1, "delete: trailing tombstone shrunk");
+            check(!slot_tombstone(page, 0), "delete: first row still live");
+            check(page_valid(page, MAGIC_HEAP), "delete: checksum valid");
+
+            // 页内整理: 压实记录并回收洞
+            heap_compact(page);
+            check(header(page)->slot_count == 1, "compact: one live slot");
+            check(std::memcmp(record(page, 0), r0, sizeof(r0)) == 0, "compact: record preserved");
+            check(free_space(page) == static_cast<uint16_t>(PAGE_SIZE - PAGE_HEADER_SIZE
+                                                                  - sizeof(r0) - SLOT_SIZE),
+                  "compact: space reclaimed");
+            check(page_valid(page, MAGIC_HEAP), "compact: checksum valid");
+
+            // 中间墓碑: compact 把后续记录前移重建槽
+            {
+                char pg2[PAGE_SIZE];
+                init_page(pg2, MAGIC_HEAP, PageType::Heap);
+                check(heap_append(pg2, r0, sizeof(r0), nullptr), "compact: append first");
+                check(heap_append(pg2, r1, sizeof(r1), nullptr), "compact: append second");
+                check(heap_append(pg2, r2, sizeof(r2), nullptr), "compact: append third");
+                heap_delete(pg2, 1);
+                heap_compact(pg2);
+                check(header(pg2)->slot_count == 2, "compact: middle tombstone rebuilt");
+                check(std::memcmp(record(pg2, 0), r0, sizeof(r0)) == 0, "compact: first record stable");
+                check(std::memcmp(record(pg2, 1), r2, sizeof(r2)) == 0, "compact: third record shifted");
+                check(page_valid(pg2, MAGIC_HEAP), "compact: checksum valid");
+            }
         }
 
         {
@@ -150,6 +202,34 @@ int main() {
             check(n2 == 2, "scan t2 returns 2 rows");
             check(t2_ok, "scan t2 float/char values");
 
+            // 删除单行: 首行删除后计数与扫描均不可见
+            {
+                auto s = db.scan("t");
+                Row first;
+                check(s->next(&first), "delete: fetch first row");
+                check(db.delete_by_ref(first.ref) == 1, "delete_by_ref removes first row");
+                check(db.row_count("t") == 401, "row_count excludes deleted row");
+                check(db.delete_by_ref(first.ref) == 0, "delete_by_ref double delete returns 0");
+                check(db.delete_by_ref(RowRef{}) == 0, "delete_by_ref invalid ref returns 0");
+                bool seen = false;
+                {
+                    auto s2 = db.scan("t");
+                    Row r;
+                    while (s2->next(&r)) {
+                        seen = seen || std::get<int64_t>(r.values[0]) == 1;
+                    }
+                }
+                check(!seen, "scan skips deleted row");
+            }
+            // 清空表: 全部行删除后计数与扫描为空
+            check(db.delete_all("t2") == 2, "delete_all removes t2 rows");
+            check(db.row_count("t2") == 0, "delete_all empties table");
+            {
+                auto s = db.scan("t2");
+                Row r;
+                check(!s->next(&r), "delete_all scan empty");
+            }
+
             // drop 后再访问报错, 且重启后仍不存在
             db.drop_table("t");
             bool gone = false;
@@ -174,6 +254,7 @@ int main() {
                 gone2 = true;
             }
             check(gone2, "drop persists after reopen");
+            check(db.row_count("t2") == 0, "delete_all persists after reopen");
             db.close();
         }
     } catch (const std::exception& e) {

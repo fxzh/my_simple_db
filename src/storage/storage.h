@@ -42,7 +42,7 @@ private:
     bool done_ = false;
 };
 
-// 数据目录门面: 打开/关闭, 建表/删表/插入/全表扫描
+// 数据目录门面: 打开/关闭, 建表/删表/插入/删除/全表扫描
 class Database {
 public:
     explicit Database(std::string dir);
@@ -59,9 +59,13 @@ public:
     uint32_t create_table(const std::string& name, const std::vector<ColumnSpec>& cols);
     void drop_table(const std::string& name);
     RowRef insert(const std::string& table, const std::vector<Value>& values);
+    // 删除单行(按扫描得到的物理位置), 无效/已删引用返回 0
+    size_t delete_by_ref(const RowRef& ref);
+    // 删除表中全部行, 返回删除行数
+    size_t delete_all(const std::string& table);
 
     std::unique_ptr<Scanner> scan(const std::string& table);
-    // 行数统计(便利函数, 供测试与将来执行层使用)
+    // 存活行数统计(便利函数, 供测试与将来执行层使用)
     size_t row_count(const std::string& table);
 
 private:

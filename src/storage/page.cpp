@@ -107,4 +107,44 @@ bool heap_append(char* page, const uint8_t* rec, uint16_t rec_len, uint16_t* slo
     return true;
 }
 
+bool slot_tombstone(const char* page, uint16_t slot) {
+    const Slot* s = slot_at(page, slot);
+    return s->off == 0 && s->len == 0;
+}
+
+void heap_delete(char* page, uint16_t slot) {
+    PageHeader* h = header(page);
+    Slot* s = slot_at(page, slot);
+    s->off = 0;
+    s->len = 0;
+    while (h->slot_count > 0 && slot_tombstone(page, h->slot_count - 1)) {
+        --h->slot_count;
+        h->free_end = static_cast<uint16_t>(h->free_end + SLOT_SIZE);
+    }
+    h->checksum = page_checksum(page);
+}
+
+void heap_compact(char* page) {
+    PageHeader* h = header(page);
+    uint16_t off = PAGE_HEADER_SIZE;
+    uint16_t dst = 0;
+    for (uint16_t i = 0; i < h->slot_count; ++i) {
+        const Slot* s = slot_at(page, i);
+        if (s->off == 0 && s->len == 0) {
+            continue;  // 墓碑跳过
+        }
+        const uint16_t n = s->len;
+        std::memmove(page + off, page + s->off, n);
+        Slot* d = slot_at(page, dst);
+        d->off = off;
+        d->len = n;
+        off = static_cast<uint16_t>(off + n);
+        ++dst;
+    }
+    h->slot_count = dst;
+    h->free_begin = off;
+    h->free_end = static_cast<uint16_t>(PAGE_SIZE - static_cast<uint16_t>(dst) * SLOT_SIZE);
+    h->checksum = page_checksum(page);
+}
+
 }  // namespace st

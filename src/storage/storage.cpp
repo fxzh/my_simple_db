@@ -1,4 +1,4 @@
-// storage.cpp: 存储引擎 M1 实现(堆页追加 + 全表扫描)
+// storage.cpp: 存储引擎 M1 实现(堆页追加 + 全表扫描 + 删除)
 #include "storage.h"
 
 #include <algorithm>
@@ -167,6 +167,64 @@ RowRef Database::insert(const std::string& table, const std::vector<Value>& valu
     }
 }
 
+size_t Database::delete_by_ref(const RowRef& ref) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (ref.page == INVALID_PAGE) {
+        return 0;
+    }
+    const uint32_t tid = page_table_id(ref.page);
+    const uint32_t no = page_no(ref.page);
+    if (catalog_.find_by_id(tid) == nullptr || no == 0) {
+        return 0;  // 表不存在或指向文件头页
+    }
+    uint32_t max_no = files_.page_count(tid) - 1;
+    auto tail = tail_pages_.find(tid);
+    if (tail != tail_pages_.end() && tail->second > max_no) {
+        max_no = tail->second;
+    }
+    if (no > max_no) {
+        return 0;  // 页号越界, 避免缓冲池补造空页
+    }
+    char* pg = pool_.read(ref.page, MAGIC_HEAP, files_);
+    const PageHeader* ph = header(pg);
+    if (ref.slot >= ph->slot_count || slot_tombstone(pg, ref.slot)) {
+        pool_.unpin(pg);
+        return 0;  // 已删或越界
+    }
+    heap_delete(pg, ref.slot);
+    pool_.mark_dirty(pg);
+    pool_.unpin(pg);
+    return 1;
+}
+
+size_t Database::delete_all(const std::string& table) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const TableMeta& meta = get_table(table);
+    size_t n = 0;
+    const PageId pid0 = make_page_id(meta.table_id, 0);
+    char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);
+    uint32_t pno = header(h)->next_page;
+    pool_.unpin(h);
+    while (pno != 0) {
+        const PageId pid = make_page_id(meta.table_id, pno);
+        char* pg = pool_.read(pid, MAGIC_HEAP, files_);
+        PageHeader* ph = header(pg);
+        for (uint16_t i = 0; i < ph->slot_count; ++i) {
+            if (!slot_tombstone(pg, i)) {
+                ++n;
+            }
+        }
+        ph->slot_count = 0;
+        ph->free_begin = PAGE_HEADER_SIZE;
+        ph->free_end = PAGE_SIZE;
+        ph->checksum = page_checksum(pg);
+        pool_.mark_dirty(pg);
+        pno = ph->next_page;
+        pool_.unpin(pg);
+    }
+    return n;
+}
+
 std::unique_ptr<Scanner> Database::scan(const std::string& table) {
     const TableMeta& meta = get_table(table);
     return std::make_unique<Scanner>(this, meta);
@@ -183,8 +241,13 @@ size_t Database::row_count(const std::string& table) {
     while (pno != 0) {
         const PageId pid = make_page_id(meta.table_id, pno);
         char* pg = pool_.read(pid, MAGIC_HEAP, files_);
-        n += header(pg)->slot_count;
-        pno = header(pg)->next_page;
+        const PageHeader* ph = header(pg);
+        for (uint16_t i = 0; i < ph->slot_count; ++i) {
+            if (!slot_tombstone(pg, i)) {
+                ++n;
+            }
+        }
+        pno = ph->next_page;
         pool_.unpin(pg);
     }
     return n;
@@ -237,6 +300,9 @@ bool Scanner::next(Row* out) {
             }
         }
         const PageHeader* ph = header(cur_data_);
+        while (slot_ < ph->slot_count && slot_tombstone(cur_data_, slot_)) {
+            ++slot_;  // 跳过已删墓碑槽
+        }
         if (slot_ < ph->slot_count) {
             const Slot* s = slot_at(cur_data_, slot_);
             if (!decode_row(meta_.cols, record(cur_data_, slot_), s->len, out->values)) {
