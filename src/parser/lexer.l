@@ -41,46 +41,46 @@ WS       [ \t\r]
 "double"   { return yy::parser::token::DOUBLE; }
 
 {DIGIT}+"."{DIGIT}*|"."{DIGIT}+ {
-  yylval->build<double>(std::stod(yytext));
-  return yy::parser::token::FLOAT_NUM;
+    yylval->build<double>(std::stod(yytext));
+    return yy::parser::token::FLOAT_NUM;
 }
 
 {DIGIT}+ {
-  yylval->build<long long>(std::stoll(yytext));
-  return yy::parser::token::INTEGER;
+    yylval->build<long long>(std::stoll(yytext));
+    return yy::parser::token::INTEGER;
 }
 
 '[^'\n]*' {
-  // 去掉首尾引号
-  yylval->build<std::string>(std::string(yytext + 1, static_cast<std::size_t>(yyleng) - 2));
-  return yy::parser::token::STRING;
+    // 去掉首尾引号
+    yylval->build<std::string>(std::string(yytext + 1, static_cast<std::size_t>(yyleng) - 2));
+    return yy::parser::token::STRING;
 }
 
 {ID} {
-  yylval->build<std::string>(yytext);
-  return yy::parser::token::IDENTIFIER;
+    yylval->build<std::string>(yytext);
+    return yy::parser::token::IDENTIFIER;
 }
 
 "+"|"-"|"*"|"/"|"("|")"|","|";" {
-  return yytext[0];
+    return yytext[0];
 }
 
 \n {
-  line++;
-  column = 1;
+    line++;
+    column = 1;
 }
 
 {WS}+ {
-  // 忽略空白
+    // 忽略空白
 }
 
 . {
-  // 非法字符: 记录错误位置(错误信息由 sql::parse 返回给调用方),
-  // 返回 TOK_ERROR 触发语法错误
-  std::ostringstream oss;
-  oss << *yylloc << ": invalid character '" << yytext[0] << "'";
-  *err_buf = oss.str();
-  return yy::parser::token::TOK_ERROR;
+    // 非法字符: 记录错误位置(错误信息由 sql::parse 返回给调用方),
+    // 返回 TOK_ERROR 触发语法错误
+    std::ostringstream oss;
+    oss << *yylloc << ": invalid character '" << yytext[0] << "'";
+    *err_buf = oss.str();
+    return yy::parser::token::TOK_ERROR;
 }
 
 %%

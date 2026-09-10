@@ -10,7 +10,8 @@ namespace st {
 namespace {
 
 // CRC32 查表(多项式 0xedb88320), 静态初始化只执行一次
-const std::array<uint32_t, 256>& crc_table() {
+const std::array<uint32_t, 256>& crc_table()
+{
     static const std::array<uint32_t, 256> table = [] {
         std::array<uint32_t, 256> t{};
         for (uint32_t i = 0; i < 256; ++i) {
@@ -27,7 +28,8 @@ const std::array<uint32_t, 256>& crc_table() {
 
 }  // namespace
 
-uint32_t page_checksum(const char* page) {
+uint32_t page_checksum(const char* page)
+{
     const auto& table = crc_table();
     uint32_t crc = 0xffffffffu;
     const size_t cksum_off = offsetof(PageHeader, checksum);
@@ -42,7 +44,8 @@ uint32_t page_checksum(const char* page) {
     return ~crc;
 }
 
-void init_page(char* page, uint32_t magic, PageType type) {
+void init_page(char* page, uint32_t magic, PageType type)
+{
     std::memset(page, 0, PAGE_SIZE);
     PageHeader* h = header(page);
     h->magic = magic;
@@ -52,42 +55,50 @@ void init_page(char* page, uint32_t magic, PageType type) {
     h->checksum = page_checksum(page);
 }
 
-bool page_valid(const char* page, uint32_t magic) {
+bool page_valid(const char* page, uint32_t magic)
+{
     if (header(page)->magic != magic) {
         return false;
     }
     return header(page)->checksum == page_checksum(page);
 }
 
-PageHeader* header(char* page) {
+PageHeader* header(char* page)
+{
     return reinterpret_cast<PageHeader*>(page);
 }
 
-const PageHeader* header(const char* page) {
+const PageHeader* header(const char* page)
+{
     return reinterpret_cast<const PageHeader*>(page);
 }
 
-Slot* slot_at(char* page, uint16_t i) {
+Slot* slot_at(char* page, uint16_t i)
+{
     const size_t off = PAGE_SIZE - static_cast<size_t>(SLOT_SIZE) * (i + 1);
     return reinterpret_cast<Slot*>(page + off);
 }
 
-const Slot* slot_at(const char* page, uint16_t i) {
+const Slot* slot_at(const char* page, uint16_t i)
+{
     const size_t off = PAGE_SIZE - static_cast<size_t>(SLOT_SIZE) * (i + 1);
     return reinterpret_cast<const Slot*>(page + off);
 }
 
-const uint8_t* record(const char* page, uint16_t i) {
+const uint8_t* record(const char* page, uint16_t i)
+{
     const Slot* s = slot_at(page, i);
     return reinterpret_cast<const uint8_t*>(page) + s->off;
 }
 
-uint16_t free_space(const char* page) {
+uint16_t free_space(const char* page)
+{
     const PageHeader* h = header(page);
     return static_cast<uint16_t>(h->free_end - h->free_begin);
 }
 
-bool heap_append(char* page, const uint8_t* rec, uint16_t rec_len, uint16_t* slot_out) {
+bool heap_append(char* page, const uint8_t* rec, uint16_t rec_len, uint16_t* slot_out)
+{
     PageHeader* h = header(page);
     const uint32_t avail = static_cast<uint32_t>(h->free_end) - h->free_begin;
     if (static_cast<uint32_t>(rec_len) + SLOT_SIZE > avail) {
@@ -107,12 +118,14 @@ bool heap_append(char* page, const uint8_t* rec, uint16_t rec_len, uint16_t* slo
     return true;
 }
 
-bool slot_tombstone(const char* page, uint16_t slot) {
+bool slot_tombstone(const char* page, uint16_t slot)
+{
     const Slot* s = slot_at(page, slot);
     return s->off == 0 && s->len == 0;
 }
 
-void heap_delete(char* page, uint16_t slot) {
+void heap_delete(char* page, uint16_t slot)
+{
     PageHeader* h = header(page);
     Slot* s = slot_at(page, slot);
     s->off = 0;
@@ -124,7 +137,8 @@ void heap_delete(char* page, uint16_t slot) {
     h->checksum = page_checksum(page);
 }
 
-void heap_compact(char* page) {
+void heap_compact(char* page)
+{
     PageHeader* h = header(page);
     uint16_t off = PAGE_HEADER_SIZE;
     uint16_t dst = 0;

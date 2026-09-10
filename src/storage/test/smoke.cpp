@@ -14,7 +14,8 @@ using namespace st;
 
 static int g_failures = 0;
 
-static void check(bool cond, const char* what) {
+static void check(bool cond, const char* what)
+{
     if (!cond) {
         std::fprintf(stderr, "FAIL: %s\n", what);
         ++g_failures;
@@ -23,7 +24,8 @@ static void check(bool cond, const char* what) {
     }
 }
 
-int main() {
+int main()
+{
     const std::string dir = "smoke_data";
     std::filesystem::remove_all(dir);
 

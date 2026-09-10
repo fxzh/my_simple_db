@@ -34,7 +34,8 @@ enum class LogLevel {
 };
 
 // 日志级别转换为字符串
-constexpr std::string_view levelToString(LogLevel level) {
+constexpr std::string_view levelToString(LogLevel level)
+{
     switch (level) {
         case LogLevel::DEBUG5:   return "DEBUG5";
         case LogLevel::DEBUG4:   return "DEBUG4";
@@ -99,7 +100,8 @@ private:
     std::atomic<bool> modules_enabled_[static_cast<size_t>(LogModule::GENERAL) + 1];
     
     // 私有构造函数
-    Logger() {
+    Logger()
+    {
         // 默认所有模块都启用
         for (size_t i = 0; i <= static_cast<size_t>(LogModule::GENERAL); ++i) {
             modules_enabled_[i] = true;
@@ -116,7 +118,8 @@ private:
     }
     
     // 格式化时间戳
-    std::string formatTimestamp(const std::chrono::system_clock::time_point& tp) {
+    std::string formatTimestamp(const std::chrono::system_clock::time_point& tp)
+    {
         auto time = std::chrono::system_clock::to_time_t(tp);
         auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
             tp.time_since_epoch()
@@ -132,15 +135,14 @@ private:
     }
     
     // 写入线程函数
-    void writerThreadFunc() {
+    void writerThreadFunc()
+    {
         while (!writer_stop_ || !queue_.empty()) {
             std::shared_ptr<LogMessage> msg;
             
             {
                 std::unique_lock<std::mutex> lock(queue_mutex_);
-                queue_cv_.wait(lock, [this]() {
-                    return !queue_.empty() || writer_stop_;
-                });
+                queue_cv_.wait(lock, [this]() { return !queue_.empty() || writer_stop_; });
                 
                 if (queue_.empty() && writer_stop_) {
                     break;
@@ -174,13 +176,15 @@ private:
     }
     
     // 启动写入线程
-    void startWriterThread() {
+    void startWriterThread()
+    {
         writer_running_ = true;
         writer_thread_ = std::thread(&Logger::writerThreadFunc, this);
     }
     
     // 停止写入线程
-    void stopWriterThread() {
+    void stopWriterThread()
+    {
         writer_stop_ = true;
         queue_cv_.notify_all();
         
@@ -196,7 +200,8 @@ private:
     }
     
     // 格式化可变参数
-    std::string formatMessage(const char* format, va_list args) {
+    std::string formatMessage(const char* format, va_list args)
+    {
         va_list args_copy;
         va_copy(args_copy, args);
         
@@ -221,19 +226,22 @@ public:
     Logger(const Logger&) = delete;
     Logger& operator=(const Logger&) = delete;
     
-    ~Logger() {
+    ~Logger()
+    {
         stopWriterThread();
     }
     
     // 获取单例实例
-    static Logger& getInstance() {
+    static Logger& getInstance()
+    {
         static Logger instance;
         instance_ = &instance;
         return instance;
     }
     
     // 记录日志的主函数
-    void log(LogLevel level, LogModule module, const char* format, ...) {
+    void log(LogLevel level, LogModule module, const char* format, ...)
+    {
         if (!enabled_ || !modules_enabled_[static_cast<size_t>(module)]) {
             return;
         }
@@ -269,7 +277,8 @@ public:
     // 记录日志，带源码位置（可选功能）
     void logWithSource(LogLevel level, LogModule module, 
                       const std::source_location& location,
-                      const char* format, ...) {
+                      const char* format, ...)
+    {
         if (!enabled_ || !modules_enabled_[static_cast<size_t>(module)]) {
             return;
         }
@@ -296,7 +305,8 @@ public:
 
     // 使用 std::format 的模板化记录方法，支持传入任意 C++ 类型参数
     template<typename... Args>
-    void logCpp(LogLevel level, LogModule module, std::string_view fmt, Args&&... args) {
+    void logCpp(LogLevel level, LogModule module, std::string_view fmt, Args&&... args)
+    {
         if (!enabled_ || !modules_enabled_[static_cast<size_t>(module)]) {
             return;
         }
@@ -330,35 +340,41 @@ public:
     }
     
     // 启用/禁用日志
-    void setEnabled(bool enabled) {
+    void setEnabled(bool enabled)
+    {
         enabled_ = enabled;
     }
     
     // 启用/禁用特定模块的日志
-    void setModuleEnabled(LogModule module, bool enabled) {
+    void setModuleEnabled(LogModule module, bool enabled)
+    {
         modules_enabled_[static_cast<size_t>(module)] = enabled;
     }
     
     // 检查特定模块是否启用
-    bool isModuleEnabled(LogModule module) const {
+    bool isModuleEnabled(LogModule module) const
+    {
         return modules_enabled_[static_cast<size_t>(module)];
     }
     
     // 获取队列中待处理的日志数量
-    size_t pendingLogs() const {
+    size_t pendingLogs() const
+    {
         std::lock_guard<std::mutex> lock(queue_mutex_);
         return queue_.size();
     }
     
     // 等待所有日志写入完成
-    void flush() {
+    void flush()
+    {
         while (pendingLogs() > 0) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
     
     // 清理资源
-    static void cleanup() {
+    static void cleanup()
+    {
         if (instance_) {
             instance_->flush();
             // 单例会在程序退出时自动销毁
@@ -366,7 +382,8 @@ public:
     }
     
     // 设置日志文件名
-    void setLogFile(const std::string& filename) {
+    void setLogFile(const std::string& filename)
+    {
         // 停止当前写入线程
         stopWriterThread();
         
@@ -382,7 +399,8 @@ public:
     }
     
     // 设置是否输出到控制台
-    void setConsoleOutput(bool enable) {
+    void setConsoleOutput(bool enable)
+    {
         // 这里可以扩展，目前是硬编码为总是输出到控制台
         // 如果需要动态控制，可以添加一个成员变量
         (void)enable;

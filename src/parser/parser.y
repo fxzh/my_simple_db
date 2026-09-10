@@ -8,39 +8,37 @@
 %define api.parser.class {parser}
 
 %code requires {
-  // variant 语义值里出现的所有类型(包括 unique_ptr 指向的 Expr/SQLStatement)
-  // 必须在这里就是完整类型: 生成的 basic_symbol 析构是内联的,
-  // 会在所有 #include "parser.tab.hh" 的编译单元中被实例化,
-  #include "ast.hh"
+    // variant 语义值里出现的所有类型(包括 unique_ptr 指向的 Expr/SQLStatement)
+    // 必须在这里就是完整类型: 生成的 basic_symbol 析构是内联的,
+    // 会在所有 #include "parser.tab.hh" 的编译单元中被实例化,
+    #include "ast.hh"
 
-  class SQLScanner;  // %lex-param 只出现在生成实现的 yylex 调用中
+    class SQLScanner;  // %lex-param 只出现在生成实现的 yylex 调用中
 }
 
 %code {
-  #include <sstream>
-  #include "parser.tab.hh"  // 包含 bison 生成的头文件
-  #include "sql_scanner.h"
+    #include <sstream>
+    #include "parser.tab.hh"  // 包含 bison 生成的头文件
+    #include "sql_scanner.h"
 
-  // 词法接口: 扫描器实例经 %lex-param 传入, 无需任何全局状态
-  static int yylex(yy::parser::semantic_type* lval,
-                   yy::parser::location_type* lloc,
-                   SQLScanner* scanner)
-  {
-      return scanner->yylex(lval, lloc);
-  }
+    // 词法接口: 扫描器实例经 %lex-param 传入, 无需任何全局状态
+    static int yylex(yy::parser::semantic_type* lval, yy::parser::location_type* lloc,
+                     SQLScanner* scanner)
+    {
+        return scanner->yylex(lval, lloc);
+    }
 
-  // 语法错误信息写入 parse-param(lalr1.cc 将其存为 parser 成员),
-  // 与词法器经 scanner 写入的是同一个缓冲
-  void yy::parser::error(const yy::location& err_loc,
-                         const std::string& msg)
-  {
-      if (!sql_parse_error.empty()) {
-          return;  // 词法器已记录过错误(如非法字符), 保留第一个错误
-      }
-      std::ostringstream oss;
-      oss << err_loc << ": " << msg;
-      sql_parse_error = oss.str();
-  }
+    // 语法错误信息写入 parse-param(lalr1.cc 将其存为 parser 成员),
+    // 与词法器经 scanner 写入的是同一个缓冲
+    void yy::parser::error(const yy::location& err_loc, const std::string& msg)
+    {
+        if (!sql_parse_error.empty()) {
+            return;  // 词法器已记录过错误(如非法字符), 保留第一个错误
+        }
+        std::ostringstream oss;
+        oss << err_loc << ": " << msg;
+        sql_parse_error = oss.str();
+    }
 }
 
 // 位置由 sql_parser.cpp 传入
@@ -82,15 +80,15 @@
 
 // 一条消息: 若干以 ';' 结尾的语句(允许空输入和空语句)
 input: /* empty */
-     | input line
-     ;
+    | input line
+    ;
 
 line: statement ';' {
-         // 语法校验: 语句树构建成功即合法; 记录首个语句种类
-         if (stmt_kind.empty()) {
-             stmt_kind = $1->statement_kind();
-         }
-       }
+        // 语法校验: 语句树构建成功即合法; 记录首个语句种类
+        if (stmt_kind.empty()) {
+            stmt_kind = $1->statement_kind();
+        }
+      }
     | ';'          { }
     ;
 

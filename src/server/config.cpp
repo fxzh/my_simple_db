@@ -16,7 +16,8 @@ namespace {
 constexpr char kDbConfFile[] = "db.conf";
 
 // 去掉首尾空白字符(空格/制表/换行/回车)
-std::string_view trim(std::string_view s) {
+std::string_view trim(std::string_view s)
+{
     while (!s.empty() && (s.front() == ' ' || s.front() == '\t' ||
                           s.front() == '\r' || s.front() == '\n')) {
         s.remove_prefix(1);
@@ -29,7 +30,8 @@ std::string_view trim(std::string_view s) {
 }
 
 // 获取可执行文件所在目录
-bool exe_dir(std::string& dir, std::string& error) {
+bool exe_dir(std::string& dir, std::string& error)
+{
     char buf[4096];
     ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
     if (n <= 0) {
@@ -43,7 +45,8 @@ bool exe_dir(std::string& dir, std::string& error) {
 
 }  // namespace
 
-bool db_conf_path(std::string& path, std::string& error) {
+bool db_conf_path(std::string& path, std::string& error)
+{
     std::string dir;
     if (!exe_dir(dir, error)) {
         return false;
@@ -52,7 +55,8 @@ bool db_conf_path(std::string& path, std::string& error) {
     return true;
 }
 
-bool load(const std::string& path, Config& cfg, std::string& error) {
+bool load(const std::string& path, Config& cfg, std::string& error)
+{
     std::ifstream file(path);
     if (!file.is_open()) {
         error = "无法打开配置文件: " + path;

@@ -13,19 +13,22 @@ namespace st {
 
 namespace {
 
-void put_u16(std::vector<uint8_t>& out, uint16_t v) {
+void put_u16(std::vector<uint8_t>& out, uint16_t v)
+{
     out.push_back(static_cast<uint8_t>(v & 0xff));
     out.push_back(static_cast<uint8_t>((v >> 8) & 0xff));
 }
 
-void put_u32(std::vector<uint8_t>& out, uint32_t v) {
+void put_u32(std::vector<uint8_t>& out, uint32_t v)
+{
     out.push_back(static_cast<uint8_t>(v & 0xff));
     out.push_back(static_cast<uint8_t>((v >> 8) & 0xff));
     out.push_back(static_cast<uint8_t>((v >> 16) & 0xff));
     out.push_back(static_cast<uint8_t>((v >> 24) & 0xff));
 }
 
-void put_bytes(std::vector<uint8_t>& out, const std::string& s) {
+void put_bytes(std::vector<uint8_t>& out, const std::string& s)
+{
     put_u16(out, static_cast<uint16_t>(s.size()));
     out.insert(out.end(), s.begin(), s.end());
 }
@@ -36,7 +39,8 @@ struct Reader {
     size_t size;
     size_t pos = 0;
 
-    bool u16(uint16_t* out) {
+    bool u16(uint16_t* out)
+    {
         if (pos + 2 > size) {
             return false;
         }
@@ -45,7 +49,8 @@ struct Reader {
         return true;
     }
 
-    bool u32(uint32_t* out) {
+    bool u32(uint32_t* out)
+    {
         if (pos + 4 > size) {
             return false;
         }
@@ -55,7 +60,8 @@ struct Reader {
         return true;
     }
 
-    bool str(std::string* out) {
+    bool str(std::string* out)
+    {
         uint16_t len;
         if (!u16(&len) || pos + len > size) {
             return false;
@@ -68,7 +74,8 @@ struct Reader {
 
 }  // namespace
 
-void Catalog::load(const std::string& path) {
+void Catalog::load(const std::string& path)
+{
     tables_.clear();
     std::ifstream in(path, std::ios::binary);
     if (!in) {
@@ -115,7 +122,8 @@ void Catalog::load(const std::string& path) {
     }
 }
 
-void Catalog::save(const std::string& path) const {
+void Catalog::save(const std::string& path) const
+{
     std::vector<uint8_t> out;
     out.reserve(64 + tables_.size() * 128);
     put_u32(out, CATALOG_MAGIC);
@@ -135,12 +143,12 @@ void Catalog::save(const std::string& path) const {
     if (!f) {
         throw std::runtime_error("无法写目录文件: " + path);
     }
-    f.write(reinterpret_cast<const char*>(out.data()),
-                    static_cast<std::streamsize>(out.size()));
+    f.write(reinterpret_cast<const char*>(out.data()), static_cast<std::streamsize>(out.size()));
     f.close();
 }
 
-const TableMeta* Catalog::find(const std::string& name) const {
+const TableMeta* Catalog::find(const std::string& name) const
+{
     for (const auto& t : tables_) {
         if (t.name == name) {
             return &t;
@@ -149,7 +157,8 @@ const TableMeta* Catalog::find(const std::string& name) const {
     return nullptr;
 }
 
-const TableMeta* Catalog::find_by_id(uint32_t table_id) const {
+const TableMeta* Catalog::find_by_id(uint32_t table_id) const
+{
     for (const auto& t : tables_) {
         if (t.table_id == table_id) {
             return &t;
@@ -158,7 +167,8 @@ const TableMeta* Catalog::find_by_id(uint32_t table_id) const {
     return nullptr;
 }
 
-uint32_t Catalog::alloc_table_id() const {
+uint32_t Catalog::alloc_table_id() const
+{
     uint32_t max_id = 0;
     for (const auto& t : tables_) {
         if (t.table_id > max_id) {
@@ -168,7 +178,8 @@ uint32_t Catalog::alloc_table_id() const {
     return max_id + 1;
 }
 
-void Catalog::add_or_update(const TableMeta& meta) {
+void Catalog::add_or_update(const TableMeta& meta)
+{
     for (auto& t : tables_) {
         if (t.table_id == meta.table_id) {
             t = meta;
@@ -178,9 +189,10 @@ void Catalog::add_or_update(const TableMeta& meta) {
     tables_.push_back(meta);
 }
 
-void Catalog::erase(const std::string& name) {
+void Catalog::erase(const std::string& name)
+{
     tables_.erase(std::remove_if(tables_.begin(), tables_.end(),
-                                                              [&](const TableMeta& t) { return t.name == name; }),
+                                [&](const TableMeta& t) { return t.name == name; }),
                                 tables_.end());
 }
 

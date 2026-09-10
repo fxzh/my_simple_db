@@ -15,17 +15,20 @@ constexpr uint32_t PAGE_SIZE = 4096;
 using PageId = uint64_t;
 constexpr PageId INVALID_PAGE = 0;
 
-constexpr PageId make_page_id(uint32_t table_id, uint32_t page_no) {
+constexpr PageId make_page_id(uint32_t table_id, uint32_t page_no)
+{
     return (static_cast<PageId>(table_id) << 32) | page_no;
 }
 
 // 从 page_id 取表 id
-constexpr uint32_t page_table_id(PageId p) {
+constexpr uint32_t page_table_id(PageId p)
+{
     return static_cast<uint32_t>(p >> 32);
 }
 
 // 从 page_id 取页号
-constexpr uint32_t page_no(PageId p) {
+constexpr uint32_t page_no(PageId p)
+{
     return static_cast<uint32_t>(p & 0xffffffffLLU);
 }
 

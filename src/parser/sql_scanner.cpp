@@ -8,8 +8,7 @@ SQLScanner::SQLScanner(std::istream* in, std::string* err)
 
 SQLScanner::~SQLScanner() = default;
 
-int SQLScanner::yylex(yy::parser::semantic_type* lval,
-                      yy::parser::location_type* lloc)
+int SQLScanner::yylex(yy::parser::semantic_type* lval, yy::parser::location_type* lloc)
 {
     yylval = lval;
     yylloc = lloc;

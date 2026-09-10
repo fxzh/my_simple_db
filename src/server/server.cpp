@@ -30,7 +30,8 @@ struct ClientInfo {
     ClientInfo(int sock, int id, const std::string& ip)
         : socket(sock), client_id(id), ip_address(ip) {}
 
-    ~ClientInfo() {
+    ~ClientInfo()
+    {
         if (thread.joinable()) {
             thread.detach();
         }
@@ -45,17 +46,18 @@ std::atomic<bool> server_running{true};
 std::mutex cout_mutex;  // 保护标准输出
 
 // 线程安全的输出
-void safe_cout(const std::string& message) {
+void safe_cout(const std::string& message)
+{
     std::lock_guard<std::mutex> lock(cout_mutex);
     std::cout << message << std::endl;
 }
 
 // 处理单个客户端的函数
-void handle_client(int client_socket, int client_id, const std::string& client_ip) {
+void handle_client(int client_socket, int client_id, const std::string& client_ip)
+{
     char buffer[BUFFER_SIZE] = {0};
 
-    std::string connect_msg = "客户端 ID:" + std::to_string(client_id) +
-                              " 已连接 (" + client_ip + ")";
+    std::string connect_msg = "客户端 ID:" + std::to_string(client_id) + " 已连接 (" + client_ip + ")";
     LOG(INFO, NETWORK, "%s", connect_msg.c_str());
 
     // 处理客户端消息循环
@@ -139,7 +141,8 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
 }
 
 // 清理已完成的线程
-void cleanup_threads() {
+void cleanup_threads()
+{
     std::lock_guard<std::mutex> lock(clients_mutex);
     auto it = clients.begin();
     while (it != clients.end()) {
@@ -152,7 +155,8 @@ void cleanup_threads() {
 }
 
 // 服务器主函数
-int main() {
+int main()
+{
     // 加载配置文件 db.conf(位于可执行文件同目录)
     config::Config cfg;
     std::string config_path;
@@ -219,8 +223,7 @@ int main() {
         {
             std::lock_guard<std::mutex> lock(clients_mutex);
             if (clients.size() >= MAX_CLIENTS) {
-                std::string reject_msg = "服务器已达到最大客户端数限制 (" +
-                                        std::to_string(MAX_CLIENTS) + ")";
+                std::string reject_msg = "服务器已达到最大客户端数限制 (" + std::to_string(MAX_CLIENTS) + ")";
                 send(new_socket, reject_msg.c_str(), reject_msg.length(), 0);
                 close(new_socket);
                 std::cout << "拒绝新连接：已达到最大客户端数限制" << std::endl;

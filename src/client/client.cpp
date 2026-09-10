@@ -28,12 +28,14 @@ bool sql_overflow = false;
 // 跨行累积依赖扫描器的 start condition 记忆, 实例全程复用
 std::unique_ptr<yyFlexLexer> lexer;
 
-void reset_sql_buffer() {
+void reset_sql_buffer()
+{
     sql_buffer.clear();
     sql_overflow = false;
 }
 
-void append_to_sql(const char* text, std::size_t len) {
+void append_to_sql(const char* text, std::size_t len)
+{
     if (sql_overflow) {
         // 已超限, 跳过后续累积
         return;
@@ -47,7 +49,8 @@ void append_to_sql(const char* text, std::size_t len) {
     sql_buffer.append(text, len);
 }
 
-void send_to_server() {
+void send_to_server()
+{
     if (sql_overflow) {
         // 超限错误已在上限触发时报出, 这里只跳过发送流程
         reset_sql_buffer();
@@ -74,7 +77,8 @@ void send_to_server() {
     std::cout << "服务器回显: " << buffer << std::endl;
 }
 
-void process_input(std::string& input) {
+void process_input(std::string& input)
+{
     if (input.empty()) {
         return;
     }
@@ -86,11 +90,13 @@ void process_input(std::string& input) {
 }
 
 // 打印命令行用法
-void print_usage(const char* prog) {
+void print_usage(const char* prog)
+{
     std::cerr << "用法: " << prog << " [-p 端口号]" << std::endl;
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char* argv[])
+{
     struct sockaddr_in serv_addr;
 
     // 解析 -p 端口参数, 支持 -p8123 与 -p 8123 两种形式, 缺省 8123

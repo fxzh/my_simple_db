@@ -11,28 +11,33 @@ namespace st {
 
 namespace {
 
-inline void put_u16(std::vector<uint8_t>& out, uint16_t v) {
+inline void put_u16(std::vector<uint8_t>& out, uint16_t v)
+{
     out.push_back(static_cast<uint8_t>(v & 0xff));
     out.push_back(static_cast<uint8_t>((v >> 8) & 0xff));
 }
 
-inline void put_u32(std::vector<uint8_t>& out, uint32_t v) {
+inline void put_u32(std::vector<uint8_t>& out, uint32_t v)
+{
     out.push_back(static_cast<uint8_t>(v & 0xff));
     out.push_back(static_cast<uint8_t>((v >> 8) & 0xff));
     out.push_back(static_cast<uint8_t>((v >> 16) & 0xff));
     out.push_back(static_cast<uint8_t>((v >> 24) & 0xff));
 }
 
-inline uint16_t read_u16(const uint8_t* p) {
+inline uint16_t read_u16(const uint8_t* p)
+{
     return static_cast<uint16_t>(p[0] | (p[1] << 8));
 }
 
-inline uint32_t read_u32(const uint8_t* p) {
+inline uint32_t read_u32(const uint8_t* p)
+{
     return static_cast<uint32_t>(p[0]) | (static_cast<uint32_t>(p[1]) << 8) |
                   (static_cast<uint32_t>(p[2]) << 16) | (static_cast<uint32_t>(p[3]) << 24);
 }
 
-inline bool get_int64(const Value& v, int64_t* out) {
+inline bool get_int64(const Value& v, int64_t* out)
+{
     const int64_t* p = std::get_if<int64_t>(&v);
     if (p == nullptr) {
         return false;
@@ -41,7 +46,8 @@ inline bool get_int64(const Value& v, int64_t* out) {
     return true;
 }
 
-inline bool get_double(const Value& v, double* out) {
+inline bool get_double(const Value& v, double* out)
+{
     const double* p = std::get_if<double>(&v);
     if (p == nullptr) {
         return false;
@@ -50,7 +56,8 @@ inline bool get_double(const Value& v, double* out) {
     return true;
 }
 
-inline bool get_string(const Value& v, std::string* out) {
+inline bool get_string(const Value& v, std::string* out)
+{
     const std::string* p = std::get_if<std::string>(&v);
     if (p == nullptr) {
         return false;
@@ -61,9 +68,9 @@ inline bool get_string(const Value& v, std::string* out) {
 
 }  // namespace
 
-bool encode_row(const std::vector<ColumnSpec>& cols,
-                                const std::vector<Value>& values,
-                                std::vector<uint8_t>& out) {
+bool encode_row(const std::vector<ColumnSpec>& cols, const std::vector<Value>& values,
+                std::vector<uint8_t>& out)
+{
     if (cols.size() != values.size()) {
         return false;
     }
@@ -151,10 +158,9 @@ bool encode_row(const std::vector<ColumnSpec>& cols,
     return true;
 }
 
-bool decode_row(const std::vector<ColumnSpec>& cols,
-                                const uint8_t* data,
-                                size_t len,
-                                std::vector<Value>& out) {
+bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
+                                size_t len, std::vector<Value>& out)
+{
     if (len < 2) {
         return false;
     }
@@ -191,7 +197,7 @@ bool decode_row(const std::vector<ColumnSpec>& cols,
                     return false;
                 }
                 const uint64_t bits = read_u32(data + pos) |
-                                                            (static_cast<uint64_t>(read_u32(data + pos + 4)) << 32);
+                                        (static_cast<uint64_t>(read_u32(data + pos + 4)) << 32);
                 double v = 0.0;
                 std::memcpy(&v, &bits, sizeof(v));
                 out.emplace_back(v);
@@ -240,7 +246,8 @@ bool decode_row(const std::vector<ColumnSpec>& cols,
     return true;
 }
 
-bool parse_column_type(std::string_view type_str, ColType* type, uint16_t* len) {
+bool parse_column_type(std::string_view type_str, ColType* type, uint16_t* len)
+{
     // 拆出基本类型名与可选的 (长度) 后缀
     const size_t lp = type_str.find('(');
     const std::string_view base = type_str.substr(0, lp);

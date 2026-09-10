@@ -12,7 +12,8 @@ namespace st {
 namespace {
 
 // 警告输出: 不与 log 库耦合, 保持 storage 独立
-void warn(const std::string& msg) {
+void warn(const std::string& msg)
+{
     std::cerr << "[storage] " << msg << std::endl;
 }
 
@@ -20,7 +21,8 @@ void warn(const std::string& msg) {
 
 BufferPool::BufferPool(size_t capacity) : frames_(capacity) {}
 
-size_t BufferPool::find(PageId page) const {
+size_t BufferPool::find(PageId page) const
+{
     for (size_t i = 0; i < frames_.size(); ++i) {
         if (frames_[i].valid && frames_[i].page == page) {
             return i;
@@ -29,7 +31,8 @@ size_t BufferPool::find(PageId page) const {
     return frames_.size();
 }
 
-void BufferPool::write_back(PageFrame& f, FileManager& files) {
+void BufferPool::write_back(PageFrame& f, FileManager& files)
+{
     if (!f.valid || !f.dirty) {
         return;
     }
@@ -37,7 +40,8 @@ void BufferPool::write_back(PageFrame& f, FileManager& files) {
     f.dirty = false;
 }
 
-size_t BufferPool::evict(FileManager& files) {
+size_t BufferPool::evict(FileManager& files)
+{
     for (size_t i = 0; i < frames_.size(); ++i) {
         const size_t idx = (clock_hand_ + i) % frames_.size();
         PageFrame& f = frames_[idx];
@@ -56,7 +60,8 @@ size_t BufferPool::evict(FileManager& files) {
     throw std::runtime_error("缓冲池无可用帧(全部帧被 pin)");
 }
 
-char* BufferPool::read(PageId page, uint32_t expect_magic, FileManager& files) {
+char* BufferPool::read(PageId page, uint32_t expect_magic, FileManager& files)
+{
     size_t idx = find(page);
     if (idx != frames_.size()) {
         frames_[idx].ref = true;
@@ -86,7 +91,8 @@ char* BufferPool::read(PageId page, uint32_t expect_magic, FileManager& files) {
     return f.data;
 }
 
-char* BufferPool::allocate(PageId page, FileManager& files) {
+char* BufferPool::allocate(PageId page, FileManager& files)
+{
     size_t idx = find(page);
     if (idx != frames_.size()) {
         ++frames_[idx].pin;
@@ -104,7 +110,8 @@ char* BufferPool::allocate(PageId page, FileManager& files) {
     return f.data;
 }
 
-void BufferPool::unpin(char* data) {
+void BufferPool::unpin(char* data)
+{
     for (auto& f : frames_) {
         if (f.valid && f.data == data) {
             if (f.pin > 0) {
@@ -116,7 +123,8 @@ void BufferPool::unpin(char* data) {
     throw std::runtime_error("unpin 未命中的页");
 }
 
-void BufferPool::mark_dirty(char* data) {
+void BufferPool::mark_dirty(char* data)
+{
     for (auto& f : frames_) {
         if (f.valid && f.data == data) {
             f.dirty = true;
@@ -126,7 +134,8 @@ void BufferPool::mark_dirty(char* data) {
     throw std::runtime_error("mark_dirty 未命中的页");
 }
 
-void BufferPool::flush(PageId page, FileManager& files) {
+void BufferPool::flush(PageId page, FileManager& files)
+{
     const size_t idx = find(page);
     if (idx == frames_.size()) {
         return;
@@ -134,20 +143,23 @@ void BufferPool::flush(PageId page, FileManager& files) {
     write_back(frames_[idx], files);
 }
 
-void BufferPool::flush_all(FileManager& files) {
+void BufferPool::flush_all(FileManager& files)
+{
     for (auto& f : frames_) {
         write_back(f, files);
     }
 }
 
-void BufferPool::invalidate_all() {
+void BufferPool::invalidate_all()
+{
     for (auto& f : frames_) {
         f = PageFrame{};
     }
     clock_hand_ = 0;
 }
 
-void BufferPool::drop_table(uint32_t table_id) {
+void BufferPool::drop_table(uint32_t table_id)
+{
     for (auto& f : frames_) {
         if (f.valid && page_table_id(f.page) == table_id) {
             f = PageFrame{};

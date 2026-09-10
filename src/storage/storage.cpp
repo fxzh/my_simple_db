@@ -22,13 +22,15 @@ std::string catalog_path_of(const std::string& dir) { return dir + "/catalog.dat
 Database::Database(std::string dir)
         : dir_(std::move(dir)), files_(dir_), pool_(BufferPool::kDefaultCapacity) {}
 
-Database::~Database() {
+Database::~Database()
+{
     if (open_) {
         close();
     }
 }
 
-void Database::open() {
+void Database::open()
+{
     std::filesystem::create_directories(dir_);
     catalog_.load(catalog_path_of(dir_));
     if (!std::filesystem::exists(catalog_path_of(dir_))) {
@@ -39,7 +41,8 @@ void Database::open() {
     open_ = true;
 }
 
-void Database::close() {
+void Database::close()
+{
     std::lock_guard<std::mutex> lock(mutex_);
     pool_.flush_all(files_);
     files_.flush_all();
@@ -47,7 +50,8 @@ void Database::close() {
     open_ = false;
 }
 
-const TableMeta& Database::get_table(const std::string& name) const {
+const TableMeta& Database::get_table(const std::string& name) const
+{
     const TableMeta* meta = catalog_.find(name);
     if (meta == nullptr) {
         throw std::runtime_error("表不存在: " + name);
@@ -55,8 +59,8 @@ const TableMeta& Database::get_table(const std::string& name) const {
     return *meta;
 }
 
-uint32_t Database::create_table(const std::string& name,
-                                                                const std::vector<ColumnSpec>& cols) {
+uint32_t Database::create_table(const std::string& name, const std::vector<ColumnSpec>& cols)
+{
     std::lock_guard<std::mutex> lock(mutex_);
     if (name.empty()) {
         throw std::runtime_error("表名为空");
@@ -91,7 +95,8 @@ uint32_t Database::create_table(const std::string& name,
     return tid;
 }
 
-void Database::drop_table(const std::string& name) {
+void Database::drop_table(const std::string& name)
+{
     std::lock_guard<std::mutex> lock(mutex_);
     const uint32_t tid = get_table(name).table_id;
     catalog_.erase(name);
@@ -101,7 +106,8 @@ void Database::drop_table(const std::string& name) {
     tail_pages_.erase(tid);
 }
 
-uint32_t Database::link_header_to_first_data_page(uint32_t table_id) {
+uint32_t Database::link_header_to_first_data_page(uint32_t table_id)
+{
     // 页号 0 是文件头页, 首个数据页固定为页号 1
     const PageId pid0 = make_page_id(table_id, 0);
     char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);
@@ -118,7 +124,8 @@ uint32_t Database::link_header_to_first_data_page(uint32_t table_id) {
     return new_no;
 }
 
-RowRef Database::insert(const std::string& table, const std::vector<Value>& values) {
+RowRef Database::insert(const std::string& table, const std::vector<Value>& values)
+{
     std::lock_guard<std::mutex> lock(mutex_);
     const TableMeta& meta = get_table(table);
 
@@ -154,8 +161,7 @@ RowRef Database::insert(const std::string& table, const std::vector<Value>& valu
         // 页满: 扩展一个新页并把尾页链上去
         // 新页号取磁盘页数与当前尾页+1 的较大值, 避免与仅存内存中的页冲突
         PageHeader* ph = header(pg);
-        const uint32_t new_no =
-                std::max(files_.page_count(meta.table_id), tail + 1);
+        const uint32_t new_no = std::max(files_.page_count(meta.table_id), tail + 1);
         char* np = pool_.allocate(make_page_id(meta.table_id, new_no), files_);
         init_page(np, MAGIC_HEAP, PageType::Heap);
         pool_.unpin(np);
@@ -167,7 +173,8 @@ RowRef Database::insert(const std::string& table, const std::vector<Value>& valu
     }
 }
 
-size_t Database::delete_by_ref(const RowRef& ref) {
+size_t Database::delete_by_ref(const RowRef& ref)
+{
     std::lock_guard<std::mutex> lock(mutex_);
     if (ref.page == INVALID_PAGE) {
         return 0;
@@ -197,7 +204,8 @@ size_t Database::delete_by_ref(const RowRef& ref) {
     return 1;
 }
 
-size_t Database::delete_all(const std::string& table) {
+size_t Database::delete_all(const std::string& table)
+{
     std::lock_guard<std::mutex> lock(mutex_);
     const TableMeta& meta = get_table(table);
     size_t n = 0;
@@ -225,12 +233,14 @@ size_t Database::delete_all(const std::string& table) {
     return n;
 }
 
-std::unique_ptr<Scanner> Database::scan(const std::string& table) {
+std::unique_ptr<Scanner> Database::scan(const std::string& table)
+{
     const TableMeta& meta = get_table(table);
     return std::make_unique<Scanner>(this, meta);
 }
 
-size_t Database::row_count(const std::string& table) {
+size_t Database::row_count(const std::string& table)
+{
     std::lock_guard<std::mutex> lock(mutex_);
     const TableMeta& meta = get_table(table);
     size_t n = 0;
@@ -256,7 +266,8 @@ size_t Database::row_count(const std::string& table) {
 // ==================== Scanner ====================
 
 Scanner::Scanner(Database* db, const TableMeta& meta)
-        : db_(db), meta_(meta) {
+        : db_(db), meta_(meta)
+{
     const PageId pid0 = make_page_id(meta_.table_id, 0);
     char* h = db_->pool_.read(pid0, MAGIC_FILE_HEADER, db_->files_);
     next_page_no_ = header(h)->next_page;
@@ -265,7 +276,8 @@ Scanner::Scanner(Database* db, const TableMeta& meta)
 
 Scanner::~Scanner() { close(); }
 
-void Scanner::close() {
+void Scanner::close()
+{
     if (cur_data_ != nullptr) {
         db_->pool_.unpin(cur_data_);
         cur_data_ = nullptr;
@@ -273,7 +285,8 @@ void Scanner::close() {
     done_ = true;
 }
 
-void Scanner::advance_page() {
+void Scanner::advance_page()
+{
     if (cur_data_ != nullptr) {
         db_->pool_.unpin(cur_data_);
         cur_data_ = nullptr;
@@ -288,7 +301,8 @@ void Scanner::advance_page() {
     next_page_no_ = header(cur_data_)->next_page;
 }
 
-bool Scanner::next(Row* out) {
+bool Scanner::next(Row* out)
+{
     if (done_) {
         return false;
     }
