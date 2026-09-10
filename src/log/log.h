@@ -16,6 +16,7 @@
 #include <cstdarg>
 #include <source_location>
 #include <cstdio>
+#include <cstdlib>
 #include <utility>
 #include <boost/stacktrace.hpp>
 
@@ -272,6 +273,9 @@ public:
         if (level == LogLevel::ERROR) {
             throw std::runtime_error(errmsg);
         }
+        if (level == LogLevel::CRITICAL) {
+            std::exit(EXIT_FAILURE);
+        }
     }
     
     // 记录日志，带源码位置（可选功能）
@@ -292,6 +296,13 @@ public:
         // 添加源码位置信息
         std::string message = std::format("{}:{}:{} {}",
             location.file_name(), location.line(), location.function_name(), content);
+
+        std::string errmsg{};
+        if (level >= LogLevel::ERROR) {
+            errmsg = message;
+            message += "\nStack trace:\n";
+            message += boost::stacktrace::to_string(boost::stacktrace::stacktrace());
+        }
         
         // 创建日志消息并加入队列
         auto log_msg = std::make_shared<LogMessage>(level, module, std::move(message));
@@ -301,6 +312,13 @@ public:
             queue_.push(std::move(log_msg));
         }
         queue_cv_.notify_one();
+
+        if (level == LogLevel::ERROR) {
+            throw std::runtime_error(errmsg);
+        }
+        if (level == LogLevel::CRITICAL) {
+            std::exit(EXIT_FAILURE);
+        }
     }
 
     // 使用 std::format 的模板化记录方法，支持传入任意 C++ 类型参数
@@ -336,6 +354,9 @@ public:
 
         if (level == LogLevel::ERROR) {
             throw std::runtime_error(errmsg);
+        }
+        if (level == LogLevel::CRITICAL) {
+            std::exit(EXIT_FAILURE);
         }
     }
     
