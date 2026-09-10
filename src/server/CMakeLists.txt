@@ -1,5 +1,6 @@
 # 服务器可执行文件
 add_executable(server
+    config.cpp
     server.cpp
 )
 

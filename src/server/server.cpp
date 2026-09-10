@@ -10,10 +10,10 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include "config.h"
 #include "log/log.h"
 #include "sql_parser.h"
 
-#define PORT 8123
 #define MAX_CLIENTS 100
 #define BUFFER_SIZE 1024
 
@@ -153,6 +153,17 @@ void cleanup_threads() {
 
 // 服务器主函数
 int main() {
+    // 加载配置文件 db.conf(位于可执行文件同目录)
+    config::Config cfg;
+    std::string config_path;
+    std::string config_error;
+    if (!config::db_conf_path(config_path, config_error) ||
+        !config::load(config_path, cfg, config_error)) {
+        std::cerr << "加载配置文件失败: " << config_error << std::endl;
+        return -1;
+    }
+    std::cout << "已加载配置文件: " << config_path << std::endl;
+
     int server_fd, new_socket;
     struct sockaddr_in address;
     int opt = 1;
@@ -172,7 +183,7 @@ int main() {
 
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(PORT);
+    address.sin_port = htons(static_cast<in_port_t>(cfg.port));
 
     // 绑定socket到地址和端口
     if (bind(server_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
@@ -188,7 +199,7 @@ int main() {
         return -1;
     }
 
-    std::cout << "服务器已启动，监听端口 " << PORT << "..." << std::endl;
+    std::cout << "服务器已启动，监听端口 " << cfg.port << "..." << std::endl;
     std::cout << "支持最多 " << MAX_CLIENTS << " 个客户端同时连接" << std::endl;
     std::cout << "等待客户端连接..." << std::endl;
 
