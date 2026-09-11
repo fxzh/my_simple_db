@@ -2,9 +2,6 @@
 #include <memory>
 #include <sstream>
 #include <string>
-#include <string_view>
-#include <charconv>
-#include <system_error>
 #include <cstring>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -14,9 +11,9 @@
 #include <readline/history.h>
 
 #include <FlexLexer.h>
+#include "parse_args.h"
 #include "client.h"
 
-#define DEFAULT_PORT 8123
 #define BUFFER_SIZE 1024
 
 int sock = 0;
@@ -89,56 +86,13 @@ void process_input(std::string& input)
     lexer->yylex();
 }
 
-// 打印命令行用法
-void print_usage(const char* prog)
-{
-    std::cerr << "用法: " << prog << " [-p 端口号]" << std::endl;
-}
-
 int main(int argc, char* argv[])
 {
     struct sockaddr_in serv_addr;
 
-    // 解析 -p 端口参数, 支持 -p8123 与 -p 8123 两种形式, 缺省 8123
-    int port = DEFAULT_PORT;
-    bool port_set = false;
-    for (int i = 1; i < argc; ++i) {
-        std::string_view arg(argv[i]);
-        std::string_view value;
-        if (arg == "-p") {
-            if (i + 1 >= argc) {
-                std::cerr << "错误: -p 后缺少端口号" << std::endl;
-                print_usage(argv[0]);
-                return -1;
-            }
-            value = argv[++i];
-        } else if (arg.size() > 2 && arg.starts_with("-p")) {
-            value = arg.substr(2);
-        } else {
-            std::cerr << "错误: 未知参数: " << arg << std::endl;
-            print_usage(argv[0]);
-            return -1;
-        }
-        if (port_set) {
-            std::cerr << "错误: 重复指定端口" << std::endl;
-            print_usage(argv[0]);
-            return -1;
-        }
-        int parsed = 0;
-        const char* begin = value.data();
-        auto result = std::from_chars(begin, begin + value.size(), parsed);
-        if (result.ec != std::errc() || result.ptr != begin + value.size()) {
-            std::cerr << "错误: 端口值非法: " << value << std::endl;
-            print_usage(argv[0]);
-            return -1;
-        }
-        if (parsed < 1 || parsed > 65535) {
-            std::cerr << "错误: 端口超出范围 1~65535: " << parsed << std::endl;
-            print_usage(argv[0]);
-            return -1;
-        }
-        port = parsed;
-        port_set = true;
+    Options opts;
+    if (!parse_args(argc, argv, opts)) {
+        return -1;
     }
 
     // 创建socket
@@ -148,10 +102,10 @@ int main(int argc, char* argv[])
     }
 
     serv_addr.sin_family = AF_INET;
-    serv_addr.sin_port = htons(static_cast<in_port_t>(port));
+    serv_addr.sin_port = htons(static_cast<in_port_t>(opts.port));
 
     // 转换IP地址
-    if (inet_pton(AF_INET, "127.0.0.1", &serv_addr.sin_addr) <= 0) {
+    if (inet_pton(AF_INET, opts.host.c_str(), &serv_addr.sin_addr) <= 0) {
         std::cerr << "无效地址/地址不支持" << std::endl;
         return -1;
     }

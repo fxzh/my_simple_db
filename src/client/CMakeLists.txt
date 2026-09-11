@@ -1,5 +1,6 @@
 # 源文件
 set(SRC_FILES
+    parse_args.cpp
     client.cpp
 )
 
