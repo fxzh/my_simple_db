@@ -60,6 +60,7 @@ enum class LogModule {
     EXECUTOR,   // 执行模块
     NETWORK,    // 网络模块
     SYSTEM,     // 系统模块
+    STORAGE,    // 存储模块
     GENERAL     // 通用模块
 };
 
@@ -243,7 +244,8 @@ public:
     // 记录日志的主函数
     void log(LogLevel level, LogModule module, const char* format, ...)
     {
-        if (!enabled_ || !modules_enabled_[static_cast<size_t>(module)]) {
+        if (level < LogLevel::ERROR &&
+            (!enabled_ || !modules_enabled_[static_cast<size_t>(module)])) {
             return;
         }
         
@@ -283,7 +285,8 @@ public:
                       const std::source_location& location,
                       const char* format, ...)
     {
-        if (!enabled_ || !modules_enabled_[static_cast<size_t>(module)]) {
+        if (level < LogLevel::ERROR &&
+            (!enabled_ || !modules_enabled_[static_cast<size_t>(module)])) {
             return;
         }
         
@@ -325,7 +328,8 @@ public:
     template<typename... Args>
     void logCpp(LogLevel level, LogModule module, std::string_view fmt, Args&&... args)
     {
-        if (!enabled_ || !modules_enabled_[static_cast<size_t>(module)]) {
+        if (level < LogLevel::ERROR &&
+            (!enabled_ || !modules_enabled_[static_cast<size_t>(module)])) {
             return;
         }
 
@@ -429,7 +433,7 @@ public:
 };
 
 // 初始化静态成员
-Logger* Logger::instance_ = nullptr;
+inline Logger* Logger::instance_ = nullptr;
 
 // 方便使用的宏
 #define LOG(level, module, format, ...) \

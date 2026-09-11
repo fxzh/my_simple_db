@@ -5,4 +5,4 @@ server   服务端可执行程序：多线程 TCP，启动读 db.conf(同目录)
 log      日志头文件库(log.h)：单例 + 异步写线程，输出 simple.log
 storage  存储引擎静态库：M1 堆页追加+全表扫描(页/缓冲池/目录/编解码)，后续 B+树/WAL
 
-依赖关系：server → parser、log；storage 独立(将来被执行器调用)；client 与 server 仅通过 TCP 交互
+依赖关系：server → parser、log；storage → log(报错/告警)，将来被执行器调用；client 与 server 仅通过 TCP 交互

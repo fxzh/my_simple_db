@@ -7,6 +7,7 @@
 #include <unordered_map>
 
 #include "codec.h"
+#include "log/log.h"
 #include "page.h"
 
 namespace st {
@@ -320,7 +321,7 @@ bool Scanner::next(Row* out)
         if (slot_ < ph->slot_count) {
             const Slot* s = slot_at(cur_data_, slot_);
             if (!decode_row(meta_.cols, record(cur_data_, slot_), s->len, out->values)) {
-                throw std::runtime_error("数据页记录损坏");
+                LOG_ERROR(LogModule::STORAGE, "数据页记录损坏");
             }
             out->ref = RowRef{cur_page_, slot_};
             ++slot_;

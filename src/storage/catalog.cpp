@@ -6,8 +6,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
-#include <stdexcept>
 #include <utility>
+
+#include "log/log.h"
 
 namespace st {
 
@@ -93,25 +94,25 @@ void Catalog::load(const std::string& path)
     uint32_t magic = 0;
     uint32_t count = 0;
     if (!r.u32(&magic) || magic != CATALOG_MAGIC || !r.u32(&count)) {
-        throw std::runtime_error("目录文件损坏");
+        LOG_ERROR(LogModule::STORAGE, "目录文件损坏");
     }
     for (uint32_t i = 0; i < count; ++i) {
         TableMeta meta;
         if (!r.u32(&meta.table_id) || !r.str(&meta.name)) {
-            throw std::runtime_error("目录条目损坏");
+            LOG_ERROR(LogModule::STORAGE, "目录条目损坏");
         }
         uint16_t col_count = 0;
         if (!r.u16(&col_count)) {
-            throw std::runtime_error("目录条目损坏");
+            LOG_ERROR(LogModule::STORAGE, "目录条目损坏");
         }
         for (uint16_t j = 0; j < col_count; ++j) {
             ColumnSpec col;
             if (!r.str(&col.name) || !r.u16(&col.length)) {
-                throw std::runtime_error("目录列损坏");
+                LOG_ERROR(LogModule::STORAGE, "目录列损坏");
             }
             uint8_t type = 0;
             if (r.pos >= r.size) {
-                throw std::runtime_error("目录列损坏");
+                LOG_ERROR(LogModule::STORAGE, "目录列损坏");
             }
             type = r.p[r.pos];
             ++r.pos;
@@ -141,7 +142,7 @@ void Catalog::save(const std::string& path) const
 
     std::ofstream f(path, std::ios::binary | std::ios::trunc);
     if (!f) {
-        throw std::runtime_error("无法写目录文件: " + path);
+        LOG_ERROR(LogModule::STORAGE, "无法写目录文件: %s", path.c_str());
     }
     f.write(reinterpret_cast<const char*>(out.data()), static_cast<std::streamsize>(out.size()));
     f.close();

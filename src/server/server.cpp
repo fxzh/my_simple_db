@@ -163,7 +163,7 @@ int main()
     std::string config_error;
     if (!config::db_conf_path(config_path, config_error) ||
         !config::load(config_path, cfg, config_error)) {
-        std::cerr << "加载配置文件失败: " << config_error << std::endl;
+        LOG(CRITICAL, SYSTEM, "加载配置文件失败: %s", config_error.c_str());
         return -1;
     }
     std::cout << "已加载配置文件: " << config_path << std::endl;
@@ -174,14 +174,14 @@ int main()
     int addrlen = sizeof(address);
 
     // 创建socket文件描述符
-    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
-        std::cerr << "Socket创建失败" << std::endl;
+    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+        LOG(CRITICAL, NETWORK, "Socket创建失败");
         return -1;
     }
 
     // 设置socket选项
     if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
-        std::cerr << "设置socket选项失败" << std::endl;
+        LOG(CRITICAL, NETWORK, "设置socket选项失败");
         return -1;
     }
 
@@ -191,15 +191,15 @@ int main()
 
     // 绑定socket到地址和端口
     if (bind(server_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
-        std::cerr << "绑定端口失败" << std::endl;
         close(server_fd);
+        LOG(CRITICAL, NETWORK, "绑定端口失败");
         return -1;
     }
 
     // 开始监听连接
     if (listen(server_fd, 10) < 0) {  // 增加等待队列长度
-        std::cerr << "监听失败" << std::endl;
         close(server_fd);
+        LOG(CRITICAL, NETWORK, "监听失败");
         return -1;
     }
 
@@ -215,7 +215,7 @@ int main()
             if (!server_running) {
                 break;  // 服务器正在关闭
             }
-            std::cerr << "接受连接失败" << std::endl;
+            LOG(WARNING, NETWORK, "接受连接失败");
             continue;
         }
 
