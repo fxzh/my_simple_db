@@ -5,5 +5,6 @@ executor 执行层静态库(executor)：把 parser 的 AST 转成 storage 调用
 server   服务端可执行程序：多线程 TCP，启动读 db.conf(同目录)配置端口与数据目录，sql_parser 分析后经 executor 执行，使用 log
 log      日志头文件库(log.h)：单例 + 异步写线程，输出 simple.log
 storage  存储引擎静态库：M1 堆页追加+全表扫描(页/缓冲池/目录/编解码)，后续 B+树/WAL
+tool     独立工具
 
 依赖关系：server → parser、log、executor；executor → parser、storage、log(报错/告警)；storage → log(报错/告警)；client 与 server 仅通过 TCP 交互

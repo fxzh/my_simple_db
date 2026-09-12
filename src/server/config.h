@@ -9,6 +9,7 @@ namespace config {
 struct Config {
     int port = 8123;  // 监听端口
     std::string data_dir = "data";  // 数据目录: 存储引擎数据文件与目录文件所在目录
+    std::string control_socket;  // 控制通道 socket 路径; 空串表示未配置, 缺省为 data_dir/server.sock
 };
 
 // 返回 db.conf 完整路径(可执行文件同目录), 失败返回 false 并填充错误描述

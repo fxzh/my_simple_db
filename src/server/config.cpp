@@ -65,6 +65,7 @@ bool load(const std::string& path, Config& cfg, std::string& error)
 
     bool seen_port = false;
     bool seen_data_dir = false;
+    bool seen_control_socket = false;
     std::string line;
     int line_no = 0;
     while (std::getline(file, line)) {
@@ -129,6 +130,13 @@ bool load(const std::string& path, Config& cfg, std::string& error)
             }
             cfg.data_dir = std::string(value);
             seen_data_dir = true;
+        } else if (key == "control_socket") {
+            if (seen_control_socket) {
+                error = "第 " + std::to_string(line_no) + " 行: 重复配置项 control_socket";
+                return false;
+            }
+            cfg.control_socket = std::string(value);
+            seen_control_socket = true;
         } else {
             error = "第 " + std::to_string(line_no) + " 行: 未知配置项 " + std::string(key);
             return false;
