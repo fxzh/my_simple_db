@@ -64,6 +64,7 @@ bool load(const std::string& path, Config& cfg, std::string& error)
     }
 
     bool seen_port = false;
+    bool seen_data_dir = false;
     std::string line;
     int line_no = 0;
     while (std::getline(file, line)) {
@@ -121,6 +122,13 @@ bool load(const std::string& path, Config& cfg, std::string& error)
             }
             cfg.port = port;
             seen_port = true;
+        } else if (key == "data_dir") {
+            if (seen_data_dir) {
+                error = "第 " + std::to_string(line_no) + " 行: 重复配置项 data_dir";
+                return false;
+            }
+            cfg.data_dir = std::string(value);
+            seen_data_dir = true;
         } else {
             error = "第 " + std::to_string(line_no) + " 行: 未知配置项 " + std::string(key);
             return false;

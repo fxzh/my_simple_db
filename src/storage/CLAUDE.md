@@ -1,4 +1,4 @@
-# 存储引擎(storage 静态库，server 暂未链接)
+# 存储引擎(storage 静态库，executor 链接)
 M1 = 堆页追加 + 全表扫描；M3 起加入 B+树聚簇索引，M4 加 WAL。完整设计见 docs/storage-design.md；
 结构体字段按"不做版本与迁移"约定，只存放当前里程碑实际用到的。
 

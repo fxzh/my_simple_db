@@ -13,6 +13,9 @@
 #include "config.h"
 #include "log/log.h"
 #include "sql_parser.h"
+#include "ast.hh"
+#include "executor.h"
+#include "storage.h"
 
 #define MAX_CLIENTS 100
 #define BUFFER_SIZE 1024
@@ -53,7 +56,8 @@ void safe_cout(const std::string& message)
 }
 
 // 处理单个客户端的函数
-void handle_client(int client_socket, int client_id, const std::string& client_ip)
+void handle_client(int client_socket, int client_id, const std::string& client_ip,
+                   st::Database* db)
 {
     char buffer[BUFFER_SIZE] = {0};
 
@@ -92,19 +96,23 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
             break;
         }
 
-        // SQL 解析: 已支持语法的语句暂不执行, 回复"暂不支持"; 空语句原样回显
+        // SQL 解析: 合法语句交给执行层执行, 空语句原样回显
         std::string parse_error;
         std::string stmt_kind;
-        if (sql::parse(msg_str, parse_error, stmt_kind)) {
+        std::unique_ptr<SQLStatement> stmt;
+        if (sql::parse(msg_str, parse_error, stmt_kind, stmt)) {
             std::string ok_log = "SQL解析成功 ID:" + std::to_string(client_id) + ": " + msg_str;
             LOG(INFO, PARSER, "%s", ok_log.c_str());
-            if (stmt_kind.empty()) {
-                // 空输入或仅 ";", 无实际语句
-                send(client_socket, msg_str.c_str(), msg_str.length(), 0);
+            std::string reply;
+            if (stmt) {
+                reply = exec::execute(*db, *stmt);
+                std::string exec_log = "ID:" + std::to_string(client_id) + " SQL执行结果: " + reply;
+                LOG(INFO, EXECUTOR, "%s", exec_log.c_str());
             } else {
-                std::string unsupported = "ERROR: " + stmt_kind + " 暂不支持";
-                send(client_socket, unsupported.c_str(), unsupported.length(), 0);
+                // 空输入或仅 ";", 无实际语句
+                reply = msg_str;
             }
+            send(client_socket, reply.c_str(), reply.length(), 0);
         } else {
             std::string err_log = "SQL解析失败 ID:" + std::to_string(client_id) + ": " + parse_error;
             LOG(WARNING, PARSER, "%s", err_log.c_str());
@@ -112,10 +120,10 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
             send(client_socket, err_reply.c_str(), err_reply.length(), 0);
         }
         } catch (const std::exception& e) {
-            std::string error_log = "处理客户端 ID:" + std::to_string(client_id) +
-                                    " 时发生异常: " + e.what();
-            safe_cout(error_log);
-            send(client_socket, e.what(), strlen(e.what()), 0);
+            // 执行/存储异常在此统一即时报出: 先记日志再按约定回客户端
+            LOG(WARNING, EXECUTOR, "ID:%d SQL执行异常: %s", client_id, e.what());
+            std::string err_reply = "ERROR: " + std::string(e.what());
+            send(client_socket, err_reply.c_str(), err_reply.length(), 0);
         }
     }
 
@@ -167,6 +175,16 @@ int main()
         return -1;
     }
     std::cout << "已加载配置文件: " << config_path << std::endl;
+
+    // 打开数据目录(存储引擎), 所有客户端线程共享这一个实例
+    st::Database db(cfg.data_dir);
+    try {
+        db.open();
+    } catch (const std::exception& e) {
+        LOG(CRITICAL, SYSTEM, "打开数据目录失败: %s", e.what());
+        return -1;
+    }
+    std::cout << "已打开数据目录: " << cfg.data_dir << std::endl;
 
     int server_fd, new_socket;
     struct sockaddr_in address;
@@ -249,7 +267,8 @@ int main()
             handle_client,
             new_socket,
             client_id,
-            client_info->ip_address
+            client_info->ip_address,
+            &db
         );
         client_info->thread.detach();  // 分离线程
 
@@ -278,6 +297,13 @@ int main()
 
     // 清理资源
     close(server_fd);
+
+    // 刷盘并关闭存储引擎
+    try {
+        db.close();
+    } catch (const std::exception& e) {
+        LOG(WARNING, STORAGE, "关闭存储引擎失败: %s", e.what());
+    }
 
     std::cout << "服务器已安全关闭" << std::endl;
     return 0;

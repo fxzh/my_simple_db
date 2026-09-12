@@ -117,6 +117,9 @@ public:
   CreateTableStmt(std::string name, std::vector<ColumnDef> cols)
     : table(std::move(name)), columns(std::move(cols)) {}
 
+  const std::string& table_name() const { return table; }
+  const std::vector<ColumnDef>& column_defs() const { return columns; }
+
   void print(std::ostream& os, int indent) const override {
     os << std::string(static_cast<std::size_t>(indent), ' ') << "CreateTable: " << table << std::endl;
     for (const auto& col : columns) {
@@ -132,6 +135,8 @@ class DropTableStmt : public SQLStatement {
   std::string table;
 public:
   explicit DropTableStmt(std::string name) : table(std::move(name)) {}
+
+  const std::string& table_name() const { return table; }
 
   void print(std::ostream& os, int indent) const override {
     os << std::string(static_cast<std::size_t>(indent), ' ') << "DropTable: " << table << std::endl;

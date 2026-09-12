@@ -45,6 +45,8 @@
 %parse-param { yy::location& loc }
 // 语句种类输出(识别出的首个语句), 由 sql::parse 传入并返回给调用方
 %parse-param { std::string& stmt_kind }
+// 首个语句的 AST 输出, 由 sql::parse 传入并返回给调用方
+%parse-param { std::unique_ptr<SQLStatement>& result }
 // 语法错误缓冲: parser 直接使用, 词法器经 scanner 写入同一缓冲
 %parse-param { std::string& sql_parse_error }
 // 扫描器实例: 存为 parser 成员供 yylex 包装函数(%lex-param)引用
@@ -84,9 +86,10 @@ input: /* empty */
     ;
 
 line: statement ';' {
-        // 语法校验: 语句树构建成功即合法; 记录首个语句种类
+        // 语法校验: 语句树构建成功即合法; 记录首个语句种类并交出它的 AST
         if (stmt_kind.empty()) {
             stmt_kind = $1->statement_kind();
+            result = std::move($1);
         }
       }
     | ';'          { }

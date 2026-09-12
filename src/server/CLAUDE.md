@@ -6,16 +6,22 @@
 - 位置：可执行文件同目录，文件名固定 db.conf；缺失/无法读取时报错退出
 - 语法：一行一项 "key = value"；空行忽略；'#' 起始为整行注释；'#' 可跟在值后作行内注释
 - 未知配置项、重复配置项、值非法、行格式错误：带行号报错退出
-- 当前配置项：port(监听端口, 1~65535)，缺失时默认 8123
+- 当前配置项：port(监听端口, 1~65535，缺失时默认 8123)；data_dir(数据目录，存储引擎数据文件所在，
+  缺失时默认 "data")
 
 # 请求处理
 1. read 一段消息(单次至多 1023 字节，无长度前缀/粘包处理)
-2. "quit"/"exit" → 回"再见!"并断开；其余交给 sql::parse(msg_str, err)
-3. 解析合法 → 区分语句种类：create table/drop table/insert into 回 "ERROR: xxx 暂不支持"；
-   空语句(空输入或仅";")原样回显；非法 → 回显 "ERROR: <信息>"(错误格式 "行.列: 描述")
-4. 全程记录日志(LogModule::NETWORK / PARSER)
+2. "quit"/"exit" → 回"再见!"并断开；其余交给 sql::parse(msg_str, err, stmt_kind, stmt)
+3. 解析合法 → 非空语句交给 exec::execute(共享的 st::Database, *stmt)执行：
+   create/drop table 成功回 "OK"；未支持种类回 "ERROR: <kind> 暂不支持"；
+   执行错误以LOG ERROR抛出
+4. 全程记录日志
 
 # 要点
 - 全局状态：clients 表(shared_ptr<ClientInfo>+mutex)、client_counter、server_running
+- 存储引擎：一个 st::Database 实例(数据目录来自 db.conf 的 data_dir)在 main 中 open/close，
+  主循环前 open、退出前 close；所有客户端线程共享它，内部 mutex 串行化
 - 每线程阻塞在 read() 上，等待期间不响应其他请求
-- log.h 在 ERROR 级会抛 std::runtime_error，handle_client 内有 try/catch 兜底
+- log.h 在 ERROR 级会抛 std::runtime_error；execute 抛出的异常统一在 handle_client 的 catch
+  处 LOG(WARNING, EXECUTOR) 并回客户端 "ERROR: <原因>"(非法类型在 executor 内已当场 LOG(ERROR)，
+  该类异常会 ERROR 与 WARNING 各一条记录)
