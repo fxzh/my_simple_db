@@ -222,7 +222,14 @@ private:
         
         return result;
     }
-    
+
+    // CRITICAL 日志同步输出到 stderr 后退出进程
+    void handleFatal(const std::string& message)
+    {
+        std::cerr << "[CRITICAL] " << message << std::endl;
+        std::exit(EXIT_FAILURE);
+    }
+
 public:
     // 删除拷贝构造和赋值
     Logger(const Logger&) = delete;
@@ -276,13 +283,12 @@ public:
             throw std::runtime_error(errmsg);
         }
         if (level == LogLevel::CRITICAL) {
-            std::exit(EXIT_FAILURE);
+            handleFatal(errmsg);
         }
     }
     
     // 记录日志，带源码位置（可选功能）
-    void logWithSource(LogLevel level, LogModule module, 
-                      const std::source_location& location,
+    void logWithSource(LogLevel level, LogModule module, const std::source_location& location,
                       const char* format, ...)
     {
         if (level < LogLevel::ERROR &&
@@ -320,7 +326,7 @@ public:
             throw std::runtime_error(errmsg);
         }
         if (level == LogLevel::CRITICAL) {
-            std::exit(EXIT_FAILURE);
+            handleFatal(errmsg);
         }
     }
 
@@ -360,7 +366,7 @@ public:
             throw std::runtime_error(errmsg);
         }
         if (level == LogLevel::CRITICAL) {
-            std::exit(EXIT_FAILURE);
+            handleFatal(errmsg);
         }
     }
     
