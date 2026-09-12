@@ -32,20 +32,24 @@ void convert_columns(const std::vector<ColumnDef>& defs, std::vector<st::ColumnS
 
 std::string execute(st::Database& db, const SQLStatement& stmt)
 {
-    const std::string& kind = stmt.statement_kind();
-    if (kind == "create table") {
+    switch (stmt.kind()) {
+    case StmtKind::CreateTable: {
         const auto& cs = static_cast<const CreateTableStmt&>(stmt);
         std::vector<st::ColumnSpec> cols;
         convert_columns(cs.column_defs(), cols);
         db.create_table(cs.table_name(), cols);
         return "OK";
     }
-    if (kind == "drop table") {
+    case StmtKind::DropTable: {
         const auto& ds = static_cast<const DropTableStmt&>(stmt);
         db.drop_table(ds.table_name());
         return "OK";
     }
-    return "ERROR: " + kind + " 暂不支持";
+    case StmtKind::Insert:
+        return "ERROR: insert 暂不支持";
+    }
+    // 不可达: 全部语句种类已在上方穷尽
+    LOG(LogLevel::ERROR, LogModule::EXECUTOR, "executor: 未知语句种类");
 }
 
 }  // namespace exec

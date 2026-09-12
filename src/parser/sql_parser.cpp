@@ -13,10 +13,9 @@
 
 namespace sql {
 
-bool parse(const std::string& stmt, std::string& error, std::string& stmt_kind,
+bool parse(const std::string& stmt, std::string& error,
            std::unique_ptr<SQLStatement>& result)
 {
-    stmt_kind.clear();
     error.clear();
     result.reset();
 
@@ -25,7 +24,7 @@ bool parse(const std::string& stmt, std::string& error, std::string& stmt_kind,
     SQLScanner scanner(&stmt_stream, &error);  // 词法错误也写入 error 缓冲
 
     yy::location loc;
-    yy::parser parser(loc, stmt_kind, result, error, &scanner);
+    yy::parser parser(loc, result, error, &scanner);
     int ret = parser.parse();
 
     if (ret == 0 && error.empty()) {

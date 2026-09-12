@@ -107,9 +107,8 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
 
         // SQL 解析: 合法语句交给执行层执行, 空语句原样回显
         std::string parse_error;
-        std::string stmt_kind;
         std::unique_ptr<SQLStatement> stmt;
-        if (sql::parse(msg_str, parse_error, stmt_kind, stmt)) {
+        if (sql::parse(msg_str, parse_error, stmt)) {
             std::string ok_log = "SQL解析成功 ID:" + std::to_string(client_id) + ": " + msg_str;
             LOG(INFO, PARSER, "%s", ok_log.c_str());
             std::string reply;

@@ -14,8 +14,8 @@
 
 // 列定义: 列名 + 类型
 struct ColumnDef {
-  std::string name;
-  std::string type;
+    std::string name;
+    std::string type;
 };
 
 // ==================== 表达式 AST ====================
@@ -23,144 +23,159 @@ struct ColumnDef {
 // 表达式基类
 class Expr {
 public:
-  virtual ~Expr() = default;
-  virtual void print(std::ostream& os, int indent = 0) const = 0;
+    virtual ~Expr() = default;
+    virtual void print(std::ostream& os, int indent = 0) const = 0;
 };
 
 // 整数字面量
 class IntExpr : public Expr {
-  long long value;
+    long long value;
 public:
-  explicit IntExpr(long long val) : value(val) {}
-  void print(std::ostream& os, int indent) const override {
-    os << std::string(static_cast<std::size_t>(indent), ' ') << "Int: " << value << std::endl;
-  }
+    explicit IntExpr(long long val) : value(val) {}
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "Int: " << value << std::endl;
+    }
 };
 
 // 浮点字面量
 class FloatExpr : public Expr {
-  double value;
+    double value;
 public:
-  explicit FloatExpr(double val) : value(val) {}
-  void print(std::ostream& os, int indent) const override {
-    os << std::string(static_cast<std::size_t>(indent), ' ') << "Float: " << value << std::endl;
-  }
+    explicit FloatExpr(double val) : value(val) {}
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "Float: " << value << std::endl;
+    }
 };
 
 // 字符串字面量
 class StringExpr : public Expr {
-  std::string value;
+    std::string value;
 public:
-  explicit StringExpr(std::string val) : value(std::move(val)) {}
-  void print(std::ostream& os, int indent) const override {
-    os << std::string(static_cast<std::size_t>(indent), ' ') << "String: " << value << std::endl;
-  }
+    explicit StringExpr(std::string val) : value(std::move(val)) {}
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "String: " << value << std::endl;
+    }
 };
 
 // 表达式中的标识符
 class IdentifierExpr : public Expr {
-  std::string name;
+    std::string name;
 public:
-  explicit IdentifierExpr(std::string n) : name(std::move(n)) {}
-  void print(std::ostream& os, int indent) const override {
-    os << std::string(static_cast<std::size_t>(indent), ' ') << "Identifier: " << name << std::endl;
-  }
+    explicit IdentifierExpr(std::string n) : name(std::move(n)) {}
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "Identifier: " << name << std::endl;
+    }
 };
 
 // 二元运算符节点
 class BinaryOpExpr : public Expr {
-  char op;
-  std::unique_ptr<Expr> left;
-  std::unique_ptr<Expr> right;
+    char op;
+    std::unique_ptr<Expr> left;
+    std::unique_ptr<Expr> right;
 public:
-  BinaryOpExpr(char op_, std::unique_ptr<Expr> left_,
-               std::unique_ptr<Expr> right_)
-    : op(op_), left(std::move(left_)), right(std::move(right_)) {}
+    BinaryOpExpr(char op_, std::unique_ptr<Expr> left_, std::unique_ptr<Expr> right_)
+        : op(op_), left(std::move(left_)), right(std::move(right_)) {}
 
-  void print(std::ostream& os, int indent) const override {
-    os << std::string(static_cast<std::size_t>(indent), ' ') << "BinaryOp: " << op << std::endl;
-    left->print(os, indent + 2);
-    right->print(os, indent + 2);
-  }
+    void print(std::ostream& os, int indent) const override 
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "BinaryOp: " << op << std::endl;
+        left->print(os, indent + 4);
+        right->print(os, indent + 4);
+    }
 };
 
 // 一元运算符节点
 class UnaryOpExpr : public Expr {
-  char op;
-  std::unique_ptr<Expr> operand;
+    char op;
+    std::unique_ptr<Expr> operand;
 public:
-  UnaryOpExpr(char op_, std::unique_ptr<Expr> operand_)
-    : op(op_), operand(std::move(operand_)) {}
+    UnaryOpExpr(char op_, std::unique_ptr<Expr> operand_)
+        : op(op_), operand(std::move(operand_)) {}
 
-  void print(std::ostream& os, int indent) const override {
-    os << std::string(static_cast<std::size_t>(indent), ' ') << "UnaryOp: " << op << std::endl;
-    operand->print(os, indent + 2);
-  }
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "UnaryOp: " << op << std::endl;
+        operand->print(os, indent + 4);
+    }
 };
 
 // ==================== SQL 语句 AST ====================
 
+// 语句种类, 供执行层等上层按类型分派(取代字符串识别)
+enum class StmtKind {
+    CreateTable,
+    DropTable,
+    Insert,
+};
+
 // SQL 语句基类
 class SQLStatement {
 public:
-  virtual ~SQLStatement() = default;
-  virtual void print(std::ostream& os, int indent = 0) const = 0;
-  // 语句种类名称, 供上层识别(create table / drop table / insert into)
-  virtual std::string statement_kind() const = 0;
+    virtual ~SQLStatement() = default;
+    virtual void print(std::ostream& os, int indent = 0) const = 0;
+    // 语句种类, 供上层分派
+    virtual StmtKind kind() const = 0;
 };
 
 // CREATE TABLE 表名 (列定义列表)
 class CreateTableStmt : public SQLStatement {
-  std::string table;
-  std::vector<ColumnDef> columns;
+    std::string table;
+    std::vector<ColumnDef> columns;
 public:
-  CreateTableStmt(std::string name, std::vector<ColumnDef> cols)
-    : table(std::move(name)), columns(std::move(cols)) {}
+    CreateTableStmt(std::string name, std::vector<ColumnDef> cols)
+        : table(std::move(name)), columns(std::move(cols)) {}
 
-  const std::string& table_name() const { return table; }
-  const std::vector<ColumnDef>& column_defs() const { return columns; }
+    const std::string& table_name() const { return table; }
+    const std::vector<ColumnDef>& column_defs() const { return columns; }
 
-  void print(std::ostream& os, int indent) const override {
-    os << std::string(static_cast<std::size_t>(indent), ' ') << "CreateTable: " << table << std::endl;
-    for (const auto& col : columns) {
-      os << std::string(static_cast<std::size_t>(indent + 2), ' ') << col.name << " " << col.type << std::endl;
+    void print(std::ostream& os, int indent) const override 
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "CreateTable: " << table << std::endl;
+        for (const auto& col : columns) {
+            os << std::string(static_cast<std::size_t>(indent + 4), ' ') << col.name << " " << col.type << std::endl;
+        }
     }
-  }
 
-  std::string statement_kind() const override { return "create table"; }
+    StmtKind kind() const override { return StmtKind::CreateTable; }
 };
 
 // DROP TABLE 表名
 class DropTableStmt : public SQLStatement {
-  std::string table;
+    std::string table;
 public:
-  explicit DropTableStmt(std::string name) : table(std::move(name)) {}
+    explicit DropTableStmt(std::string name) : table(std::move(name)) {}
 
-  const std::string& table_name() const { return table; }
+    const std::string& table_name() const { return table; }
 
-  void print(std::ostream& os, int indent) const override {
-    os << std::string(static_cast<std::size_t>(indent), ' ') << "DropTable: " << table << std::endl;
-  }
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "DropTable: " << table << std::endl;
+    }
 
-  std::string statement_kind() const override { return "drop table"; }
+    StmtKind kind() const override { return StmtKind::DropTable; }
 };
 
 // INSERT INTO 表名 VALUES (值列表)
 class InsertStmt : public SQLStatement {
-  std::string table;
-  std::vector<std::unique_ptr<Expr>> values;
+    std::string table;
+    std::vector<std::unique_ptr<Expr>> values;
 public:
-  InsertStmt(std::string name, std::vector<std::unique_ptr<Expr>> vals)
-    : table(std::move(name)), values(std::move(vals)) {}
+    InsertStmt(std::string name, std::vector<std::unique_ptr<Expr>> vals)
+        : table(std::move(name)), values(std::move(vals)) {}
 
-  void print(std::ostream& os, int indent) const override {
-    os << std::string(static_cast<std::size_t>(indent), ' ') << "InsertInto: " << table << std::endl;
-    for (const auto& e : values) {
-      e->print(os, indent + 2);
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "InsertInto: " << table << std::endl;
+        for (const auto& e : values) {
+            e->print(os, indent + 4);
+        }
     }
-  }
 
-  std::string statement_kind() const override { return "insert into"; }
+    StmtKind kind() const override { return StmtKind::Insert; }
 };
 
 #endif  // PARSER_AST_HH

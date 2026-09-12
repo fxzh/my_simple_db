@@ -8,10 +8,10 @@ lexer.l         扫描器(经 %option yyclass 生成在 SQLScanner 类中)：关
 parser.y        文法(%language "c++"、variant 语义值、%locations)：支持 CREATE TABLE / DROP TABLE /
                 INSERT INTO ... VALUES，含 + - * / 与一元 +/- 的完整表达式层。
                 扫描器/错误缓冲经 %lex-param/%parse-param 传入，无模块级全局变量；
-                首个语句的 stmt_kind 与 AST 经 %parse-param 回传给调用方；多条语句只取第一条
+                首个语句的 AST 经 %parse-param 回传给调用方；多条语句只取第一条
 sql_scanner.h/.cpp   SQLScanner 词法器：派生 yyFlexLexer，词法状态(语义值/位置/行列/错误缓冲)全为实例成员
 ast.hh          AST 节点(Expr/SQLStatement 派生)；bison variant 析构内联要求其先于生成头被 include
-sql_parser.h/.cpp   唯一对外入口 sql::parse(stmt, error, stmt_kind, result)；stmt_kind 与 result 为
+sql_parser.h/.cpp   唯一对外入口 sql::parse(stmt, error, result)；result 为
                 识别出的首个语句种类与 AST，空语句两者皆空；每次调用所有状态均为栈上实例，无锁并发
 
 # 注意
