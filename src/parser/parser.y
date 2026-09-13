@@ -80,78 +80,78 @@
 
 // 一条消息: 若干以 ';' 结尾的语句(允许空输入和空语句)
 input: /* empty */
-    | input line
+    |   input line
     ;
 
 line: statement ';' {
         // 语法校验: 语句树构建成功即合法; 只交出首个语句的 AST
-        if (!result) {
-            result = std::move($1);
+            if (!result) {
+                result = std::move($1);
+            }
         }
-      }
-    | ';'          { }
+    |   ';'          { }
     ;
 
 statement:
-      create_statement  { $$ = std::move($1); }
-    | drop_statement    { $$ = std::move($1); }
-    | insert_statement  { $$ = std::move($1); }
+        create_statement  { $$ = std::move($1); }
+    |   drop_statement    { $$ = std::move($1); }
+    |   insert_statement  { $$ = std::move($1); }
     ;
 
 // create table ...
 create_statement:
-      create_table_statement { $$ = std::move($1); }
+        create_table_statement { $$ = std::move($1); }
     ;
 
 create_table_statement:
-      CREATE TABLE IDENTIFIER '(' column_definitions ')' {
-        $$ = std::make_unique<CreateTableStmt>(std::move($3), std::move($5));
-      }
+        CREATE TABLE IDENTIFIER '(' column_definitions ')' {
+            $$ = std::make_unique<CreateTableStmt>(std::move($3), std::move($5));
+        }
     ;
 
 column_definitions:
-      column_definitions ',' column_definition {
-        $1.push_back(std::move($3));
-        $$ = std::move($1);
-      }
-    | column_definition {
-        $$ = std::vector<ColumnDef>{ std::move($1) };
-      }
+        column_definitions ',' column_definition {
+            $1.push_back(std::move($3));
+            $$ = std::move($1);
+        }
+    |   column_definition {
+            $$ = std::vector<ColumnDef>{ std::move($1) };
+        }
     ;
 
 column_definition:
-      IDENTIFIER type_specifier {
-        $$ = ColumnDef{ std::move($1), std::move($2) };
-      }
+        IDENTIFIER type_specifier {
+            $$ = ColumnDef{ std::move($1), std::move($2) };
+        }
     ;
 
 // drop table ...
 drop_statement:
-      drop_table_statement { $$ = std::move($1); }
+        drop_table_statement { $$ = std::move($1); }
     ;
 
 drop_table_statement:
-      DROP TABLE IDENTIFIER {
-        $$ = std::make_unique<DropTableStmt>(std::move($3));
-      }
+        DROP TABLE IDENTIFIER {
+            $$ = std::make_unique<DropTableStmt>(std::move($3));
+        }
     ;
 
 // insert into ... values (...)
 insert_statement:
-      INSERT INTO IDENTIFIER VALUES '(' value_list ')' {
-        $$ = std::make_unique<InsertStmt>(std::move($3), std::move($6));
-      }
+        INSERT INTO IDENTIFIER VALUES '(' value_list ')' {
+            $$ = std::make_unique<InsertStmt>(std::move($3), std::move($6));
+        }
     ;
 
 value_list:
-      value_list ',' value {
-        $1.push_back(std::move($3));
-        $$ = std::move($1);
-      }
-    | value {
-        $$ = std::vector<std::unique_ptr<Expr>>();
-        $$.push_back(std::move($1));
-      }
+        value_list ',' value {
+            $1.push_back(std::move($3));
+            $$ = std::move($1);
+        }
+    |   value {
+            $$ = std::vector<std::unique_ptr<Expr>>();
+            $$.push_back(std::move($1));
+        }
     ;
 
 value:
@@ -159,24 +159,24 @@ value:
     ;
 
 type_specifier:
-      INT    { $$ = std::string("int"); }
-    | FLOAT  { $$ = std::string("float"); }
-    | CHAR   { $$ = std::string("char"); }
-    | DOUBLE { $$ = std::string("double"); }
+        INT    { $$ = std::string("int"); }
+    |   FLOAT  { $$ = std::string("float"); }
+    |   CHAR   { $$ = std::string("char"); }
+    |   DOUBLE { $$ = std::string("double"); }
     ;
 
 expression:
-      INTEGER                     { $$ = std::make_unique<IntExpr>($1); }
-    | FLOAT_NUM                   { $$ = std::make_unique<FloatExpr>($1); }
-    | STRING                      { $$ = std::make_unique<StringExpr>(std::move($1)); }
-    | IDENTIFIER                  { $$ = std::make_unique<IdentifierExpr>(std::move($1)); }
-    | expression '+' expression   { $$ = std::make_unique<BinaryOpExpr>('+', std::move($1), std::move($3)); }
-    | expression '-' expression   { $$ = std::make_unique<BinaryOpExpr>('-', std::move($1), std::move($3)); }
-    | expression '*' expression   { $$ = std::make_unique<BinaryOpExpr>('*', std::move($1), std::move($3)); }
-    | expression '/' expression   { $$ = std::make_unique<BinaryOpExpr>('/', std::move($1), std::move($3)); }
-    | '(' expression ')'          { $$ = std::move($2); }
-    | '-' expression %prec UMINUS { $$ = std::make_unique<UnaryOpExpr>('-', std::move($2)); }
-    | '+' expression %prec UMINUS { $$ = std::make_unique<UnaryOpExpr>('+', std::move($2)); }
+        INTEGER                     { $$ = std::make_unique<IntExpr>($1); }
+    |   FLOAT_NUM                   { $$ = std::make_unique<FloatExpr>($1); }
+    |   STRING                      { $$ = std::make_unique<StringExpr>(std::move($1)); }
+    |   IDENTIFIER                  { $$ = std::make_unique<IdentifierExpr>(std::move($1)); }
+    |   expression '+' expression   { $$ = std::make_unique<BinaryOpExpr>('+', std::move($1), std::move($3)); }
+    |   expression '-' expression   { $$ = std::make_unique<BinaryOpExpr>('-', std::move($1), std::move($3)); }
+    |   expression '*' expression   { $$ = std::make_unique<BinaryOpExpr>('*', std::move($1), std::move($3)); }
+    |   expression '/' expression   { $$ = std::make_unique<BinaryOpExpr>('/', std::move($1), std::move($3)); }
+    |   '(' expression ')'          { $$ = std::move($2); }
+    |   '-' expression %prec UMINUS { $$ = std::make_unique<UnaryOpExpr>('-', std::move($2)); }
+    |   '+' expression %prec UMINUS { $$ = std::make_unique<UnaryOpExpr>('+', std::move($2)); }
     ;
 
 %%
