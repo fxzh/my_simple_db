@@ -47,9 +47,12 @@ std::string execute(st::Database& db, const SQLStatement& stmt)
     }
     case StmtKind::Insert:
         return "ERROR: insert 暂不支持";
+    case StmtKind::Delete:
+        return "ERROR: delete 暂不支持";
     }
     // 不可达: 全部语句种类已在上方穷尽
     LOG(LogLevel::ERROR, LogModule::EXECUTOR, "executor: 未知语句种类");
+    return "";
 }
 
 }  // namespace exec

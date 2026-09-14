@@ -55,7 +55,7 @@
 // Token定义
 %token END 0 "end of file"
 %token TOK_ERROR
-%token CREATE TABLE DROP INSERT INTO VALUES
+%token CREATE TABLE DROP INSERT INTO VALUES DELETE FROM
 %token INT FLOAT CHAR DOUBLE
 
 %token <long long> INTEGER
@@ -69,7 +69,7 @@
 %right UMINUS
 
 // 类型声明
-%type <std::unique_ptr<SQLStatement>> statement create_statement drop_statement insert_statement create_table_statement drop_table_statement
+%type <std::unique_ptr<SQLStatement>> statement create_statement drop_statement insert_statement delete_statement create_table_statement drop_table_statement
 %type <std::vector<ColumnDef>> column_definitions
 %type <ColumnDef> column_definition
 %type <std::string> type_specifier
@@ -96,6 +96,7 @@ statement:
         create_statement  { $$ = std::move($1); }
     |   drop_statement    { $$ = std::move($1); }
     |   insert_statement  { $$ = std::move($1); }
+    |   delete_statement  { $$ = std::move($1); }
     ;
 
 // create table ...
@@ -133,6 +134,13 @@ drop_statement:
 drop_table_statement:
         DROP TABLE IDENTIFIER {
             $$ = std::make_unique<DropTableStmt>(std::move($3));
+        }
+    ;
+
+// delete from 表名
+delete_statement:
+        DELETE FROM IDENTIFIER {
+            $$ = std::make_unique<DeleteStmt>(std::move($3));
         }
     ;
 

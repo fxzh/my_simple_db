@@ -110,6 +110,7 @@ enum class StmtKind {
     CreateTable,
     DropTable,
     Insert,
+    Delete,
 };
 
 // SQL 语句基类
@@ -176,6 +177,22 @@ public:
     }
 
     StmtKind kind() const override { return StmtKind::Insert; }
+};
+
+// DELETE FROM 表名
+class DeleteStmt : public SQLStatement {
+    std::string table;
+public:
+    explicit DeleteStmt(std::string name) : table(std::move(name)) {}
+
+    const std::string& table_name() const { return table; }
+
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "DeleteFrom: " << table << std::endl;
+    }
+
+    StmtKind kind() const override { return StmtKind::Delete; }
 };
 
 #endif  // PARSER_AST_HH
