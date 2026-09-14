@@ -11,6 +11,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "common/error.h"
 #include "log/log.h"
 #include "types.h"
 
@@ -18,12 +19,11 @@ namespace st {
 
 namespace {
 
-// 记 ERROR 日志并抛出异常, noreturn 供编译期确认调用点终止
+// 记 ERROR 日志并抛出 DbError, noreturn 供编译期确认调用点终止
 [[noreturn]] void throw_errno(const std::string& what, int err)
 {
     const std::string msg = what + std::strerror(err);
-    LOG_ERROR(LogModule::STORAGE, "%s", msg.c_str());
-    throw std::runtime_error(msg);
+    DB_RAISE(db::ErrCode::IoError, LogModule::STORAGE, "{}", msg);
 }
 
 }  // namespace
@@ -122,7 +122,7 @@ void FileManager::write_page(uint32_t table_id, uint32_t page_no, const char* da
         throw_errno("写页失败 ", errno);
     }
     if (n != static_cast<ssize_t>(PAGE_SIZE)) {
-        LOG_ERROR(LogModule::STORAGE, "写页不完整");
+        DB_RAISE(db::ErrCode::IoError, LogModule::STORAGE, "写页不完整");
     }
 }
 

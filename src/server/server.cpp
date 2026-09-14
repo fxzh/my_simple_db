@@ -20,6 +20,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include "config.h"
+#include "common/error.h"
 #include "log/log.h"
 #include "sql_parser.h"
 #include "ast.hh"
@@ -127,8 +128,12 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
             std::string err_reply = "ERROR: " + parse_error;
             send(client_socket, err_reply.c_str(), err_reply.length(), 0);
         }
+        } catch (const db::DbError& e) {
+            // 结构化错误: 源头已记 ERROR(带堆栈), 这里只路由给客户端, 不再重复记
+            std::string err_reply = "ERROR: " + std::string(e.what());
+            send(client_socket, err_reply.c_str(), err_reply.length(), 0);
         } catch (const std::exception& e) {
-            // 执行/存储异常在此统一即时报出: 先记日志再按约定回客户端
+            // 非 DbError 的底层异常降级收录后回客户端
             LOG(WARNING, EXECUTOR, "ID:%d SQL执行异常: %s", client_id, e.what());
             std::string err_reply = "ERROR: " + std::string(e.what());
             send(client_socket, err_reply.c_str(), err_reply.length(), 0);

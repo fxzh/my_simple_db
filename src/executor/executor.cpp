@@ -7,6 +7,7 @@
 
 #include "ast.hh"
 #include "codec.h"
+#include "common/error.h"
 #include "log/log.h"
 #include "storage.h"
 
@@ -22,7 +23,7 @@ void convert_columns(const std::vector<ColumnDef>& defs, std::vector<st::ColumnS
         st::ColType type;
         uint16_t len = 0;
         if (!st::parse_column_type(def.type, &type, &len)) {
-            LOG(LogLevel::ERROR, LogModule::EXECUTOR, "不支持的类型: %s", def.type.c_str());
+            DB_RAISE(db::ErrCode::InvalidType, LogModule::EXECUTOR, "不支持的类型: {}", def.type);
         }
         cols.emplace_back(st::ColumnSpec{def.name, type, len});
     }
@@ -51,7 +52,7 @@ std::string execute(st::Database& db, const SQLStatement& stmt)
         return "ERROR: delete 暂不支持";
     }
     // 不可达: 全部语句种类已在上方穷尽
-    LOG(LogLevel::ERROR, LogModule::EXECUTOR, "executor: 未知语句种类");
+    DB_RAISE(db::ErrCode::UnknownStmt, LogModule::EXECUTOR, "executor: 未知语句种类");
     return "";
 }
 

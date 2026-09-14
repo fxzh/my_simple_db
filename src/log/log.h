@@ -16,7 +16,6 @@
 #include <cstdarg>
 #include <source_location>
 #include <cstdio>
-#include <cstdlib>
 #include <utility>
 #include <boost/stacktrace.hpp>
 
@@ -223,11 +222,11 @@ private:
         return result;
     }
 
-    // CRITICAL 日志同步输出到 stderr 后退出进程
-    void handleFatal(const std::string& message)
+    // CRITICAL 级别的同步 stderr 出口: 队列写入之外的即时可见性, 供运维第一时间捕获
+    // 进程是否退出由调用方决定(log() 只负责记录, 不承担控制流副作用)
+    void echoCritical(const std::string& message)
     {
         std::cerr << "[CRITICAL] " << message << std::endl;
-        std::exit(EXIT_FAILURE);
     }
 
 public:
@@ -279,11 +278,8 @@ public:
         }
         queue_cv_.notify_one();
 
-        if (level == LogLevel::ERROR) {
-            throw std::runtime_error(errmsg);
-        }
         if (level == LogLevel::CRITICAL) {
-            handleFatal(errmsg);
+            echoCritical(errmsg);
         }
     }
     
@@ -322,11 +318,8 @@ public:
         }
         queue_cv_.notify_one();
 
-        if (level == LogLevel::ERROR) {
-            throw std::runtime_error(errmsg);
-        }
         if (level == LogLevel::CRITICAL) {
-            handleFatal(errmsg);
+            echoCritical(errmsg);
         }
     }
 
@@ -362,11 +355,8 @@ public:
         }
         queue_cv_.notify_one();
 
-        if (level == LogLevel::ERROR) {
-            throw std::runtime_error(errmsg);
-        }
         if (level == LogLevel::CRITICAL) {
-            handleFatal(errmsg);
+            echoCritical(errmsg);
         }
     }
     

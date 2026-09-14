@@ -7,6 +7,7 @@
 #include <unordered_map>
 
 #include "codec.h"
+#include "common/error.h"
 #include "log/log.h"
 #include "page.h"
 
@@ -55,7 +56,7 @@ const TableMeta& Database::get_table(const std::string& name) const
 {
     const TableMeta* meta = catalog_.find(name);
     if (meta == nullptr) {
-        throw std::runtime_error("表不存在: " + name);
+        DB_RAISE(db::ErrCode::TableNotFound, LogModule::STORAGE, "表不存在: {}", name);
     }
     return *meta;
 }
@@ -64,18 +65,18 @@ uint32_t Database::create_table(const std::string& name, const std::vector<Colum
 {
     std::lock_guard<std::mutex> lock(mutex_);
     if (name.empty()) {
-        throw std::runtime_error("表名为空");
+        DB_RAISE(db::ErrCode::InvalidDdl, LogModule::STORAGE, "表名为空");
     }
     if (catalog_.find(name) != nullptr) {
-        throw std::runtime_error("表已存在: " + name);
+        DB_RAISE(db::ErrCode::TableExists, LogModule::STORAGE, "表已存在: {}", name);
     }
     if (cols.empty()) {
-        throw std::runtime_error("表至少需要一列");
+        DB_RAISE(db::ErrCode::InvalidDdl, LogModule::STORAGE, "表至少需要一列");
     }
     for (size_t i = 0; i < cols.size(); ++i) {
         for (size_t j = i + 1; j < cols.size(); ++j) {
             if (cols[i].name == cols[j].name) {
-                throw std::runtime_error("存在重复列名: " + cols[i].name);
+                DB_RAISE(db::ErrCode::InvalidDdl, LogModule::STORAGE, "存在重复列名: {}", cols[i].name);
             }
         }
     }
@@ -132,10 +133,10 @@ RowRef Database::insert(const std::string& table, const std::vector<Value>& valu
 
     std::vector<uint8_t> rec;
     if (!encode_row(meta.cols, values, rec)) {
-        throw std::runtime_error("值与列类型不匹配");
+        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "值与列类型不匹配");
     }
     if (rec.size() > MAX_RECORD_LEN) {
-        throw std::runtime_error("记录超长");
+        DB_RAISE(db::ErrCode::RecordTooLong, LogModule::STORAGE, "记录超长");
     }
 
     // 尾页可能只在内存中(尚未落盘), 用 tail_pages_ 记住最高页号
@@ -321,7 +322,7 @@ bool Scanner::next(Row* out)
         if (slot_ < ph->slot_count) {
             const Slot* s = slot_at(cur_data_, slot_);
             if (!decode_row(meta_.cols, record(cur_data_, slot_), s->len, out->values)) {
-                LOG_ERROR(LogModule::STORAGE, "数据页记录损坏");
+                DB_RAISE(db::ErrCode::CorruptData, LogModule::STORAGE, "数据页记录损坏");
             }
             out->ref = RowRef{cur_page_, slot_};
             ++slot_;

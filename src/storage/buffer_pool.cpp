@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <string>
 
+#include "common/error.h"
 #include "log/log.h"
 #include "page.h"
 
@@ -12,11 +13,10 @@ namespace st {
 
 namespace {
 
-// 记 ERROR 日志并抛出异常, noreturn 供编译期确认调用点终止
-[[noreturn]] void log_error_throw(const std::string& msg)
+// 记 ERROR 日志并抛出 DbError, noreturn 供编译期确认调用点终止
+[[noreturn]] void raise_error(db::ErrCode code, const std::string& msg)
 {
-    LOG_ERROR(LogModule::STORAGE, "%s", msg.c_str());
-    throw std::runtime_error(msg);
+    DB_RAISE(code, LogModule::STORAGE, "{}", msg);
 }
 
 }  // namespace
@@ -59,7 +59,7 @@ size_t BufferPool::evict(FileManager& files)
         clock_hand_ = (idx + 1) % frames_.size();
         return idx;
     }
-    log_error_throw("缓冲池无可用帧(全部帧被 pin)");
+    raise_error(db::ErrCode::Internal, "缓冲池无可用帧(全部帧被 pin)");
 }
 
 char* BufferPool::read(PageId page, uint32_t expect_magic, FileManager& files)
@@ -82,7 +82,7 @@ char* BufferPool::read(PageId page, uint32_t expect_magic, FileManager& files)
 
     if (!page_valid(f.data, expect_magic)) {
         if (expect_magic == MAGIC_FILE_HEADER) {
-            log_error_throw("文件头页损坏");
+            raise_error(db::ErrCode::CorruptData, "文件头页损坏");
         }
         // 数据页损坏: 按追加截断处理, 重建空页
         LOG_WARNING(LogModule::STORAGE, "检测到损坏数据页, 按空页重建: table=%u page=%u",
@@ -122,7 +122,7 @@ void BufferPool::unpin(char* data)
             return;
         }
     }
-    log_error_throw("unpin 未命中的页");
+    raise_error(db::ErrCode::Internal, "unpin 未命中的页");
 }
 
 void BufferPool::mark_dirty(char* data)
@@ -133,7 +133,7 @@ void BufferPool::mark_dirty(char* data)
             return;
         }
     }
-    log_error_throw("mark_dirty 未命中的页");
+    raise_error(db::ErrCode::Internal, "mark_dirty 未命中的页");
 }
 
 void BufferPool::flush(PageId page, FileManager& files)

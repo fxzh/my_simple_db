@@ -14,7 +14,7 @@
 2. "quit"/"exit" → 回"再见!"并断开；其余交给 sql::parse(msg_str, err, stmt)
 3. 解析合法 → 非空语句交给 exec::execute(共享的 st::Database, *stmt)执行：
    create/drop table 成功回 "OK"；未支持种类回 "ERROR: <kind> 暂不支持"；
-   执行错误以LOG ERROR抛出
+   执行/存储错误以 DB_RAISE 抛 DbError，handle_client 统一 catch 回客户端 "ERROR: <文案>"
 4. 全程记录日志
 
 # 要点
@@ -22,6 +22,6 @@
 - 存储引擎：一个 st::Database 实例(数据目录来自 db.conf 的 data_dir)在 main 中 open/close，
   主循环前 open、退出前 close；所有客户端线程共享它，内部 mutex 串行化
 - 每线程阻塞在 read() 上，等待期间不响应其他请求
-- log.h 在 ERROR 级会抛 std::runtime_error；execute 抛出的异常统一在 handle_client 的 catch
-  处 LOG(WARNING, EXECUTOR) 并回客户端 "ERROR: <原因>"(非法类型在 executor 内已当场 LOG(ERROR)，
-  该类异常会 ERROR 与 WARNING 各一条记录)
+- 报错统一走 common/error.h 的 DB_RAISE：源头记一条 ERROR(带错误码与堆栈)并抛 DbError；
+  handle_client 的 catch(const db::DbError&) 只把 what() 回客户端，不再重复记日志；
+  非 DbError 的底层异常降级为 WARNING 记录并回客户端
