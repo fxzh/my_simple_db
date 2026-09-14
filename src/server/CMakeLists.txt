@@ -2,6 +2,7 @@
 add_executable(server
     config.cpp
     server.cpp
+    session.cpp
 )
 
 # 链接 SQL 词法/语法解析库与执行层
