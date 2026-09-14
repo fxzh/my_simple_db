@@ -11,7 +11,10 @@ ip 192.168.31.231
 /home/hz/recopywin.sh 用于删除一切后全量同步windows代码
 /home/hz/win 为windows挂载的共享目录，实际指向当前代码仓库
 
+# 远程编译要求
+无error无warning
+
 # 远程启停
-当前已支持服务端控制工具 serverctl
+当前已支持服务端控制程序 serverctl
 ./serverctl start 启动数据库
 ./serverctl stop 关闭数据库

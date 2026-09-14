@@ -20,79 +20,84 @@ struct ColumnDef {
 
 // ==================== 表达式 AST ====================
 
+// 表达式种类, 供执行层等上层按类型分派
+enum class ExprKind {
+    Int, Float, String, Identifier, BinaryOp, UnaryOp,
+};
+
 // 表达式基类
-class Expr {
-public:
+struct Expr {
     virtual ~Expr() = default;
     virtual void print(std::ostream& os, int indent = 0) const = 0;
+    // 表达式种类, 供上层分派
+    virtual ExprKind kind() const = 0;
 };
 
 // 整数字面量
-class IntExpr : public Expr {
+struct IntExpr : Expr {
     long long value;
-public:
     explicit IntExpr(long long val) : value(val) {}
     void print(std::ostream& os, int indent) const override
     {
         os << std::string(static_cast<std::size_t>(indent), ' ') << "Int: " << value << std::endl;
     }
+    ExprKind kind() const override { return ExprKind::Int; }
 };
 
 // 浮点字面量
-class FloatExpr : public Expr {
+struct FloatExpr : Expr {
     double value;
-public:
     explicit FloatExpr(double val) : value(val) {}
     void print(std::ostream& os, int indent) const override
     {
         os << std::string(static_cast<std::size_t>(indent), ' ') << "Float: " << value << std::endl;
     }
+    ExprKind kind() const override { return ExprKind::Float; }
 };
 
 // 字符串字面量
-class StringExpr : public Expr {
+struct StringExpr : Expr {
     std::string value;
-public:
     explicit StringExpr(std::string val) : value(std::move(val)) {}
     void print(std::ostream& os, int indent) const override
     {
         os << std::string(static_cast<std::size_t>(indent), ' ') << "String: " << value << std::endl;
     }
+    ExprKind kind() const override { return ExprKind::String; }
 };
 
 // 表达式中的标识符
-class IdentifierExpr : public Expr {
+struct IdentifierExpr : Expr {
     std::string name;
-public:
     explicit IdentifierExpr(std::string n) : name(std::move(n)) {}
     void print(std::ostream& os, int indent) const override
     {
         os << std::string(static_cast<std::size_t>(indent), ' ') << "Identifier: " << name << std::endl;
     }
+    ExprKind kind() const override { return ExprKind::Identifier; }
 };
 
 // 二元运算符节点
-class BinaryOpExpr : public Expr {
+struct BinaryOpExpr : Expr {
     char op;
     std::unique_ptr<Expr> left;
     std::unique_ptr<Expr> right;
-public:
     BinaryOpExpr(char op_, std::unique_ptr<Expr> left_, std::unique_ptr<Expr> right_)
         : op(op_), left(std::move(left_)), right(std::move(right_)) {}
 
-    void print(std::ostream& os, int indent) const override 
+    void print(std::ostream& os, int indent) const override
     {
         os << std::string(static_cast<std::size_t>(indent), ' ') << "BinaryOp: " << op << std::endl;
         left->print(os, indent + 4);
         right->print(os, indent + 4);
     }
+    ExprKind kind() const override { return ExprKind::BinaryOp; }
 };
 
 // 一元运算符节点
-class UnaryOpExpr : public Expr {
+struct UnaryOpExpr : Expr {
     char op;
     std::unique_ptr<Expr> operand;
-public:
     UnaryOpExpr(char op_, std::unique_ptr<Expr> operand_)
         : op(op_), operand(std::move(operand_)) {}
 
@@ -101,6 +106,7 @@ public:
         os << std::string(static_cast<std::size_t>(indent), ' ') << "UnaryOp: " << op << std::endl;
         operand->print(os, indent + 4);
     }
+    ExprKind kind() const override { return ExprKind::UnaryOp; }
 };
 
 // ==================== SQL 语句 AST ====================
@@ -163,15 +169,18 @@ public:
 // INSERT INTO 表名 VALUES (值列表)
 class InsertStmt : public SQLStatement {
     std::string table;
-    std::vector<std::unique_ptr<Expr>> values;
+    std::vector<std::unique_ptr<Expr>> values_;
 public:
     InsertStmt(std::string name, std::vector<std::unique_ptr<Expr>> vals)
-        : table(std::move(name)), values(std::move(vals)) {}
+        : table(std::move(name)), values_(std::move(vals)) {}
+
+    const std::string& table_name() const { return table; }
+    const std::vector<std::unique_ptr<Expr>>& values() const { return values_; }
 
     void print(std::ostream& os, int indent) const override
     {
         os << std::string(static_cast<std::size_t>(indent), ' ') << "InsertInto: " << table << std::endl;
-        for (const auto& e : values) {
+        for (const auto& e : values_) {
             e->print(os, indent + 4);
         }
     }

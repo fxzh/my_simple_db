@@ -13,7 +13,7 @@
 1. read 一段消息(单次至多 1023 字节，无长度前缀/粘包处理)
 2. "quit"/"exit" → 回"再见!"并断开；其余交给 sql::parse(msg_str, err, stmt)
 3. 解析合法 → 非空语句交给 exec::execute(共享的 st::Database, *stmt)执行：
-   create/drop table 成功回 "OK"；未支持种类回 "ERROR: <kind> 暂不支持"；
+   create/drop table/insert 成功回 "OK"，delete 回 "OK (删除 N 行)"；
    执行/存储错误以 DB_RAISE 抛 DbError，handle_client 统一 catch 回客户端 "ERROR: <文案>"
 4. 全程记录日志
 
