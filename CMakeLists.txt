@@ -127,6 +127,8 @@ if(UNIX AND NOT MSVC)
 endif()
 
 # 添加子目录
+add_subdirectory(src/log)
+add_subdirectory(src/common)
 add_subdirectory(src/parser)
 add_subdirectory(src/storage)
 add_subdirectory(src/executor)

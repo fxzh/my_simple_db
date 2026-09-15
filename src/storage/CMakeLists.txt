@@ -1,5 +1,5 @@
 # 存储引擎静态库(storage): M1 堆页追加 + 全表扫描, 规划 B+ 树聚簇索引
-# 报错/告警依赖 log 头文件库与 Boost.Stacktrace, server 与测试链接它
+# 报错/告警依赖 log 库, server 与测试链接它
 
 add_library(storage STATIC
     storage.cpp
@@ -12,10 +12,8 @@ add_library(storage STATIC
 
 target_include_directories(storage PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-# 存储源文件编译需要 Boost.Stacktrace(log.h 依赖)
-if(BoostFound)
-    target_include_directories(storage PRIVATE ${Boost_INCLUDE_DIRS})
-endif()
+# 源文件经 log/log.h 报错/告警、经 common/error.h 落地报错, 链接两库
+target_link_libraries(storage PRIVATE log common)
 
 if(ENABLE_TESTING)
     add_executable(storage_smoke test/smoke.cpp)

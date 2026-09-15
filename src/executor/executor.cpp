@@ -3,7 +3,6 @@
 
 #include <cmath>
 #include <cstdint>
-#include <format>
 #include <string>
 #include <variant>
 #include <vector>
@@ -177,7 +176,7 @@ std::string execute(st::Database& db, const SQLStatement& stmt)
     case StmtKind::Delete: {
         const auto& ds = static_cast<const DeleteStmt&>(stmt);
         const size_t n = db.delete_all(ds.table_name());
-        return std::format("OK (删除 {} 行)", n);
+        return "OK (删除 " + std::to_string(n) + " 行)";
     }
     }
     // 不可达: 全部语句种类已在上方穷尽

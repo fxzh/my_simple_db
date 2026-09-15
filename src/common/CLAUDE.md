@@ -1,5 +1,6 @@
-# 跨层错误(common/error.h 纯头文件, 依赖 log.h)
+# 跨层错误(common 库: error.h + error.cpp, 依赖 log)
 db::DbError(code 分类码 / what() 客户端文案 / location 触发位置) + 宏 DB_RAISE(码, MODULE, fmt, ...)。
+实现集中于 error.cpp(raise_error_impl)
 
 # 使用
 DB_RAISE(db::ErrCode::X, LogModule::Y, "fmt{}", arg)

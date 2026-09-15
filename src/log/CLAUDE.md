@@ -1,5 +1,6 @@
-# 日志库(log.h 纯头文件)
+# 日志库(log 静态库: log.h + log.cpp)
 单例 Logger + 异步写线程：调用方把 LogMessage 入队，写线程统一格式化追加到日志文件。
+实现集中于 log.cpp，头文件只留声明/宏与内联小函数。
 
 # 使用
 LOG(LEVEL, MODULE, printf格式, ...)     // 便捷宏 LOG_DEBUG/LOG_INFO/LOG_WARNING/... 同形

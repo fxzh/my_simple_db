@@ -69,21 +69,18 @@ public:
 
 namespace detail {
 
+// 非模板实现, 格式化收敛在库内完成(error.cpp)
+[[noreturn]] void raise_error_impl(ErrCode code, LogModule module,
+                                   const std::source_location& location,
+                                   std::string_view fmt, std::format_args args);
+
 // DB_RAISE 的实现: 格式化消息 -> 记 ERROR 日志(带错误码与堆栈) -> 抛 DbError
 template<typename... Args>
 [[noreturn]] void raise_error(ErrCode code, LogModule module,
                               const std::source_location& location,
                               std::string_view fmt, Args&&... args)
 {
-    std::string message;
-    try {
-        message = std::vformat(fmt, std::make_format_args(args...));
-    } catch (const std::format_error& e) {
-        message = std::string("[format error] ") + e.what();
-    }
-    const std::string logtext = std::format("[{}] {}", errCodeName(code), message);
-    Logger::getInstance().log(LogLevel::ERROR, module, "%s", logtext.c_str());
-    throw DbError(code, std::move(message), location);
+    raise_error_impl(code, module, location, fmt, std::make_format_args(args...));
 }
 
 }  // namespace detail

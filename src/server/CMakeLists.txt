@@ -6,7 +6,7 @@ add_executable(server
 )
 
 # 链接 SQL 词法/语法解析库与执行层
-target_link_libraries(server PRIVATE sql_parser executor)
+target_link_libraries(server PRIVATE sql_parser executor log common)
 
 # 平台特定的链接库
 if(WIN32)

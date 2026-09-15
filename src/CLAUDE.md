@@ -3,8 +3,8 @@ client   客户端可执行程序：交互收集完整 SQL，-p 参数指定端�
 parser   服务端 SQL 词法/语法解析静态库(sql_parser)，语法校验并返回首个语句 AST
 executor 执行层静态库(executor)：把 parser 的 AST 转成 storage 调用
 server   服务端可执行程序：多线程 TCP，-D <数据目录> 必选启动，读目录内 db.conf 配置端口与控制通道，sql_parser 分析后经 executor 执行，使用 log
-log      日志头文件库(log.h)：单例 + 异步写线程，输出 simple.log
-common    跨层错误头文件库(common/error.h)：DbError + DB_RAISE，源头报错记日志并抛结构化异常
+log      日志静态库：单例 + 异步写线程，输出 simple.log
+common    跨层错误库：DbError + DB_RAISE，源头报错记日志并抛结构化异常
 storage  存储引擎静态库：M1 堆页追加+全表扫描(页/缓冲池/目录/编解码)，后续 B+树/WAL
 tool     独立工具
 
