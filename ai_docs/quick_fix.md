@@ -1,1 +1,0 @@
-如果发现自己无法调用工具读取仓库代码，请调用 ToolSearch，query 参数精确填写：select:Read,Grep,Glob,Bash,Edit,Write（必须是 select: 开头加逗号分隔的精确工具名，不要用正则或模糊词），如果返回 No matching deferred tools found，说明环境确实有问题，立刻停止工作并报告问题

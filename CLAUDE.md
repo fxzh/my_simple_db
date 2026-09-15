@@ -4,8 +4,6 @@
 
 如果要在本环境生成临时文件，向 D:/work/tmp 文件夹写入
 
-如果无法正常调用工具，尝试读取 ai_docs/quick_fix.md 获取解决方法
-
 设计要求：尽可能规避 fallback 设计，如果无法规避，停下设计并向用户说明原因
 
 开始编写代码前或设计方案具体到代码时，读取 ai_docs/code.md 获取通用编写要求；修改完成后按 code.md 要求在总结末尾附规则自检清单
@@ -19,3 +17,6 @@ CMake + flex/bison + readline；顶层强制要求 Boost.Stacktrace
 
 # 远程连接
 当用户明确要求连接远端虚拟机时，可读取 ai_docs/remote.md 并进行连接
+
+# 无法正常调用工具的解决方法
+请调用 ToolSearch，query 参数精确填写：select:Read,Grep,Glob,Bash,Edit,Write（必须是 select: 开头加逗号分隔的精确工具名，不要用正则或模糊词），如果返回 No matching deferred tools found，说明环境确实有问题，立刻停止工作并报告问题
