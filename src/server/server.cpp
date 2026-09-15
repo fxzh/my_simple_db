@@ -80,6 +80,9 @@ int main(int argc, char* argv[])
     if (!config::db_conf_path(config_path, config_error) ||
         !config::load(config_path, cfg, config_error)) {
         LOG(CRITICAL, SYSTEM, "加载配置文件失败: %s", config_error.c_str());
+        if (!std::filesystem::exists(config_path)) {
+            std::cout << "配置文件不存在, 请先运行 initdb 生成" << std::endl;
+        }
         return -1;
     }
     std::cout << "已加载配置文件: " << config_path << std::endl;

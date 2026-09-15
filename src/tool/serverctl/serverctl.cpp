@@ -214,6 +214,9 @@ int main(int argc, char* argv[])
     if (!config::db_conf_path(config_path, config_error) ||
         !config::load(config_path, cfg, config_error)) {
         std::cerr << "读取配置失败: " << config_error << std::endl;
+        if (!std::filesystem::exists(config_path)) {
+            std::cerr << "请先运行 initdb 生成配置文件" << std::endl;
+        }
         return 2;
     }
 
