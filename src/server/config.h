@@ -8,12 +8,11 @@ namespace config {
 // 服务端配置; 字段初值即缺省值(配置项未出现时使用)
 struct Config {
     int port = 8123;  // 监听端口
-    std::string data_dir = "data";  // 数据目录: 存储引擎数据文件与目录文件所在目录
-    std::string control_socket;  // 控制通道 socket 路径; 空串表示未配置, 缺省为 data_dir/server.sock
+    std::string control_socket;  // 控制通道 socket 路径; 空串表示未配置, 缺省为数据目录/server.sock
 };
 
-// 返回 db.conf 完整路径(可执行文件同目录), 失败返回 false 并填充错误描述
-bool db_conf_path(std::string& path, std::string& error);
+// 返回数据目录内 db.conf 路径
+std::string conf_path(const std::string& data_dir);
 
 // 从配置文件加载配置: 逐行解析, 未知/重复配置项、非法值、格式错误均报错返回 false
 bool load(const std::string& path, Config& cfg, std::string& error);

@@ -3,6 +3,7 @@
 #include <cstring>
 #include <cerrno>
 #include <filesystem>
+#include <fstream>
 #include <vector>
 #include <thread>
 #include <mutex>
@@ -66,36 +67,62 @@ bool handle_control_command(int cfd)
 // 服务器主函数
 int main(int argc, char* argv[])
 {
-    // --daemon 后台运行, 其余参数一律拒绝
-    bool daemon_mode = (argc == 2 && std::string(argv[1]) == "--daemon");
-    if (argc > 1 && !daemon_mode) {
-        std::cerr << "用法: server [--daemon]" << std::endl;
+    // -D <数据目录> 必选, --daemon 可选后台运行
+    std::string data_dir_arg;
+    bool daemon_mode = false;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "-D") {
+            if (i + 1 >= argc || !data_dir_arg.empty()) {
+                std::cerr << "用法: server -D <数据目录> [--daemon]" << std::endl;
+                return -1;
+            }
+            data_dir_arg = argv[++i];
+        } else if (arg == "--daemon") {
+            daemon_mode = true;
+        } else {
+            std::cerr << "用法: server -D <数据目录> [--daemon]" << std::endl;
+            return -1;
+        }
+    }
+    if (data_dir_arg.empty()) {
+        std::cerr << "用法: server -D <数据目录> [--daemon]" << std::endl;
         return -1;
     }
 
-    // 加载配置文件 db.conf(位于可执行文件同目录)
+    // 数据目录统一转绝对路径, daemon 化后不依赖 cwd
+    std::filesystem::path data_dir_abs = std::filesystem::absolute(data_dir_arg);
+    std::string data_dir = data_dir_abs.string();
+
+    // 加载配置文件 db.conf(位于数据目录内), 日志未初始化, 报错只走控制台
     config::Config cfg;
-    std::string config_path;
+    std::string config_path = config::conf_path(data_dir);
     std::string config_error;
-    if (!config::db_conf_path(config_path, config_error) ||
-        !config::load(config_path, cfg, config_error)) {
-        LOG(CRITICAL, SYSTEM, "加载配置文件失败: %s", config_error.c_str());
+    if (!config::load(config_path, cfg, config_error)) {
+        std::cerr << config_error << std::endl;
         if (!std::filesystem::exists(config_path)) {
-            std::cout << "配置文件不存在, 请先运行 initdb 生成" << std::endl;
+            std::cout << "配置文件不存在, 请先运行 initdb -D " << data_dir << std::endl;
         }
         return -1;
     }
     std::cout << "已加载配置文件: " << config_path << std::endl;
 
-    // data_dir / control_socket 统一转绝对路径, daemon 化后不依赖 cwd
-    std::filesystem::path data_dir_abs = std::filesystem::absolute(cfg.data_dir);
-    cfg.data_dir = data_dir_abs.string();
     std::string ctl_sock = cfg.control_socket.empty()
         ? (data_dir_abs / "server.sock").string()
         : std::filesystem::absolute(cfg.control_socket).string();
 
-    // 数据目录由 db.open 创建, pidfile 在目录内, 先确保存在
+    // 日志文件与 pidfile 都在数据目录内, 先确保目录存在
     std::filesystem::create_directories(data_dir_abs);
+    std::string log_path = (data_dir_abs / "simple.log").string();
+    {
+        // fork 前仅探测日志文件可打开, 单例留待 fork 后首次 LOG 构造(daemon 子进程内建写线程)
+        std::ofstream probe(log_path, std::ios::out | std::ios::app);
+        if (!probe.is_open()) {
+            std::cerr << "初始化日志失败: 无法打开日志文件: " << log_path << std::endl;
+            return -1;
+        }
+    }
+    Logger::initPath(log_path);
 
     // 单实例锁: flock(pidfile), 锁随 fd 在进程生命周期内持有
     std::string pidfile = (data_dir_abs / "server.pid").string();
@@ -110,14 +137,14 @@ int main(int argc, char* argv[])
     }
 
     // 打开数据目录(存储引擎), 所有客户端线程共享这一个实例
-    st::Database db(cfg.data_dir);
+    st::Database db(data_dir);
     try {
         db.open();
     } catch (const std::exception& e) {
         LOG(CRITICAL, SYSTEM, "打开数据目录失败: %s", e.what());
         return -1;
     }
-    std::cout << "已打开数据目录: " << cfg.data_dir << std::endl;
+    std::cout << "已打开数据目录: " << data_dir << std::endl;
 
     int server_fd, new_socket;
     struct sockaddr_in address;

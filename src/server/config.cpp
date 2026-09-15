@@ -6,7 +6,6 @@
 #include <string_view>
 #include <charconv>
 #include <system_error>
-#include <unistd.h>
 
 namespace config {
 
@@ -29,30 +28,11 @@ std::string_view trim(std::string_view s)
     return s;
 }
 
-// 获取可执行文件所在目录
-bool exe_dir(std::string& dir, std::string& error)
-{
-    char buf[4096];
-    ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
-    if (n <= 0) {
-        error = "无法获取可执行文件路径(/proc/self/exe)";
-        return false;
-    }
-    buf[n] = '\0';
-    dir = std::filesystem::path(buf).parent_path().string();
-    return true;
-}
-
 }  // namespace
 
-bool db_conf_path(std::string& path, std::string& error)
+std::string conf_path(const std::string& data_dir)
 {
-    std::string dir;
-    if (!exe_dir(dir, error)) {
-        return false;
-    }
-    path = (std::filesystem::path(dir) / kDbConfFile).string();
-    return true;
+    return (std::filesystem::path(data_dir) / kDbConfFile).string();
 }
 
 bool load(const std::string& path, Config& cfg, std::string& error)
@@ -64,7 +44,6 @@ bool load(const std::string& path, Config& cfg, std::string& error)
     }
 
     bool seen_port = false;
-    bool seen_data_dir = false;
     bool seen_control_socket = false;
     std::string line;
     int line_no = 0;
@@ -123,13 +102,6 @@ bool load(const std::string& path, Config& cfg, std::string& error)
             }
             cfg.port = port;
             seen_port = true;
-        } else if (key == "data_dir") {
-            if (seen_data_dir) {
-                error = "第 " + std::to_string(line_no) + " 行: 重复配置项 data_dir";
-                return false;
-            }
-            cfg.data_dir = std::string(value);
-            seen_data_dir = true;
         } else if (key == "control_socket") {
             if (seen_control_socket) {
                 error = "第 " + std::to_string(line_no) + " 行: 重复配置项 control_socket";

@@ -31,12 +31,12 @@ bool exe_dir(std::string& dir, std::string& error)
 }
 
 // 控制通道路径解析: 与 server 启动解析规则保持一致
-std::string control_socket_path(const config::Config& cfg)
+std::string control_socket_path(const config::Config& cfg, const std::string& data_dir)
 {
     if (!cfg.control_socket.empty()) {
         return std::filesystem::absolute(cfg.control_socket).string();
     }
-    return (std::filesystem::absolute(cfg.data_dir) / "server.sock").string();
+    return (std::filesystem::path(data_dir) / "server.sock").string();
 }
 
 // 一次控制连接: 发一条命令, 收全部回复直到 EOF
@@ -92,7 +92,7 @@ bool control_send_recv(const std::string& socket_path, const std::string& cmd,
     return true;
 }
 
-int cmd_start(const std::string& sock_path, const std::string& pidfile_path)
+int cmd_start(const std::string& data_dir, const std::string& sock_path, const std::string& pidfile_path)
 {
     // 已运行检测: 控制 socket 可连即视为在跑
     {
@@ -117,7 +117,8 @@ int cmd_start(const std::string& sock_path, const std::string& pidfile_path)
     }
     if (pid == 0) {
         // 子进程保留 stderr 继承, server fork 前错误直接透传
-        execl(server_bin.c_str(), "server", "--daemon", static_cast<char*>(nullptr));
+        execl(server_bin.c_str(), "server", "-D", data_dir.c_str(), "--daemon",
+              static_cast<char*>(nullptr));
         std::cerr << "启动失败: exec 失败" << std::endl;
         _exit(1);
     }
@@ -198,33 +199,48 @@ int cmd_status(const std::string& sock_path)
 
 int main(int argc, char* argv[])
 {
-    if (argc != 2) {
-        std::cerr << "用法: serverctl start|stop|status" << std::endl;
-        return 2;
+    // -D <数据目录> 必选, 可与子命令任意先后
+    std::string data_dir_arg;
+    std::string cmd;
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg == "-D") {
+            if (i + 1 >= argc || !data_dir_arg.empty()) {
+                std::cerr << "用法: serverctl -D <数据目录> start|stop|status" << std::endl;
+                return 2;
+            }
+            data_dir_arg = argv[++i];
+        } else if (cmd.empty() && (arg == "start" || arg == "stop" || arg == "status")) {
+            cmd = arg;
+        } else {
+            std::cerr << "用法: serverctl -D <数据目录> start|stop|status" << std::endl;
+            return 2;
+        }
     }
-    std::string cmd = argv[1];
-    if (cmd != "start" && cmd != "stop" && cmd != "status") {
-        std::cerr << "用法: serverctl start|stop|status" << std::endl;
+    if (data_dir_arg.empty() || cmd.empty()) {
+        std::cerr << "用法: serverctl -D <数据目录> start|stop|status" << std::endl;
         return 2;
     }
 
+    // 数据目录统一转绝对路径, 与 server 解析规则保持一致
+    std::string data_dir = std::filesystem::absolute(data_dir_arg).string();
+
     config::Config cfg;
-    std::string config_path;
+    std::string config_path = config::conf_path(data_dir);
     std::string config_error;
-    if (!config::db_conf_path(config_path, config_error) ||
-        !config::load(config_path, cfg, config_error)) {
+    if (!config::load(config_path, cfg, config_error)) {
         std::cerr << "读取配置失败: " << config_error << std::endl;
         if (!std::filesystem::exists(config_path)) {
-            std::cerr << "请先运行 initdb 生成配置文件" << std::endl;
+            std::cerr << "请先运行 initdb -D " << data_dir << std::endl;
         }
         return 2;
     }
 
-    std::string sock_path = control_socket_path(cfg);
-    std::string pidfile_path = (std::filesystem::absolute(cfg.data_dir) / "server.pid").string();
+    std::string sock_path = control_socket_path(cfg, data_dir);
+    std::string pidfile_path = (std::filesystem::path(data_dir) / "server.pid").string();
 
     if (cmd == "start") {
-        return cmd_start(sock_path, pidfile_path);
+        return cmd_start(data_dir, sock_path, pidfile_path);
     }
     if (cmd == "stop") {
         return cmd_stop(sock_path);

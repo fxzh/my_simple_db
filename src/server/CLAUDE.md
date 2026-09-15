@@ -1,13 +1,15 @@
 # 服务端(server 可执行程序)
-多线程 TCP 服务器，监听端口由 db.conf 配置(位于可执行文件同目录, 缺省 8123)，
+多线程 TCP 服务器，-D <数据目录> 必选(无 -D 拒绝启动)，--daemon 可选后台运行；
+监听端口由数据目录内 db.conf 配置(缺省 8123)，
 每客户端一个 detached 线程(阻塞 read)，MAX_CLIENTS=100。
 
 # 配置(db.conf)
-- 位置：可执行文件同目录，文件名固定 db.conf；缺失/无法读取时报错退出（缺失时提示先运行 initdb 生成）
+- 位置：数据目录内(-D 指定)，由 initdb -D 生成；缺失/无法读取时报错退出（缺失时提示先运行 initdb -D）；
+  此时日志未初始化，报错只走控制台
 - 语法：一行一项 "key = value"；空行忽略；'#' 起始为整行注释；'#' 可跟在值后作行内注释
 - 未知配置项、重复配置项、值非法、行格式错误：带行号报错退出
-- 当前配置项：port(监听端口, 1~65535，缺失时默认 8123)；data_dir(数据目录，存储引擎数据文件所在，
-  缺失时默认 "data")
+- 当前配置项：port(监听端口, 1~65535，缺失时默认 8123)；control_socket(控制通道 socket 路径，
+  缺省为数据目录/server.sock)
 
 # 请求处理
 1. read 一段消息(单次至多 1023 字节，无长度前缀/粘包处理)
@@ -19,8 +21,9 @@
 
 # 要点
 - 全局状态：clients 表(shared_ptr<ClientInfo>+mutex)、client_counter、server_running
-- 存储引擎：一个 st::Database 实例(数据目录来自 db.conf 的 data_dir)在 main 中 open/close，
+- 存储引擎：一个 st::Database 实例(数据目录来自 -D 参数)在 main 中 open/close，
   主循环前 open、退出前 close；所有客户端线程共享它，内部 mutex 串行化
+- 日志：simple.log 位于数据目录内，配置加载完成后初始化日志路径
 - 每线程阻塞在 read() 上，等待期间不响应其他请求
 - 报错统一走 common/error.h 的 DB_RAISE：源头记一条 ERROR(带错误码与堆栈)并抛 DbError；
   handle_client 的 catch(const db::DbError&) 只把 what() 回客户端，不再重复记日志；

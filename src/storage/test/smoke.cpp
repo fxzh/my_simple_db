@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "codec.h"
+#include "log/log.h"
 #include "page.h"
 #include "storage.h"
 
@@ -28,6 +29,9 @@ int main()
 {
     const std::string dir = "smoke_data";
     std::filesystem::remove_all(dir);
+    // 日志文件随数据目录, 先建目录再初始化日志路径
+    std::filesystem::create_directories(dir);
+    Logger::initPath(dir + "/simple.log");
 
     try {
         // 类型名解析

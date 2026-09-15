@@ -82,7 +82,10 @@ class Logger {
 private:
     // 单例实例
     static Logger* instance_;
-    
+
+    // 日志文件路径, 单例构造前由 initPath 设置
+    static std::string log_path_;
+
     // 线程安全的日志队列
     std::queue<std::shared_ptr<LogMessage>> queue_;
     mutable std::mutex queue_mutex_;
@@ -109,9 +112,12 @@ private:
         }
         
         // 打开日志文件
-        log_file_.open("simple.log", std::ios::out | std::ios::app);
+        if (log_path_.empty()) {
+            throw std::runtime_error("日志路径未初始化");
+        }
+        log_file_.open(log_path_, std::ios::out | std::ios::app);
         if (!log_file_.is_open()) {
-            throw std::runtime_error("无法打开日志文件: simple.log");
+            throw std::runtime_error("无法打开日志文件: " + log_path_);
         }
         
         // 启动写入线程
@@ -245,6 +251,12 @@ public:
         static Logger instance;
         instance_ = &instance;
         return instance;
+    }
+
+    // 设置日志文件路径, 须在单例首次使用前调用
+    static void initPath(const std::string& path)
+    {
+        log_path_ = path;
     }
     
     // 记录日志的主函数
@@ -402,23 +414,6 @@ public:
         }
     }
     
-    // 设置日志文件名
-    void setLogFile(const std::string& filename)
-    {
-        // 停止当前写入线程
-        stopWriterThread();
-        
-        // 重新打开文件
-        log_file_.open(filename, std::ios::out | std::ios::app);
-        if (!log_file_.is_open()) {
-            throw std::runtime_error("无法打开日志文件: " + filename);
-        }
-        
-        // 重置停止标志并重新启动线程
-        writer_stop_ = false;
-        startWriterThread();
-    }
-    
     // 设置是否输出到控制台
     void setConsoleOutput(bool enable)
     {
@@ -430,6 +425,7 @@ public:
 
 // 初始化静态成员
 inline Logger* Logger::instance_ = nullptr;
+inline std::string Logger::log_path_;
 
 // 方便使用的宏
 #define LOG(level, module, format, ...) \
