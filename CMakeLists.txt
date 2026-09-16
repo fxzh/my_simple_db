@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.16)
 project(my_simple_db VERSION 0.3.0 LANGUAGES C CXX)
 
 # 设置C++标准
@@ -135,3 +135,9 @@ add_subdirectory(src/executor)
 add_subdirectory(src/server)
 add_subdirectory(src/client)
 add_subdirectory(src/tool)
+
+# 测试目录（ENABLE_TESTING=ON 时启用）
+if(ENABLE_TESTING)
+    enable_testing()
+    add_subdirectory(test)
+endif()
