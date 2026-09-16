@@ -10,6 +10,7 @@ inline constexpr int kDefaultPort = 8123;
 struct Options {
     int port = kDefaultPort;
     std::string host = "127.0.0.1";
+    std::string sql;    // -c 载荷, 未指定时为空
 };
 
 // 解析命令行参数, 失败时已在 stderr 打印错误与用法

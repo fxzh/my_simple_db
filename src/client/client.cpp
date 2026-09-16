@@ -21,6 +21,8 @@ char buffer[BUFFER_SIZE] = {0};
 ScannerState scanner_state = STATE_INITIAL;
 std::string sql_buffer;
 bool sql_overflow = false;
+// -c 模式退出码依据: 任一语句出错即置位
+bool sql_failed = false;
 
 // 跨行累积依赖扫描器的 start condition 记忆, 实例全程复用
 std::unique_ptr<yyFlexLexer> lexer;
@@ -41,6 +43,7 @@ void append_to_sql(const char* text, std::size_t len)
         std::cerr << "错误: SQL 超过上限 " << SQL_BUFFER_LIMIT << " 字节, 本轮输入已丢弃" << std::endl;
         sql_buffer.clear();
         sql_overflow = true;
+        sql_failed = true;
         return;
     }
     sql_buffer.append(text, len);
@@ -68,9 +71,14 @@ void send_to_server()
 
     if (valread <= 0) {
         std::cerr << "服务器连接已断开" << std::endl;
+        sql_failed = true;
         return;
     }
 
+    // 服务端以 "ERROR: " 前缀回执语法与执行错误
+    if (strncmp(buffer, "ERROR: ", 7) == 0) {
+        sql_failed = true;
+    }
     std::cout << "服务器回显: " << buffer << std::endl;
 }
 
@@ -117,12 +125,26 @@ int main(int argc, char* argv[])
         return -1;
     }
 
-    std::cout << "已连接到服务器！" << std::endl;
-    std::cout << "输入消息发送给服务器，输入 'quit' 或 'exit' 退出" << std::endl;
-    std::cout << "==========================================" << std::endl;
+    // -c 模式面向脚本执行, 不打印交互横幅
+    if (opts.sql.empty()) {
+        std::cout << "已连接到服务器！" << std::endl;
+        std::cout << "输入消息发送给服务器，输入 'quit' 或 'exit' 退出" << std::endl;
+        std::cout << "==========================================" << std::endl;
+    }
 
     // 连接成功后创建扫描器, 供每行输入复用
     lexer = std::make_unique<yyFlexLexer>(nullptr, nullptr);
+
+    // -c 模式: 整段输入按 ';' 逐条发送, 末尾无 ';' 的残留缓冲补上终结符后发送, 按执行结果定退出码
+    if (!opts.sql.empty()) {
+        process_input(opts.sql);
+        if (!sql_buffer.empty()) {
+            append_to_sql(";", 1);
+            send_to_server();
+        }
+        close(sock);
+        return sql_failed ? 1 : 0;
+    }
 
     // 持续发送和接收消息
     while (true) {

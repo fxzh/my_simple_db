@@ -44,9 +44,20 @@ static bool parse_host(std::string_view value, Options& opts)
     return true;
 }
 
+static bool parse_sql(std::string_view value, Options& opts)
+{
+    if (value.empty()) {
+        std::cerr << "错误: SQL文本为空" << std::endl;
+        return false;
+    }
+    opts.sql.assign(value);
+    return true;
+}
+
 static const OptionSpec kOptions[] = {
     {"-p", "端口号", parse_port},
     {"-h", "主机地址", parse_host},
+    {"-c", "SQL文本", parse_sql},
 };
 
 // 打印命令行用法
