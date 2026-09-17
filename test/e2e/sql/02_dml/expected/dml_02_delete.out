@@ -1,4 +1,0 @@
-已发送消息: DELETE FROM t_user;
-服务器回显: OK (删除 3 行)
-已发送消息: DROP TABLE t_user;
-服务器回显: OK

@@ -4,9 +4,11 @@
 
 如果要在本环境生成临时文件，向 D:/work/tmp 文件夹写入
 
-开始编写代码前或设计方案具体到代码时，读取 ai_docs/code.md 获取通用编写要求
+开始编写代码前或设计方案具体到代码时，读取 ai_docs/code.md
 
-设计方案时，额外读取 ai_docs/design.md 获取设计方案要求
+设计方案时，额外读取 ai_docs/design.md
+
+新增/修改测试用例时，读取 ai_docs/testcase.md
 
 # 目录结构
 src     代码所在位置
