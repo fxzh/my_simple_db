@@ -66,3 +66,42 @@ set_tests_properties(server_stop PROPERTIES FIXTURES_CLEANUP SRV_UP)
 
 add_test(NAME server_stop_not_running COMMAND test_serverctl --gtest_filter=Ctl.StopNotRunning)
 add_test(NAME server_status_not_running COMMAND test_serverctl --gtest_filter=Ctl.StatusNotRunning)
+
+# L2 SQL e2e: golden file 驱动, 以 client -c 的 stdout 全文 diff 为唯一通过判据
+add_executable(test_sql e2e/sql/test_sql.cpp)
+target_link_libraries(test_sql PRIVATE test_common)
+target_compile_definitions(test_sql PRIVATE
+    MSDB_BIN_DIR="${PROJECT_BINARY_DIR}/bin"
+    MSDB_STATE_DIR="${CMAKE_CURRENT_BINARY_DIR}/e2e_state"
+)
+
+# 01_ddl→02_dml 状态累积链: 文件级 fixture 链保证同序执行, 上游失败下游 Not Run;
+# 全部用例同时挂 SRV_UP, 保证 server_stop 在整条链之后收尾
+set(SQL_CASES_DIR ${CMAKE_CURRENT_SOURCE_DIR}/e2e/sql)
+
+add_test(NAME sql_ddl_create COMMAND test_sql
+    ${SQL_CASES_DIR}/01_ddl/cases/ddl_01_create.sql
+    ${SQL_CASES_DIR}/01_ddl/expected/ddl_01_create.out)
+set_tests_properties(sql_ddl_create PROPERTIES
+    FIXTURES_REQUIRED SRV_UP
+    FIXTURES_SETUP SQL_DDL_CREATE)
+
+add_test(NAME sql_ddl_drop COMMAND test_sql
+    ${SQL_CASES_DIR}/01_ddl/cases/ddl_02_drop.sql
+    ${SQL_CASES_DIR}/01_ddl/expected/ddl_02_drop.out)
+set_tests_properties(sql_ddl_drop PROPERTIES
+    FIXTURES_REQUIRED "SRV_UP;SQL_DDL_CREATE"
+    FIXTURES_SETUP SQL_DDL_DROP)
+
+add_test(NAME sql_dml_insert COMMAND test_sql
+    ${SQL_CASES_DIR}/02_dml/cases/dml_01_insert.sql
+    ${SQL_CASES_DIR}/02_dml/expected/dml_01_insert.out)
+set_tests_properties(sql_dml_insert PROPERTIES
+    FIXTURES_REQUIRED "SRV_UP;SQL_DDL_DROP"
+    FIXTURES_SETUP SQL_DML_INSERT)
+
+add_test(NAME sql_dml_delete COMMAND test_sql
+    ${SQL_CASES_DIR}/02_dml/cases/dml_02_delete.sql
+    ${SQL_CASES_DIR}/02_dml/expected/dml_02_delete.out)
+set_tests_properties(sql_dml_delete PROPERTIES
+    FIXTURES_REQUIRED "SRV_UP;SQL_DML_INSERT")

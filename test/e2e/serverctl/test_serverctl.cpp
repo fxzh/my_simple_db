@@ -10,12 +10,11 @@
 #include "common/net_probe.hpp"
 #include "common/process.hpp"
 #include "common/temp_dir.hpp"
+#include "e2e/test_config.hpp"
 
 // 编译期注入: 被测二进制目录与跨用例状态目录
 constexpr const char* kBinDir = MSDB_BIN_DIR;
 constexpr const char* kStateDir = MSDB_STATE_DIR;
-// 测试专用端口, 被占用直接判负, 不换端口重试
-constexpr int kTestPort = 18432;
 
 using tcommon::ProcessResult;
 using tcommon::TempDir;

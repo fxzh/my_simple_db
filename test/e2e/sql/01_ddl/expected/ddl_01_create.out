@@ -1,0 +1,4 @@
+已发送消息: CREATE TABLE t_user (id int, score double);
+服务器回显: OK
+已发送消息: CREATE TABLE t_order (id int, uid int, amount double);
+服务器回显: OK
