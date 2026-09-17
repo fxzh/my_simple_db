@@ -4,12 +4,6 @@ if(NOT GTest_FOUND)
     message(FATAL_ERROR "googletest not found, install libgtest-dev first")
 endif()
 
-# 冒烟测试: 验证 gtest 链接/ctest 注册全链路
-add_executable(test_smoke smoke.cpp)
-target_link_libraries(test_smoke PRIVATE GTest::gtest_main)
-
-add_test(NAME smoke COMMAND test_smoke)
-
 # e2e 基建静态库: 仅 POSIX 接口, 目标平台为 Linux
 add_library(test_common STATIC
     common/temp_dir.cpp
@@ -23,6 +17,12 @@ add_executable(test_common_selftest common_selftest.cpp)
 target_link_libraries(test_common_selftest PRIVATE test_common GTest::gtest_main)
 
 add_test(NAME common_selftest COMMAND test_common_selftest)
+
+# L0 模块冒烟: storage 页删除整理/增删扫/重开持久化, TempDir 隔离数据目录
+add_executable(test_storage storage/test_storage.cpp)
+target_link_libraries(test_storage PRIVATE storage test_common GTest::gtest_main)
+
+add_test(NAME storage_smoke COMMAND test_storage)
 
 # L1 e2e: initdb 正常路径(挂 DB_READY)与异常路径(独立执行)
 add_executable(test_initdb e2e/initdb/test_initdb.cpp)
