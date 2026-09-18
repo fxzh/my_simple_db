@@ -1,7 +1,9 @@
+#include <format>
 #include <iostream>
 #include <memory>
 #include <sstream>
 #include <string>
+#include <vector>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -46,6 +48,82 @@ void append_to_sql(const char* text, std::size_t len)
     sql_buffer.append(text, len);
 }
 
+// 单元格显示文本: NULL 显示 NULL, 整数十进制, 浮点最短表示, 字符串原样
+std::string cell_text(const proto::CellVal& cell)
+{
+    if (const auto* i = std::get_if<int64_t>(&cell)) {
+        return std::format("{}", *i);
+    }
+    if (const auto* d = std::get_if<double>(&cell)) {
+        return std::format("{}", *d);
+    }
+    if (const auto* s = std::get_if<std::string>(&cell)) {
+        return *s;
+    }
+    return "NULL";
+}
+
+// 结果集渲染为表格: 列宽取表头与各单元格的最大字节宽, 全左对齐,
+// 列间 " | " 分隔, 表头下每列 '-' × 列宽以 '+' 连接, 末列不补尾空格, 末行输出 (N 行)
+void render_result_set(const proto::ResultSet& rs)
+{
+    const std::size_t ncol = rs.cols.size();
+    std::vector<std::size_t> widths(ncol, 0);
+    for (std::size_t c = 0; c < ncol; ++c) {
+        widths[c] = rs.cols[c].size();
+    }
+    std::vector<std::vector<std::string>> cells;
+    cells.reserve(rs.rows.size());
+    for (const std::vector<proto::CellVal>& row : rs.rows) {
+        std::vector<std::string> texts;
+        texts.reserve(ncol);
+        for (std::size_t c = 0; c < ncol; ++c) {
+            std::string text = cell_text(row[c]);
+            if (text.size() > widths[c]) {
+                widths[c] = text.size();
+            }
+            texts.push_back(std::move(text));
+        }
+        cells.push_back(std::move(texts));
+    }
+
+    // 输出一行: 单元格补齐列宽(末列除外), 列间 " | " 分隔
+    const auto print_row = [&](const std::vector<std::string>& texts) {
+        for (std::size_t c = 0; c < ncol; ++c) {
+            if (c > 0) {
+                std::cout << " | ";
+            }
+            std::cout << texts[c];
+            if (c + 1 < ncol && texts[c].size() < widths[c]) {
+                std::cout << std::string(widths[c] - texts[c].size(), ' ');
+            }
+        }
+        std::cout << "\n";
+    };
+
+    print_row(rs.cols);
+
+    // 空结果: 仅表头 + 行数
+    if (rs.rows.empty()) {
+        std::cout << "(0 行)" << std::endl;
+        return;
+    }
+
+    // 表头下分隔行
+    for (std::size_t c = 0; c < ncol; ++c) {
+        if (c > 0) {
+            std::cout << '+';
+        }
+        std::cout << std::string(widths[c], '-');
+    }
+    std::cout << "\n";
+
+    for (const std::vector<std::string>& texts : cells) {
+        print_row(texts);
+    }
+    std::cout << "(" << rs.rows.size() << " 行)" << std::endl;
+}
+
 void send_to_server()
 {
     if (sql_overflow) {
@@ -77,12 +155,20 @@ void send_to_server()
         return;
     }
 
-    // Ok 原样回显, Error 补前缀打印; 本轮服务端不会回其他类型
+    // Ok 原样回显, Error 补前缀打印, ResultSet 渲染为表格
     if (type == proto::MsgType::Error) {
         sql_failed = true;
         std::cout << "服务器回显: ERROR: " << body << std::endl;
     } else if (type == proto::MsgType::Ok) {
         std::cout << "服务器回显: " << body << std::endl;
+    } else if (type == proto::MsgType::ResultSet) {
+        proto::ResultSet rs;
+        if (!proto::decode_result_set(body, rs)) {
+            std::cerr << "错误: 结果集解码失败" << std::endl;
+            sql_failed = true;
+        } else {
+            render_result_set(rs);
+        }
     } else {
         std::cerr << "错误: 收到未实现的消息类型: "
                   << static_cast<unsigned int>(type) << std::endl;

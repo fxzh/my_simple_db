@@ -1,0 +1,13 @@
+CREATE TABLE t_score (id int, score double);
+INSERT INTO t_score VALUES (1, 95.5);
+INSERT INTO t_score VALUES (2, 88.0);
+SELECT * FROM t_score;
+SELECT id, score FROM t_score;
+SELECT id AS user_id, score * 2 FROM t_score;
+SELECT 1 + 2 * 3, 'hi', 7.5 FROM t_score;
+SELECT nosuchcol FROM t_score;
+CREATE TABLE t_empty (id int);
+SELECT * FROM t_empty;
+DROP TABLE t_empty;
+SELECT * FROM t_missing;
+DROP TABLE t_score;
