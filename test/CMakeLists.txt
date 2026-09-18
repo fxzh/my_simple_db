@@ -93,3 +93,8 @@ add_test(NAME sql_dml_delete COMMAND test_sql
     ${SQL_CASES_DIR}/dml/cases/delete.sql
     ${SQL_CASES_DIR}/dml/expected/delete.out)
 set_tests_properties(sql_dml_delete PROPERTIES FIXTURES_REQUIRED SRV_UP)
+
+add_test(NAME sql_proto_long COMMAND test_sql
+    ${SQL_CASES_DIR}/proto/cases/long_sql.sql
+    ${SQL_CASES_DIR}/proto/expected/long_sql.out)
+set_tests_properties(sql_proto_long PROPERTIES FIXTURES_REQUIRED SRV_UP)

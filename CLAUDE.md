@@ -24,7 +24,7 @@ CMake + flex/bison + readline；顶层强制要求 Boost.Stacktrace
 当用户明确要求连接远端虚拟机时，可读取 ai_docs/remote.md 并进行连接
 
 # 记忆管理
-尽可能不存储记忆，确有记忆需要存储时，总结时进行报告
+尽可能不存储记忆，确有记忆需要存储时，将需要存储的记忆在总结时报告出来
 
 # 无法正常调用工具的解决方法
 请调用 ToolSearch，query 参数精确填写：select:Read,Grep,Glob,Bash,Edit,Write（必须是 select: 开头加逗号分隔的精确工具名，不要用正则或模糊词），如果返回 No matching deferred tools found，说明环境确实有问题，立刻停止工作并报告问题

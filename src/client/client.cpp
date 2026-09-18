@@ -2,7 +2,6 @@
 #include <memory>
 #include <sstream>
 #include <string>
-#include <cstring>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -13,11 +12,9 @@
 #include <FlexLexer.h>
 #include "parse_args.h"
 #include "client.h"
-
-#define BUFFER_SIZE 1024
+#include "proto/proto.h"
 
 int sock = 0;
-char buffer[BUFFER_SIZE] = {0};
 ScannerState scanner_state = STATE_INITIAL;
 std::string sql_buffer;
 bool sql_overflow = false;
@@ -61,25 +58,36 @@ void send_to_server()
     }
 
     std::cout << "已发送消息: " << sql_buffer << std::endl;
-    send(sock, sql_buffer.c_str(), sql_buffer.size(), 0);
+    // 整条 SQL 组帧发送
+    if (!proto::send_frame(sock, proto::MsgType::Query, sql_buffer)) {
+        std::cerr << "服务器连接已断开" << std::endl;
+        sql_failed = true;
+        reset_sql_buffer();
+        return;
+    }
     add_history(sql_buffer.c_str());
     reset_sql_buffer();
 
-    // 接收服务器回显
-    memset(buffer, 0, BUFFER_SIZE);
-    auto valread = read(sock, buffer, BUFFER_SIZE);
-
-    if (valread <= 0) {
+    // 接收服务器回复整帧
+    proto::MsgType type;
+    std::string body;
+    if (!proto::recv_frame(sock, 0, type, body)) {
         std::cerr << "服务器连接已断开" << std::endl;
         sql_failed = true;
         return;
     }
 
-    // 服务端以 "ERROR: " 前缀回执语法与执行错误
-    if (strncmp(buffer, "ERROR: ", 7) == 0) {
+    // Ok 原样回显, Error 补前缀打印; 本轮服务端不会回其他类型
+    if (type == proto::MsgType::Error) {
+        sql_failed = true;
+        std::cout << "服务器回显: ERROR: " << body << std::endl;
+    } else if (type == proto::MsgType::Ok) {
+        std::cout << "服务器回显: " << body << std::endl;
+    } else {
+        std::cerr << "错误: 收到未实现的消息类型: "
+                  << static_cast<unsigned int>(type) << std::endl;
         sql_failed = true;
     }
-    std::cout << "服务器回显: " << buffer << std::endl;
 }
 
 void process_input(std::string& input)
@@ -167,7 +175,7 @@ int main(int argc, char* argv[])
 
         // 检查退出指令
         if (message == "quit" || message == "exit") {
-            send(sock, message.c_str(), message.length(), 0);
+            proto::send_frame(sock, proto::MsgType::Query, message);
             std::cout << "正在断开连接..." << std::endl;
             break;
         }

@@ -5,7 +5,8 @@ executor 执行层静态库(executor)：把 parser 的 AST 转成 storage 调用
 server   服务端可执行程序：多线程 TCP，-D <数据目录> 必选启动，读目录内 db.conf 配置端口与控制通道，sql_parser 分析后经 executor 执行，使用 log
 log      日志静态库：单例 + 异步写线程，输出 simple.log
 common    跨层错误库：DbError + DB_RAISE，源头报错记日志并抛结构化异常
+proto    帧协议头文件(header-only)：长度前缀+消息类型，client 与 server 共用，无链接依赖
 storage  存储引擎静态库：M1 堆页追加+全表扫描(页/缓冲池/目录/编解码)，后续 B+树/WAL
 tool     独立工具
 
-依赖关系：server → parser、log、common、executor；executor → parser、storage、log、common(报错/告警)；storage → log、common(报错/告警)；client 与 server 仅通过 TCP 交互
+依赖关系：server → parser、log、common、executor；executor → parser、storage、log、common(报错/告警)；storage → log、common(报错/告警)；client 与 server 仅通过 TCP 帧协议(proto)交互

@@ -1,6 +1,5 @@
 #include <iostream>
 #include <string>
-#include <cstring>
 #include <memory>
 #include <thread>
 #include <mutex>
@@ -12,13 +11,12 @@
 #include <arpa/inet.h>
 #include "common/error.h"
 #include "log/log.h"
+#include "proto/proto.h"
 #include "sql_parser.h"
 #include "ast.hh"
 #include "executor.h"
 #include "storage.h"
 #include "session.h"
-
-#define BUFFER_SIZE 1024
 
 using enum LogModule;
 using enum LogLevel;
@@ -40,37 +38,32 @@ void safe_cout(const std::string& message)
 void handle_client(int client_socket, int client_id, const std::string& client_ip,
                    st::Database* db)
 {
-    char buffer[BUFFER_SIZE] = {0};
-
     std::string connect_msg = "客户端 ID:" + std::to_string(client_id) + " 已连接 (" + client_ip + ")";
     LOG(INFO, NETWORK, "%s", connect_msg.c_str());
 
     // 处理客户端消息循环
     while (server_running) {
         try {
-        memset(buffer, 0, BUFFER_SIZE);
-
-        // 接收客户端消息
-        auto valread = read(client_socket, buffer, BUFFER_SIZE - 1);
-        if (valread <= 0) {
-            if (valread == 0) {
-                std::string disconnect_msg = "客户端 ID:" + std::to_string(client_id) + " 断开连接";
-                LOG(INFO, NETWORK, "%s", disconnect_msg.c_str());
-            } else {
-                std::string error_msg = "从客户端 ID:" + std::to_string(client_id) + " 读取数据失败";
-                LOG(WARNING, NETWORK, "%s", error_msg.c_str());
-            }
+        // 按帧收整条请求: 断开/读取失败/长度超限即结束会话
+        proto::MsgType msg_type;
+        std::string msg_str;
+        if (!proto::recv_frame(client_socket, proto::MAX_REQUEST_PAYLOAD, msg_type, msg_str)) {
+            std::string disconnect_msg = "客户端 ID:" + std::to_string(client_id) + " 断开连接";
+            LOG(INFO, NETWORK, "%s", disconnect_msg.c_str());
             break;
         }
-
-        std::string msg_str(buffer);
+        if (msg_type != proto::MsgType::Query) {
+            LOG(WARNING, NETWORK, "客户端 ID:%d 消息类型非法: %u, 断开连接", client_id,
+                static_cast<unsigned int>(msg_type));
+            break;
+        }
         std::string log_msg = "来自 ID:" + std::to_string(client_id) + " 的SQL: " + msg_str;
         LOG(INFO, NETWORK, "%s", log_msg.c_str());
 
         // 检查是否收到退出指令
         if (msg_str == "quit" || msg_str == "exit") {
             std::string goodbye_msg = "再见!";
-            send(client_socket, goodbye_msg.c_str(), goodbye_msg.length(), 0);
+            proto::send_frame(client_socket, proto::MsgType::Ok, goodbye_msg);
 
             std::string leave_msg = "客户端 ID:" + std::to_string(client_id) + " 主动退出";
             LOG(INFO, NETWORK, "%s", leave_msg.c_str());
@@ -92,22 +85,19 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
                 // 空输入或仅 ";", 无实际语句
                 reply = msg_str;
             }
-            send(client_socket, reply.c_str(), reply.length(), 0);
+            proto::send_frame(client_socket, proto::MsgType::Ok, reply);
         } else {
             std::string err_log = "SQL解析失败 ID:" + std::to_string(client_id) + ": " + parse_error;
             LOG(WARNING, PARSER, "%s", err_log.c_str());
-            std::string err_reply = "ERROR: " + parse_error;
-            send(client_socket, err_reply.c_str(), err_reply.length(), 0);
+            proto::send_frame(client_socket, proto::MsgType::Error, parse_error);
         }
         } catch (const db::DbError& e) {
             // 结构化错误: 源头已记 ERROR(带堆栈), 这里只路由给客户端, 不再重复记
-            std::string err_reply = "ERROR: " + std::string(e.what());
-            send(client_socket, err_reply.c_str(), err_reply.length(), 0);
+            proto::send_frame(client_socket, proto::MsgType::Error, e.what());
         } catch (const std::exception& e) {
             // 非 DbError 的底层异常降级收录后回客户端
             LOG(WARNING, EXECUTOR, "ID:%d SQL执行异常: %s", client_id, e.what());
-            std::string err_reply = "ERROR: " + std::string(e.what());
-            send(client_socket, err_reply.c_str(), err_reply.length(), 0);
+            proto::send_frame(client_socket, proto::MsgType::Error, e.what());
         }
     }
 
@@ -140,7 +130,7 @@ void spawn_client(int new_socket, const struct sockaddr_in& address, st::Databas
         std::lock_guard<std::mutex> lock(clients_mutex);
         if (clients.size() >= MAX_CLIENTS) {
             std::string reject_msg = "服务器已达到最大客户端数限制 (" + std::to_string(MAX_CLIENTS) + ")";
-            send(new_socket, reject_msg.c_str(), reject_msg.length(), 0);
+            proto::send_frame(new_socket, proto::MsgType::Error, reject_msg);
             close(new_socket);
             std::cout << "拒绝新连接：已达到最大客户端数限制" << std::endl;
             return;
