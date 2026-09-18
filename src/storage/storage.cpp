@@ -52,7 +52,7 @@ void Database::close()
     open_ = false;
 }
 
-const TableMeta& Database::get_table(const std::string& name) const
+const TableMeta& Database::table_meta(const std::string& name) const
 {
     const TableMeta* meta = catalog_.find(name);
     if (meta == nullptr) {
@@ -100,7 +100,7 @@ uint32_t Database::create_table(const std::string& name, const std::vector<Colum
 void Database::drop_table(const std::string& name)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    const uint32_t tid = get_table(name).table_id;
+    const uint32_t tid = table_meta(name).table_id;
     catalog_.erase(name);
     catalog_.save(catalog_path_of(dir_));
     files_.remove_table_file(tid);
@@ -129,7 +129,7 @@ uint32_t Database::link_header_to_first_data_page(uint32_t table_id)
 RowRef Database::insert(const std::string& table, const std::vector<Value>& values)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    const TableMeta& meta = get_table(table);
+    const TableMeta& meta = table_meta(table);
 
     if (meta.cols.size() != values.size()) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "值的数量与列数不符");
@@ -218,7 +218,7 @@ size_t Database::delete_by_ref(const RowRef& ref)
 size_t Database::delete_all(const std::string& table)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    const TableMeta& meta = get_table(table);
+    const TableMeta& meta = table_meta(table);
     size_t n = 0;
     const PageId pid0 = make_page_id(meta.table_id, 0);
     char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);
@@ -246,14 +246,14 @@ size_t Database::delete_all(const std::string& table)
 
 std::unique_ptr<Scanner> Database::scan(const std::string& table)
 {
-    const TableMeta& meta = get_table(table);
+    const TableMeta& meta = table_meta(table);
     return std::make_unique<Scanner>(this, meta);
 }
 
 size_t Database::row_count(const std::string& table)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    const TableMeta& meta = get_table(table);
+    const TableMeta& meta = table_meta(table);
     size_t n = 0;
     const PageId pid0 = make_page_id(meta.table_id, 0);
     char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);

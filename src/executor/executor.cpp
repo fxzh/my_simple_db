@@ -178,6 +178,9 @@ std::string execute(st::Database& db, const SQLStatement& stmt)
         const size_t n = db.delete_all(ds.table_name());
         return "OK (删除 " + std::to_string(n) + " 行)";
     }
+    case StmtKind::Select:
+        DB_RAISE(db::ErrCode::UnknownStmt, LogModule::EXECUTOR, "executor: select 语句暂不支持");
+        return "";
     }
     // 不可达: 全部语句种类已在上方穷尽
     DB_RAISE(db::ErrCode::UnknownStmt, LogModule::EXECUTOR, "executor: 未知语句种类");

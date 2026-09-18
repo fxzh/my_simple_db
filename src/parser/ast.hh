@@ -6,8 +6,10 @@
 #define PARSER_AST_HH
 
 #include <cstddef>
+#include <format>
 #include <iostream>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -109,6 +111,30 @@ struct UnaryOpExpr : Expr {
     ExprKind kind() const override { return ExprKind::UnaryOp; }
 };
 
+// 表达式反生成 SQL 文本: 供输出列命名与日志使用
+inline std::string expr_to_string(const Expr& e)
+{
+    switch (e.kind()) {
+    case ExprKind::Int:
+        return std::format("{}", static_cast<const IntExpr&>(e).value);
+    case ExprKind::Float:
+        return std::format("{}", static_cast<const FloatExpr&>(e).value);
+    case ExprKind::String:
+        return "'" + static_cast<const StringExpr&>(e).value + "'";
+    case ExprKind::Identifier:
+        return static_cast<const IdentifierExpr&>(e).name;
+    case ExprKind::BinaryOp: {
+        const auto& b = static_cast<const BinaryOpExpr&>(e);
+        return "(" + expr_to_string(*b.left) + " " + b.op + " " + expr_to_string(*b.right) + ")";
+    }
+    case ExprKind::UnaryOp: {
+        const auto& u = static_cast<const UnaryOpExpr&>(e);
+        return "(" + std::string(1, u.op) + expr_to_string(*u.operand) + ")";
+    }
+    }
+    return "";
+}
+
 // ==================== SQL 语句 AST ====================
 
 // 语句种类, 供执行层等上层按类型分派(取代字符串识别)
@@ -117,6 +143,7 @@ enum class StmtKind {
     DropTable,
     Insert,
     Delete,
+    Select,
 };
 
 // SQL 语句基类
@@ -202,6 +229,58 @@ public:
     }
 
     StmtKind kind() const override { return StmtKind::Delete; }
+};
+
+// SELECT 投影项: star 为 true 时 expr 为空, 且 items 中仅允许一个这样的元素
+struct SelectItem {
+    std::unique_ptr<Expr> expr;
+    std::string alias;    // 仅显式 AS 时非空
+    bool star = false;
+};
+
+// 排序键: 列名或别名 + 方向
+struct OrderItem {
+    std::string name;
+    bool desc = false;
+};
+
+// SELECT [DISTINCT] 投影 FROM 表 [WHERE] [ORDER BY] [LIMIT n [OFFSET m]]
+class SelectStmt : public SQLStatement {
+    std::string table_;
+    bool distinct_ = false;
+    std::vector<SelectItem> items_;
+    std::unique_ptr<Expr> where_;   // 无 WHERE 时为空
+    std::vector<OrderItem> orders_;
+    std::optional<long long> limit_;   // 未指定为 nullopt
+    std::optional<long long> offset_;  // 未指定为 nullopt
+public:
+    SelectStmt(std::string name, bool distinct, std::vector<SelectItem> items,
+               std::unique_ptr<Expr> where, std::vector<OrderItem> orders,
+               std::optional<long long> limit, std::optional<long long> offset)
+        : table_(std::move(name)), distinct_(distinct), items_(std::move(items)),
+          where_(std::move(where)), orders_(std::move(orders)), limit_(limit), offset_(offset) {}
+
+    const std::string& table_name() const { return table_; }
+    bool distinct() const { return distinct_; }
+    const std::vector<SelectItem>& items() const { return items_; }
+    const Expr* where_expr() const { return where_.get(); }
+    const std::vector<OrderItem>& orders() const { return orders_; }
+    const std::optional<long long>& limit() const { return limit_; }
+    const std::optional<long long>& offset() const { return offset_; }
+
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "Select: " << table_ << std::endl;
+        for (const SelectItem& item : items_) {
+            if (item.star) {
+                os << std::string(static_cast<std::size_t>(indent + 4), ' ') << "*" << std::endl;
+            } else {
+                item.expr->print(os, indent + 4);
+            }
+        }
+    }
+
+    StmtKind kind() const override { return StmtKind::Select; }
 };
 
 #endif  // PARSER_AST_HH

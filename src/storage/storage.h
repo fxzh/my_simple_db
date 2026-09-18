@@ -67,10 +67,11 @@ public:
     std::unique_ptr<Scanner> scan(const std::string& table);
     // 存活行数统计(便利函数, 供测试与将来执行层使用)
     size_t row_count(const std::string& table);
+    // 按表名取表元数据(只读), 表不存在当场报错
+    const TableMeta& table_meta(const std::string& name) const;
 
 private:
     friend class Scanner;
-    const TableMeta& get_table(const std::string& name) const;
     // 建首个数据页(页号 1)并链到文件头页, 返回新页号
     uint32_t link_header_to_first_data_page(uint32_t table_id);
 

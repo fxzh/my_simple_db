@@ -6,7 +6,8 @@ flex(c++ 模式) + bison(c++ 模式) 生成的最小 SQL 解析，语法校验�
 lexer.l         扫描器(经 %option yyclass 生成在 SQLScanner 类中)：关键字/标识符/数字/字符串字面量，
                 非法字符记入本次解析的错误缓冲并返回 TOK_ERROR
 parser.y        文法(%language "c++"、variant 语义值、%locations)：支持 CREATE TABLE / DROP TABLE /
-                INSERT INTO ... VALUES / DELETE FROM，含 + - * / 与一元 +/- 的完整表达式层。
+                INSERT INTO ... VALUES / DELETE FROM / SELECT 投影查询(M-S1: 列投影/别名/常量表达式)，
+                含 + - * / 与一元 +/- 的完整表达式层。
                 扫描器/错误缓冲经 %lex-param/%parse-param 传入，无模块级全局变量；
                 首个语句的 AST 经 %parse-param 回传给调用方；多条语句只取第一条
 sql_scanner.h/.cpp   SQLScanner 词法器：派生 yyFlexLexer，词法状态(语义值/位置/行列/错误缓冲)全为实例成员

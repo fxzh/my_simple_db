@@ -57,6 +57,7 @@
 %token TOK_ERROR
 %token CREATE TABLE DROP INSERT INTO VALUES DELETE FROM
 %token INT FLOAT CHAR DOUBLE
+%token SELECT AS
 
 %token <long long> INTEGER
 %token <double> FLOAT_NUM
@@ -69,12 +70,15 @@
 %right UMINUS
 
 // 类型声明
-%type <std::unique_ptr<SQLStatement>> statement create_statement drop_statement insert_statement delete_statement create_table_statement drop_table_statement
+%type <std::unique_ptr<SQLStatement>> statement create_statement drop_statement insert_statement delete_statement create_table_statement drop_table_statement select_statement
 %type <std::vector<ColumnDef>> column_definitions
 %type <ColumnDef> column_definition
 %type <std::string> type_specifier
 %type <std::vector<std::unique_ptr<Expr>>> value_list
 %type <std::unique_ptr<Expr>> value expression
+%type <std::vector<SelectItem>> select_list select_items
+%type <SelectItem> select_item
+%type <std::string> alias_opt
 
 %%
 
@@ -97,6 +101,7 @@ statement:
     |   drop_statement    { $$ = std::move($1); }
     |   insert_statement  { $$ = std::move($1); }
     |   delete_statement  { $$ = std::move($1); }
+    |   select_statement  { $$ = std::move($1); }
     ;
 
 // create table ...
@@ -142,6 +147,39 @@ delete_statement:
         DELETE FROM IDENTIFIER {
             $$ = std::make_unique<DeleteStmt>(std::move($3));
         }
+    ;
+
+// select 投影列表 FROM 表名(基础闭环: WHERE/ORDER BY/LIMIT 随后续里程碑接入)
+select_statement:
+        SELECT select_list FROM IDENTIFIER {
+            $$ = std::make_unique<SelectStmt>(std::move($4), false, std::move($2), nullptr,
+                                             std::vector<OrderItem>{}, std::nullopt, std::nullopt);
+        }
+    ;
+
+select_list:
+        '*' {
+            $$ = std::vector<SelectItem>();
+            $$.push_back(SelectItem{ nullptr, "", true });
+        }
+    |   select_items { $$ = std::move($1); }
+    ;
+
+select_items:
+        select_items ',' select_item { $1.push_back(std::move($3)); $$ = std::move($1); }
+    |   select_item {
+            $$ = std::vector<SelectItem>();
+            $$.push_back(std::move($1));
+        }
+    ;
+
+select_item:
+        expression alias_opt { $$ = SelectItem{ std::move($1), std::move($2), false }; }
+    ;
+
+alias_opt:
+        /* empty */ { $$ = std::string(); }
+    |   AS IDENTIFIER { $$ = std::move($2); }
     ;
 
 // insert into ... values (...)

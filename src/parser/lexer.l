@@ -41,6 +41,8 @@ WS       [ \t\r]
 "float"    { return yy::parser::token::FLOAT; }
 "char"     { return yy::parser::token::CHAR; }
 "double"   { return yy::parser::token::DOUBLE; }
+"select"   { return yy::parser::token::SELECT; }
+"as"       { return yy::parser::token::AS; }
 
 {DIGIT}+"."{DIGIT}*|"."{DIGIT}+ {
     yylval->build<double>(std::stod(yytext));
