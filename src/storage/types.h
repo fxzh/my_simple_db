@@ -50,6 +50,7 @@ struct ColumnSpec {
     std::string name;
     ColType type;
     uint16_t length = 0;  // Char/VarChar 的声明长度
+    bool not_null = false;  // NOT NULL 约束
 };
 
 // 表元数据(目录条目)
@@ -59,8 +60,8 @@ struct TableMeta {
     std::vector<ColumnSpec> cols;
 };
 
-// 行值: 与 parser 的字面量对应
-using Value = std::variant<int64_t, double, std::string>;
+// 行值: 与 parser 的字面量对应, monostate 表示 NULL
+using Value = std::variant<std::monostate, int64_t, double, std::string>;
 
 // 行物理位置: (页, 槽)
 struct RowRef {

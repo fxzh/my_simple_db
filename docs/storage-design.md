@@ -140,12 +140,12 @@ struct Slot {
 记录（Record）序列化格式：
 
 ```
-[记录长度 uint16][列数据区]
-列数据区 = 固定类型 inline 累加 + varchar 各带长度前缀 + char 定长 n 字节无前缀
+[记录长度 uint16][NULL 位图 ceil(列数/8) 字节][列数据区]
+列数据区 = 非 NULL 列依次排列: 固定类型 inline 累加 + varchar 各带长度前缀 + char 定长 n 字节无前缀
 ```
 
 - 长度上限：`PAGE_SIZE - 页头 - 槽`，约 4000 字节；**超长行暂不支持**
-- NULL 值暂不支持（类型枚举为 NULL 留一个枚举值，将来扩展类型直接扩枚举）
+- NULL 以记录头位图表示(值层为 monostate)，NULL 列不占列数据区字节；NOT NULL 列由 insert 拒绝 NULL
 - 页内定位用 `(page_id, slot_index)`；B+ 树叶子用 rowid 定位
 
 rowid（§8 详述）：表内自增 int64，是聚簇索引键。叶子节点里 **payload 不含 rowid**，rowid 在节点的 key 数组里，由 B+ 树迭代器补成 `Row{rid, values}`。
@@ -158,7 +158,7 @@ rowid（§8 详述）：表内自增 int64，是聚簇索引键。叶子节点�
 struct TableMeta {
   uint32_t     table_id;           // 全局唯一, 自增
   std::string  name;
-  std::vector<ColumnSpec> cols;    // {name, type, length}
+  std::vector<ColumnSpec> cols;    // {name, type, length, not_null}
 };
 ```
 
@@ -291,7 +291,6 @@ insert:
 ## 12. 简化项与已知限制
 
 - 超长行（>约 4000B）不支持，varchar(n) 需 n ≤ 4000
-- 无 NULL 值（预留位）
 - B+ 树删除不做下溢合并（标记删除 + compact）
 - 无主键约束（用隐式 rowid 聚簇；grammar 支持 PRIMARY KEY 后，加"主键 → rowid"二级索引，主键 B+树不变）
 - 事务仅自动提交；无 MVCC

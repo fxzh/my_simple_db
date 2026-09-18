@@ -112,12 +112,15 @@ void Catalog::load(const std::string& path)
                 DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::STORAGE, "目录列损坏");
             }
             uint8_t type = 0;
-            if (r.pos >= r.size) {
+            uint8_t flags = 0;
+            if (r.pos + 2 > r.size) {
                 DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::STORAGE, "目录列损坏");
             }
             type = r.p[r.pos];
-            ++r.pos;
+            flags = r.p[r.pos + 1];
+            r.pos += 2;
             col.type = static_cast<ColType>(type);
+            col.not_null = (flags & 0x01) != 0;
             meta.cols.push_back(std::move(col));
         }
         tables_.push_back(std::move(meta));
@@ -138,6 +141,7 @@ void Catalog::save(const std::string& path) const
             put_bytes(out, col.name);
             put_u16(out, col.length);
             out.push_back(static_cast<uint8_t>(col.type));
+            out.push_back(col.not_null ? 0x01 : 0x00);  // flags: bit0 = NOT NULL
         }
     }
 

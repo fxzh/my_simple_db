@@ -78,9 +78,18 @@ bool encode_row(const std::vector<ColumnSpec>& cols, const std::vector<Value>& v
     out.reserve(16 + values.size() * 8);
     out.push_back(0);  // 长度占位(低 8 位)
     out.push_back(0);  // 长度占位(高 8 位)
+    // NULL 位图: 每列 1 bit, 1 表示 NULL, NULL 列不占列数据区字节
+    out.insert(out.end(), (cols.size() + 7) / 8, 0);
 
     for (size_t i = 0; i < cols.size(); ++i) {
         const ColumnSpec& col = cols[i];
+        if (std::holds_alternative<std::monostate>(values[i])) {
+            if (col.not_null) {
+                return false;  // NOT NULL 列拒绝 NULL
+            }
+            out[2 + i / 8] |= static_cast<uint8_t>(1u << (i % 8));
+            continue;
+        }
         switch (col.type) {
             case ColType::Int: {
                 int64_t v = 0;
@@ -168,10 +177,21 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
     if (static_cast<size_t>(body_len) + 2 != len) {
         return false;
     }
+    // NULL 位图与编码侧同布局, 位图不完整视为损坏
+    const size_t bitmap_len = (cols.size() + 7) / 8;
+    if (2 + bitmap_len > len) {
+        return false;
+    }
+    const uint8_t* bitmap = data + 2;
     out.clear();
     out.reserve(cols.size());
-    size_t pos = 2;
-    for (const ColumnSpec& col : cols) {
+    size_t pos = 2 + bitmap_len;
+    for (size_t i = 0; i < cols.size(); ++i) {
+        const ColumnSpec& col = cols[i];
+        if ((bitmap[i / 8] >> (i % 8)) & 1u) {
+            out.emplace_back();  // NULL: monostate
+            continue;
+        }
         switch (col.type) {
             case ColType::Int: {
                 if (pos + 4 > len) {

@@ -131,6 +131,15 @@ RowRef Database::insert(const std::string& table, const std::vector<Value>& valu
     std::lock_guard<std::mutex> lock(mutex_);
     const TableMeta& meta = get_table(table);
 
+    if (meta.cols.size() != values.size()) {
+        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "值的数量与列数不符");
+    }
+    for (size_t i = 0; i < values.size(); ++i) {
+        if (meta.cols[i].not_null && std::holds_alternative<std::monostate>(values[i])) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "NOT NULL 列不允许 NULL: {}",
+                     meta.cols[i].name);
+        }
+    }
     std::vector<uint8_t> rec;
     if (!encode_row(meta.cols, values, rec)) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "值与列类型不匹配");
