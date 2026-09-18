@@ -28,6 +28,7 @@ enum class ErrCode {
     ValueMismatch,  // 插入值与列类型不匹配
     RecordTooLong,  // 记录超长
     ArithError,     // 算术溢出/除零(表达式求值)
+    UnknownColumn,  // 引用了不存在的列
     UnknownStmt,    // 未知语句种类(执行层不变量违反)
     Internal,       // 内部不变量违反(缓冲池记账等)
 };
@@ -46,6 +47,7 @@ constexpr std::string_view errCodeName(ErrCode code) noexcept
         case ErrCode::ValueMismatch:  return "VALUE_MISMATCH";
         case ErrCode::RecordTooLong:  return "RECORD_TOO_LONG";
         case ErrCode::ArithError:     return "ARITH_ERROR";
+        case ErrCode::UnknownColumn:  return "UNKNOWN_COLUMN";
         case ErrCode::UnknownStmt:    return "UNKNOWN_STMT";
         case ErrCode::Internal:       return "INTERNAL";
         default:                      return "UNKNOWN";

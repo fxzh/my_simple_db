@@ -76,16 +76,37 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
         if (sql::parse(msg_str, parse_error, stmt)) {
             std::string ok_log = "SQL解析成功 ID:" + std::to_string(client_id) + ": " + msg_str;
             LOG(INFO, PARSER, "%s", ok_log.c_str());
-            std::string reply;
             if (stmt) {
-                reply = exec::execute(*db, *stmt);
-                std::string exec_log = "ID:" + std::to_string(client_id) + " SQL执行结果: " + reply;
-                LOG(INFO, EXECUTOR, "%s", exec_log.c_str());
+                exec::ExecResult result = exec::execute(*db, *stmt);
+                if (result.is_result_set) {
+                    // st::Value 与 CellVal 同构, 逐格搬运成结果集帧
+                    proto::ResultSet rs;
+                    rs.cols = result.col_names;
+                    rs.rows.reserve(result.rows.size());
+                    for (const std::vector<st::Value>& row : result.rows) {
+                        std::vector<proto::CellVal> cells;
+                        cells.reserve(row.size());
+                        for (const st::Value& v : row) {
+                            cells.push_back(std::visit(
+                                [](const auto& x) { return proto::CellVal{x}; }, v));
+                        }
+                        rs.rows.push_back(std::move(cells));
+                    }
+                    std::string exec_log = "ID:" + std::to_string(client_id) + " SQL执行结果: 返回 "
+                                         + std::to_string(result.rows.size()) + " 行";
+                    LOG(INFO, EXECUTOR, "%s", exec_log.c_str());
+                    proto::send_frame(client_socket, proto::MsgType::ResultSet,
+                                      proto::encode_result_set(rs));
+                } else {
+                    std::string exec_log = "ID:" + std::to_string(client_id)
+                                         + " SQL执行结果: " + result.status;
+                    LOG(INFO, EXECUTOR, "%s", exec_log.c_str());
+                    proto::send_frame(client_socket, proto::MsgType::Ok, result.status);
+                }
             } else {
                 // 空输入或仅 ";", 无实际语句
-                reply = msg_str;
+                proto::send_frame(client_socket, proto::MsgType::Ok, msg_str);
             }
-            proto::send_frame(client_socket, proto::MsgType::Ok, reply);
         } else {
             std::string err_log = "SQL解析失败 ID:" + std::to_string(client_id) + ": " + parse_error;
             LOG(WARNING, PARSER, "%s", err_log.c_str());
