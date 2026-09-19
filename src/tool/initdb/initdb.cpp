@@ -20,6 +20,9 @@ constexpr char kDefaultConf[] = R"(# my_simple_db 服务端配置
 port = 8123
 )";
 
+// initdb 失败时日志的保留路径
+constexpr char kFailedLogPath[] = "/tmp/simple.log";
+
 // 在指定路径写入默认配置文件, 已存在或写入失败返回 false 并填充错误描述
 bool write_default_conf(const std::string& path, std::string& error)
 {
@@ -100,15 +103,19 @@ int main(int argc, char* argv[])
     // storage 报错走日志宏, 先设置日志路径
     Logger::initPath((std::filesystem::path(dir) / "simple.log").string());
 
-    // 失败回滚: 删除本次写入的文件, 目录为本次创建则连目录一起删
-    const auto rollback = [&dir, dir_created]() {
+    // 失败回滚: 日志移至 /tmp 保留, 清空目录内其余内容, 目录为本次创建则连目录一起删, 返回是否保留
+    const auto rollback = [&dir, dir_created]() -> bool {
         std::error_code ec;
-        std::filesystem::remove(std::filesystem::path(dir) / "db.conf", ec);
-        std::filesystem::remove(std::filesystem::path(dir) / "catalog.dat", ec);
-        std::filesystem::remove(std::filesystem::path(dir) / "simple.log", ec);
+        std::filesystem::rename(std::filesystem::path(dir) / "simple.log", kFailedLogPath, ec);
+        const bool log_kept = !ec;
         if (dir_created) {
-            std::filesystem::remove(dir, ec);
+            std::filesystem::remove_all(dir, ec);
+            return log_kept;
         }
+        for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+            std::filesystem::remove_all(entry.path(), ec);
+        }
+        return log_kept;
     };
 
     std::string path = config::conf_path(dir);
@@ -122,8 +129,11 @@ int main(int argc, char* argv[])
         st::Database db(dir);
         db.create();
     } catch (const std::exception& e) {
-        rollback();
+        const bool log_kept = rollback();
         std::cerr << e.what() << std::endl;
+        if (log_kept) {
+            std::cerr << "详细信息可查看 " << kFailedLogPath << std::endl;
+        }
         return 1;
     }
     std::cout << "已初始化数据目录: " << dir << std::endl;
