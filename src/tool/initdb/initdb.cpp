@@ -1,11 +1,13 @@
-// initdb: 初始化工具, 在 -D 指定的数据目录内生成默认配置文件 db.conf
+// initdb: 初始化工具, 在 -D 指定的数据目录内生成默认配置文件 db.conf 与空目录文件 catalog.dat
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
 #include <system_error>
 
+#include "log/log.h"
 #include "server/config.h"
+#include "storage.h"
 
 namespace {
 
@@ -45,8 +47,8 @@ bool write_default_conf(const std::string& path, std::string& error)
     return true;
 }
 
-// 数据目录就绪检查: 不存在则创建, 路径不可用或目录非空返回 false 并填充错误描述
-bool prepare_data_dir(const std::string& dir, std::string& error)
+// 数据目录就绪检查: 不存在则创建(created 置真), 路径不可用或目录非空返回 false 并填充错误描述
+bool prepare_data_dir(const std::string& dir, bool& created, std::string& error)
 {
     std::error_code ec;
     if (std::filesystem::exists(dir, ec)) {
@@ -69,6 +71,7 @@ bool prepare_data_dir(const std::string& dir, std::string& error)
         error = "无法创建数据目录: " + dir;
         return false;
     }
+    created = true;
     return true;
 }
 
@@ -89,13 +92,38 @@ int main(int argc, char* argv[])
     std::string dir = std::filesystem::absolute(data_dir_arg).string();
 
     std::string error;
-    if (!prepare_data_dir(dir, error)) {
+    bool dir_created = false;
+    if (!prepare_data_dir(dir, dir_created, error)) {
         std::cerr << error << std::endl;
         return 1;
     }
+    // storage 报错走日志宏, 先设置日志路径
+    Logger::initPath((std::filesystem::path(dir) / "simple.log").string());
+
+    // 失败回滚: 删除本次写入的文件, 目录为本次创建则连目录一起删
+    const auto rollback = [&dir, dir_created]() {
+        std::error_code ec;
+        std::filesystem::remove(std::filesystem::path(dir) / "db.conf", ec);
+        std::filesystem::remove(std::filesystem::path(dir) / "catalog.dat", ec);
+        std::filesystem::remove(std::filesystem::path(dir) / "simple.log", ec);
+        if (dir_created) {
+            std::filesystem::remove(dir, ec);
+        }
+    };
+
     std::string path = config::conf_path(dir);
     if (!write_default_conf(path, error)) {
+        rollback();
         std::cerr << error << std::endl;
+        return 1;
+    }
+    // 生成空目录文件, 兜 std::exception(目录不可写时 Logger 构造亦抛异常)
+    try {
+        st::Database db(dir);
+        db.create();
+    } catch (const std::exception& e) {
+        rollback();
+        std::cerr << e.what() << std::endl;
         return 1;
     }
     std::cout << "已初始化数据目录: " << dir << std::endl;

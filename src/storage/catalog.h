@@ -15,7 +15,7 @@ constexpr uint32_t CATALOG_MAGIC = 0x43415444;  // "CATD"
 // 表数量小, 查找用线性扫描
 class Catalog {
 public:
-    // 目录文件不存在则视为空目录; 文件损坏抛 std::runtime_error
+    // 目录文件不存在或损坏当场报错
     void load(const std::string& path);
     // 全量重写目录文件
     void save(const std::string& path) const;

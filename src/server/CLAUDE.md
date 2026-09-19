@@ -23,7 +23,8 @@
 # 要点
 - 全局状态：clients 表(shared_ptr<ClientInfo>+mutex)、client_counter、server_running
 - 存储引擎：一个 st::Database 实例(数据目录来自 -D 参数)在 main 中 open/close，
-  主循环前 open、退出前 close；所有客户端线程共享它，内部 mutex 串行化
+  主循环前 open、退出前 close；目录未初始化(catalog.dat 缺失)时拒绝启动；
+  所有客户端线程共享它，内部 mutex 串行化
 - 日志：simple.log 位于数据目录内，配置加载完成后初始化日志路径
 - 每线程阻塞在 recv 上，等待期间不响应其他请求
 - 报错统一走 common/error.h 的 DB_RAISE：源头记一条 ERROR(带错误码与堆栈)并抛 DbError；

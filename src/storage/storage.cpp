@@ -31,13 +31,18 @@ Database::~Database()
     }
 }
 
+void Database::create()
+{
+    const std::string path = catalog_path_of(dir_);
+    if (std::filesystem::exists(path)) {
+        DB_RAISE(db::ErrCode::CatalogExists, LogModule::STORAGE, "目录文件已存在: {}", path);
+    }
+    catalog_.save(path);
+}
+
 void Database::open()
 {
-    std::filesystem::create_directories(dir_);
     catalog_.load(catalog_path_of(dir_));
-    if (!std::filesystem::exists(catalog_path_of(dir_))) {
-        catalog_.save(catalog_path_of(dir_));  // 首次打开: 生成空目录文件
-    }
     pool_.invalidate_all();
     tail_pages_.clear();
     open_ = true;

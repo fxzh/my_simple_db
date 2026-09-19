@@ -10,8 +10,9 @@ codec.h/.cpp    记录[长度 u16][NULL 位图][列数据]序列化；类型名�
 file_manager    每表一个 t_<table_id>.dat，pread/pwrite 页级 IO，fsync/flush，fd 按需打开缓存
                 使用 POSIX 文件 IO(open/pread/pwrite/fsync)，标准 C++ 无跨平台替代
 buffer_pool     定长帧缓存(默认 128)：Clock 淘汰 + pin 计数 + dirty 页写回；并发由上层锁保证
-catalog.h/.cpp  目录文件[CATD][表数量][TableMeta×N]，启动加载进内存，DDL 全量重写
-storage.h/.cpp  Database 门面：create_table/drop_table/insert/scan/table_meta(公开只读元数据)；
+catalog.h/.cpp  目录文件[CATD][表数量][TableMeta×N]，加载时缺文件/损坏即报错，DDL 全量重写
+storage.h/.cpp  Database 门面：create(初始化目录文件)/open(要求已初始化)/close、
+                create_table/drop_table/insert/scan/table_meta(公开只读元数据)；
                 全局 mutex 串行化；
                 tail_pages_ 跟踪"仅存内存的尾页"，新页号取 max(磁盘页数, 尾页+1)
 

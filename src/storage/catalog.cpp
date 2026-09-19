@@ -81,7 +81,7 @@ void Catalog::load(const std::string& path)
     tables_.clear();
     std::ifstream in(path, std::ios::binary);
     if (!in) {
-        return;  // 文件不存在: 空目录
+        DB_RAISE(db::ErrCode::CatalogMissing, LogModule::STORAGE, "目录文件不存在: {}", path);
     }
     in.seekg(0, std::ios::end);
     const std::streamoff fsize = in.tellg();

@@ -166,7 +166,7 @@ struct TableMeta {
 
 - 启动时整文件读入内存（小库可接受）；发现损坏且无 WAL 可救时直接报错拒绝启动
 - DDL（create/drop）流程：先写 WAL(OP_CREATE_TABLE / OP_DROP_TABLE) → 改内存 catalog → fsync 后整体重写 catalog.dat
-- 引入 WAL 之前（M1），catalog 直接重写，靠文件内 checksum 检测残破，启动时若校验失败则丢弃（数据非事务性可接受）
+- 引入 WAL 之前（M1），catalog 直接重写；catalog.dat 由 initdb 经 Database::create 生成，open 只加载，缺文件或校验失败即报错拒绝启动
 
 ## 7. 缓冲池 Buffer Pool
 

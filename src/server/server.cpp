@@ -19,6 +19,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <arpa/inet.h>
+#include "common/error.h"
 #include "config.h"
 #include "log/log.h"
 #include "storage.h"
@@ -111,8 +112,7 @@ int main(int argc, char* argv[])
         ? (data_dir_abs / "server.sock").string()
         : std::filesystem::absolute(cfg.control_socket).string();
 
-    // 日志文件与 pidfile 都在数据目录内, 先确保目录存在
-    std::filesystem::create_directories(data_dir_abs);
+    // 日志文件与 pidfile 都在数据目录内
     std::string log_path = (data_dir_abs / "simple.log").string();
     {
         // fork 前仅探测日志文件可打开, 单例留待 fork 后首次 LOG 构造(daemon 子进程内建写线程)
@@ -140,6 +140,12 @@ int main(int argc, char* argv[])
     st::Database db(data_dir);
     try {
         db.open();
+    } catch (const db::DbError& e) {
+        LOG(CRITICAL, SYSTEM, "打开数据目录失败: %s", e.what());
+        if (e.code() == db::ErrCode::CatalogMissing) {
+            std::cout << "数据目录不完整: 缺少 catalog.dat" << std::endl;
+        }
+        return -1;
     } catch (const std::exception& e) {
         LOG(CRITICAL, SYSTEM, "打开数据目录失败: %s", e.what());
         return -1;

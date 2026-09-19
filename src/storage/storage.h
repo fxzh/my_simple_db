@@ -51,7 +51,9 @@ public:
     Database(const Database&) = delete;
     Database& operator=(const Database&) = delete;
 
-    // 打开数据目录(不存在则创建)并加载目录
+    // 初始化数据目录: 生成空目录文件, 目录须已存在且未初始化, 不进入打开状态
+    void create();
+    // 打开已初始化的数据目录并加载目录, 目录文件缺失当场报错
     void open();
     // 刷盘并关闭
     void close();
