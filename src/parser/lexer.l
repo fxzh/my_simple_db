@@ -38,8 +38,10 @@ WS       [ \t\r]
 "into"     { return yy::parser::token::INTO; }
 "values"   { return yy::parser::token::VALUES; }
 "int"      { return yy::parser::token::INT; }
+"bigint"   { return yy::parser::token::BIGINT; }
 "float"    { return yy::parser::token::FLOAT; }
 "char"     { return yy::parser::token::CHAR; }
+"varchar"  { return yy::parser::token::VARCHAR; }
 "double"   { return yy::parser::token::DOUBLE; }
 "select"   { return yy::parser::token::SELECT; }
 "as"       { return yy::parser::token::AS; }

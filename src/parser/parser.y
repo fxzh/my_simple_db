@@ -56,7 +56,7 @@
 %token END 0 "end of file"
 %token TOK_ERROR
 %token CREATE TABLE DROP INSERT INTO VALUES DELETE FROM
-%token INT FLOAT CHAR DOUBLE
+%token INT BIGINT FLOAT CHAR VARCHAR DOUBLE
 %token SELECT AS
 
 %token <long long> INTEGER
@@ -206,9 +206,13 @@ value:
 
 type_specifier:
         INT    { $$ = std::string("int"); }
+    |   BIGINT { $$ = std::string("bigint"); }
     |   FLOAT  { $$ = std::string("float"); }
     |   CHAR   { $$ = std::string("char"); }
     |   DOUBLE { $$ = std::string("double"); }
+    |   VARCHAR { $$ = std::string("varchar"); }
+    |   CHAR '(' INTEGER ')'    { $$ = "char(" + std::to_string($3) + ")"; }
+    |   VARCHAR '(' INTEGER ')' { $$ = "varchar(" + std::to_string($3) + ")"; }
     ;
 
 expression:

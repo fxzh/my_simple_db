@@ -127,6 +127,9 @@ bool encode_row(const std::vector<ColumnSpec>& cols, const std::vector<Value>& v
                 if (v.size() > UINT16_MAX) {
                     return false;
                 }
+                if (col.length > 0 && v.size() > col.length) {
+                    return false;  // 超出声明长度拒绝
+                }
                 put_u16(out, static_cast<uint16_t>(v.size()));
                 out.insert(out.end(), v.begin(), v.end());
                 break;

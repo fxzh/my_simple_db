@@ -103,3 +103,8 @@ add_test(NAME sql_proto_long COMMAND test_sql
     ${SQL_CASES_DIR}/proto/cases/long_sql.sql
     ${SQL_CASES_DIR}/proto/expected/long_sql.out)
 set_tests_properties(sql_proto_long PROPERTIES FIXTURES_REQUIRED SRV_UP)
+
+add_test(NAME sql_types COMMAND test_sql
+    ${SQL_CASES_DIR}/types/cases/types.sql
+    ${SQL_CASES_DIR}/types/expected/types.out)
+set_tests_properties(sql_types PROPERTIES FIXTURES_REQUIRED SRV_UP)

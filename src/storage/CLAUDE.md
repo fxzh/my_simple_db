@@ -23,4 +23,4 @@ storage.h/.cpp  Database 门面：create(初始化目录文件)/open(要求已�
 - crate/drop 顺序：先落盘文件头页再写目录，避免"目录有表但文件无效"
 - scan() 不加锁(游标持有页 pin)，并发 DDL 期间扫描未定义行为；row_count() 加锁
 - 记录 ≤4068B，NULL 经记录头位图存储(NULL 列不占字节, NOT NULL 列拒绝 NULL)，表最多约 4000B/行；跨页记录不支持(将来 M3 树内处理)
-- 超长 varchar 系统定位 clamp 在记录上限内由 insert 运行时拒绝
+- 超长 char(n)/varchar(n) 由 insert 按声明长度拒绝；未带长度的 varchar 以记录上限为界

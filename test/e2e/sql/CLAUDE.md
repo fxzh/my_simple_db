@@ -11,3 +11,6 @@ sql用例功能目录说明
 
 # proto
 协议层（超长 SQL 整帧收发不截断）
+
+# types
+列类型（bigint、char(n) 定长补空格、varchar(n) 变长、超长拒绝）
