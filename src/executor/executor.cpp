@@ -267,6 +267,11 @@ ExecResult execute(st::Database& db, const SQLStatement& stmt)
     switch (stmt.kind()) {
     case StmtKind::CreateTable: {
         const auto& cs = static_cast<const CreateTableStmt&>(stmt);
+        // 临时禁用
+        if (cs.table_name() == st::kTableMetaName || cs.table_name() == st::kColumnMetaName) {
+            DB_RAISE(db::ErrCode::ProtectedTable, LogModule::EXECUTOR, "保留表名禁止使用: {}",
+                     cs.table_name());
+        }
         std::vector<st::ColumnSpec> cols;
         convert_columns(cs.column_defs(), cols);
         db.create_table(cs.table_name(), cols);

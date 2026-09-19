@@ -36,6 +36,12 @@ constexpr uint32_t page_no(PageId p)
 constexpr uint32_t kReservedMaxTableId = 20000;
 constexpr uint32_t kFirstUserTableId = 20001;
 
+// 元数据表(保留段固定 id): db_table 记表名, db_column 记列定义, 引导期 schema 硬编码
+constexpr uint32_t kTableMetaId = 1;
+constexpr uint32_t kColumnMetaId = 2;
+constexpr const char* kTableMetaName = "db_table";
+constexpr const char* kColumnMetaName = "db_column";
+
 // 页类型
 enum class PageType : uint8_t { FileHeader = 1, Heap = 2 };
 

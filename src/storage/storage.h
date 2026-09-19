@@ -51,7 +51,7 @@ public:
     Database(const Database&) = delete;
     Database& operator=(const Database&) = delete;
 
-    // 初始化数据目录: 生成空目录文件, 目录须已存在且未初始化, 不进入打开状态
+    // 初始化数据目录: 引导两张元数据表并生成空目录文件, 目录须已存在且未初始化, 不进入打开状态
     void create();
     // 打开已初始化的数据目录并加载目录, 目录文件缺失当场报错
     void open();
@@ -59,9 +59,6 @@ public:
     void close();
 
     uint32_t create_table(const std::string& name, const std::vector<ColumnSpec>& cols);
-    // 指定保留段 id 建表, id 须在 [1, kReservedMaxTableId] 且未被占用
-    uint32_t create_reserved_table(const std::string& name, const std::vector<ColumnSpec>& cols,
-                                   uint32_t table_id);
     // 删表, 保留段表拒绝删除
     void drop_table(const std::string& name);
     RowRef insert(const std::string& table, const std::vector<Value>& values);
@@ -83,6 +80,13 @@ private:
     // 建表公共路径(须持锁): 校验后按指定 id 建数据文件与目录条目
     uint32_t create_table_impl(const std::string& name, const std::vector<ColumnSpec>& cols,
                                uint32_t tid);
+    // 物理建表(须持锁): 建数据文件并初始化落盘文件头页
+    void init_table_file(uint32_t tid);
+    // 插行公共路径(须持锁): 校验编码后追加, 用户插行与元数据表引导共用
+    RowRef insert_impl(uint32_t table_id, const std::vector<ColumnSpec>& cols,
+                       const std::vector<Value>& values);
+    // 引导元数据表: 直接建数据文件并写入自描述行, 不经过目录
+    void bootstrap_meta_tables();
 
     std::string dir_;
     Catalog catalog_;

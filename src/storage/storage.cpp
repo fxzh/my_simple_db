@@ -17,6 +17,42 @@ namespace {
 
 std::string catalog_path_of(const std::string& dir) { return dir + "/catalog.dat"; }
 
+// 元数据表名/列名的 varchar 声明长度
+constexpr uint16_t kMetaNameLen = 64;
+
+// db_table 列定义
+std::vector<ColumnSpec> table_meta_cols()
+{
+    return {{"table_id", ColType::Int, 0, true},
+            {"table_name", ColType::VarChar, kMetaNameLen, true}};
+}
+
+// db_column 列定义
+std::vector<ColumnSpec> column_meta_cols()
+{
+    return {{"table_id", ColType::Int, 0, true},
+            {"col_name", ColType::VarChar, kMetaNameLen, true},
+            {"ordinal", ColType::Int, 0, true},
+            {"type", ColType::Int, 0, true},
+            {"length", ColType::Int, 0, true},
+            {"not_null", ColType::Int, 0, true}};
+}
+
+// 生成某表的 db_column 自描述行(ordinal 从 0 起, type/not_null 存枚举值与 0/1)
+std::vector<std::vector<Value>> column_meta_rows(uint32_t tid, const std::vector<ColumnSpec>& cols)
+{
+    std::vector<std::vector<Value>> rows;
+    rows.reserve(cols.size());
+    for (size_t i = 0; i < cols.size(); ++i) {
+        rows.push_back({Value{static_cast<int64_t>(tid)}, Value{cols[i].name},
+                        Value{static_cast<int64_t>(i)},
+                        Value{static_cast<int64_t>(cols[i].type)},
+                        Value{static_cast<int64_t>(cols[i].length)},
+                        Value{static_cast<int64_t>(cols[i].not_null ? 1 : 0)}});
+    }
+    return rows;
+}
+
 }  // namespace
 
 // ==================== Database ====================
@@ -37,7 +73,11 @@ void Database::create()
     if (std::filesystem::exists(path)) {
         DB_RAISE(db::ErrCode::CatalogExists, LogModule::STORAGE, "目录文件已存在: {}", path);
     }
+    bootstrap_meta_tables();
     catalog_.save(path);
+    // create 不进入打开状态, 落盘脏页与文件后再返回
+    pool_.flush_all(files_);
+    files_.flush_all();
 }
 
 void Database::open()
@@ -72,20 +112,6 @@ uint32_t Database::create_table(const std::string& name, const std::vector<Colum
     return create_table_impl(name, cols, catalog_.alloc_table_id());
 }
 
-uint32_t Database::create_reserved_table(const std::string& name, const std::vector<ColumnSpec>& cols,
-                                         uint32_t table_id)
-{
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (table_id == 0 || table_id > kReservedMaxTableId) {
-        DB_RAISE(db::ErrCode::InvalidDdl, LogModule::STORAGE, "保留表 id 须在 [1, {}]: {}",
-                 kReservedMaxTableId, table_id);
-    }
-    if (catalog_.find_by_id(table_id) != nullptr) {
-        DB_RAISE(db::ErrCode::TableExists, LogModule::STORAGE, "表 id 已被占用: {}", table_id);
-    }
-    return create_table_impl(name, cols, table_id);
-}
-
 uint32_t Database::create_table_impl(const std::string& name, const std::vector<ColumnSpec>& cols,
                                      uint32_t tid)
 {
@@ -106,19 +132,43 @@ uint32_t Database::create_table_impl(const std::string& name, const std::vector<
         }
     }
 
-    files_.create_table_file(tid);
-
-    // 先初始化并落盘文件头页, 再写目录, 保证目录有表时数据文件必有效
-    const PageId pid0 = make_page_id(tid, 0);
-    char* h = pool_.allocate(pid0, files_);
-    init_page(h, MAGIC_FILE_HEADER, PageType::FileHeader);
-    pool_.unpin(h);
-    pool_.flush(pid0, files_);
+    // 先建数据文件, 再写目录, 保证目录有表时数据文件必有效
+    init_table_file(tid);
 
     TableMeta meta{tid, name, cols};
     catalog_.add_or_update(meta);
     catalog_.save(catalog_path_of(dir_));
     return tid;
+}
+
+void Database::init_table_file(uint32_t tid)
+{
+    files_.create_table_file(tid);
+
+    // 初始化并落盘文件头页
+    const PageId pid0 = make_page_id(tid, 0);
+    char* h = pool_.allocate(pid0, files_);
+    init_page(h, MAGIC_FILE_HEADER, PageType::FileHeader);
+    pool_.unpin(h);
+    pool_.flush(pid0, files_);
+}
+
+void Database::bootstrap_meta_tables()
+{
+    const std::vector<ColumnSpec> tcols = table_meta_cols();
+    const std::vector<ColumnSpec> ccols = column_meta_cols();
+    init_table_file(kTableMetaId);
+    init_table_file(kColumnMetaId);
+    insert_impl(kTableMetaId, tcols, {Value{static_cast<int64_t>(kTableMetaId)},
+                                      Value{std::string{kTableMetaName}}});
+    insert_impl(kTableMetaId, tcols, {Value{static_cast<int64_t>(kColumnMetaId)},
+                                      Value{std::string{kColumnMetaName}}});
+    for (const std::vector<Value>& row : column_meta_rows(kTableMetaId, tcols)) {
+        insert_impl(kColumnMetaId, ccols, row);
+    }
+    for (const std::vector<Value>& row : column_meta_rows(kColumnMetaId, ccols)) {
+        insert_impl(kColumnMetaId, ccols, row);
+    }
 }
 
 void Database::drop_table(const std::string& name)
@@ -157,18 +207,23 @@ RowRef Database::insert(const std::string& table, const std::vector<Value>& valu
 {
     std::lock_guard<std::mutex> lock(mutex_);
     const TableMeta& meta = table_meta(table);
+    return insert_impl(meta.table_id, meta.cols, values);
+}
 
-    if (meta.cols.size() != values.size()) {
+RowRef Database::insert_impl(uint32_t table_id, const std::vector<ColumnSpec>& cols,
+                             const std::vector<Value>& values)
+{
+    if (cols.size() != values.size()) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "值的数量与列数不符");
     }
     for (size_t i = 0; i < values.size(); ++i) {
-        if (meta.cols[i].not_null && std::holds_alternative<std::monostate>(values[i])) {
+        if (cols[i].not_null && std::holds_alternative<std::monostate>(values[i])) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "NOT NULL 列不允许 NULL: {}",
-                     meta.cols[i].name);
+                     cols[i].name);
         }
     }
     std::vector<uint8_t> rec;
-    if (!encode_row(meta.cols, values, rec)) {
+    if (!encode_row(cols, values, rec)) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "值与列类型不匹配");
     }
     if (rec.size() > MAX_RECORD_LEN) {
@@ -177,30 +232,30 @@ RowRef Database::insert(const std::string& table, const std::vector<Value>& valu
 
     // 尾页可能只在内存中(尚未落盘), 用 tail_pages_ 记住最高页号
     uint32_t tail = 0;
-    auto it = tail_pages_.find(meta.table_id);
+    auto it = tail_pages_.find(table_id);
     if (it != tail_pages_.end()) {
         tail = it->second;
-    } else if (files_.page_count(meta.table_id) == 1) {
-        tail = link_header_to_first_data_page(meta.table_id);
+    } else if (files_.page_count(table_id) == 1) {
+        tail = link_header_to_first_data_page(table_id);
     } else {
-        tail = files_.page_count(meta.table_id) - 1;
+        tail = files_.page_count(table_id) - 1;
     }
 
     for (;;) {
-        const PageId pid = make_page_id(meta.table_id, tail);
+        const PageId pid = make_page_id(table_id, tail);
         char* pg = pool_.read(pid, MAGIC_HEAP, files_);
         uint16_t slot = 0;
         if (heap_append(pg, rec.data(), static_cast<uint16_t>(rec.size()), &slot)) {
             pool_.mark_dirty(pg);
             pool_.unpin(pg);
-            tail_pages_[meta.table_id] = tail;
+            tail_pages_[table_id] = tail;
             return RowRef{pid, slot};
         }
         // 页满: 扩展一个新页并把尾页链上去
         // 新页号取磁盘页数与当前尾页+1 的较大值, 避免与仅存内存中的页冲突
         PageHeader* ph = header(pg);
-        const uint32_t new_no = std::max(files_.page_count(meta.table_id), tail + 1);
-        char* np = pool_.allocate(make_page_id(meta.table_id, new_no), files_);
+        const uint32_t new_no = std::max(files_.page_count(table_id), tail + 1);
+        char* np = pool_.allocate(make_page_id(table_id, new_no), files_);
         init_page(np, MAGIC_HEAP, PageType::Heap);
         pool_.unpin(np);
         ph->next_page = new_no;
