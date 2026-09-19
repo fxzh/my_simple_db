@@ -1,8 +1,8 @@
-// error.h: 跨层结构化错误(db::) — 在报错源头记 ERROR 日志(带堆栈)并抛出 DbError,
+// err.h: 跨层结构化错误(db::) — 在报错源头记 ERROR 日志(带堆栈)并抛出 DbError,
 // 由 server 统一路由给客户端; 日志与客户端出口共用同一消息来源, 各自取用不同字段。
 // 使用: DB_RAISE(ErrCode, LogModule, "fmt{}", args...) 取代"LOG_ERROR + 裸 throw"的耦合写法
-#ifndef DB_COMMON_ERROR_H
-#define DB_COMMON_ERROR_H
+#ifndef DB_COMMON_ERR_H
+#define DB_COMMON_ERR_H
 
 #include <exception>
 #include <format>
@@ -75,7 +75,7 @@ public:
 
 namespace detail {
 
-// 非模板实现, 格式化收敛在库内完成(error.cpp)
+// 非模板实现, 格式化收敛在库内完成(err.cpp)
 [[noreturn]] void raise_error_impl(ErrCode code, LogModule module,
                                    const std::source_location& location,
                                    std::string_view fmt, std::format_args args);
@@ -98,4 +98,4 @@ template<typename... Args>
     ::db::detail::raise_error(code, module, std::source_location::current(), \
                               fmt, ##__VA_ARGS__)
 
-#endif // DB_COMMON_ERROR_H
+#endif // DB_COMMON_ERR_H

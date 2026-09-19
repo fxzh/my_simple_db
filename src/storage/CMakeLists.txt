@@ -12,5 +12,5 @@ add_library(storage STATIC
 
 target_include_directories(storage PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-# 源文件经 log/log.h 报错/告警、经 common/error.h 落地报错, 链接两库
+# 源文件经 log/log.h 报错/告警、经 common/err.h 落地报错, 链接两库
 target_link_libraries(storage PRIVATE log common)

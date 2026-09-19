@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <string>
 
-#include "common/error.h"
+#include "common/err.h"
 #include "log/log.h"
 #include "page.h"
 

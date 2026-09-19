@@ -10,7 +10,7 @@
 
 #include "ast.hh"
 #include "codec.h"
-#include "common/error.h"
+#include "common/err.h"
 #include "log/log.h"
 #include "storage.h"
 

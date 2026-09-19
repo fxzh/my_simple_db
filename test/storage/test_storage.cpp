@@ -8,7 +8,7 @@
 
 #include <gtest/gtest.h>
 
-#include "common/error.h"
+#include "common/err.h"
 #include "common/temp_dir.hpp"
 #include "log/log.h"
 #include "page.h"

@@ -19,7 +19,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-#include "common/error.h"
+#include "common/err.h"
 #include "config.h"
 #include "log/log.h"
 #include "storage.h"

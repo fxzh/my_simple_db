@@ -1,5 +1,5 @@
-// error.cpp: DB_RAISE 的非模板实现, 格式化收敛在库内完成
-#include "common/error.h"
+// err.cpp: DB_RAISE 的非模板实现, 格式化收敛在库内完成
+#include "common/err.h"
 
 namespace db {
 

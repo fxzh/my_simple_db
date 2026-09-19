@@ -9,5 +9,5 @@ target_include_directories(executor PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 # 随依赖传播给最终链接 executor 的 server
 target_link_libraries(executor PUBLIC sql_parser storage)
 
-# 执行层报错/告警使用 log/log.h 与 common/error.h, 链接两库
+# 执行层报错/告警使用 log/log.h 与 common/err.h, 链接两库
 target_link_libraries(executor PRIVATE log common)

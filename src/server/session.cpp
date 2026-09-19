@@ -9,7 +9,7 @@
 #include <netinet/in.h>
 #include <unistd.h>
 #include <arpa/inet.h>
-#include "common/error.h"
+#include "common/err.h"
 #include "log/log.h"
 #include "proto/proto.h"
 #include "sql_parser.h"

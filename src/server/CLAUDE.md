@@ -27,6 +27,6 @@
   所有客户端线程共享它，内部 mutex 串行化
 - 日志：simple.log 位于数据目录内，配置加载完成后初始化日志路径
 - 每线程阻塞在 recv 上，等待期间不响应其他请求
-- 报错统一走 common/error.h 的 DB_RAISE：源头记一条 ERROR(带错误码与堆栈)并抛 DbError；
+- 报错统一走 common/err.h 的 DB_RAISE：源头记一条 ERROR(带错误码与堆栈)并抛 DbError；
   handle_client 的 catch(const db::DbError&) 只把 what() 回客户端，不再重复记日志；
   非 DbError 的底层异常降级为 WARNING 记录并回客户端
