@@ -1,4 +1,4 @@
-这里是一个用 c++20 编写的数据库代码仓库，已打通 create table / drop table / insert / delete / select(基础投影) 的完整链路：客户端词法解析、服务端词法/语法解析、执行层、堆页存储引擎、网络通信与日志
+这里是一个正在开发的数据库代码仓库，仅运行在linux上，已打通 create table / drop table / insert / delete / select(基础投影) 的完整链路：客户端词法解析、服务端词法/语法解析、执行层、堆页存储引擎、网络通信与日志
 
 本环境是windows环境，不具备编译环境，无需在本环境编译或创造编译环境
 
