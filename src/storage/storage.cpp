@@ -69,6 +69,26 @@ const TableMeta& Database::table_meta(const std::string& name) const
 uint32_t Database::create_table(const std::string& name, const std::vector<ColumnSpec>& cols)
 {
     std::lock_guard<std::mutex> lock(mutex_);
+    return create_table_impl(name, cols, catalog_.alloc_table_id());
+}
+
+uint32_t Database::create_reserved_table(const std::string& name, const std::vector<ColumnSpec>& cols,
+                                         uint32_t table_id)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (table_id == 0 || table_id > kReservedMaxTableId) {
+        DB_RAISE(db::ErrCode::InvalidDdl, LogModule::STORAGE, "保留表 id 须在 [1, {}]: {}",
+                 kReservedMaxTableId, table_id);
+    }
+    if (catalog_.find_by_id(table_id) != nullptr) {
+        DB_RAISE(db::ErrCode::TableExists, LogModule::STORAGE, "表 id 已被占用: {}", table_id);
+    }
+    return create_table_impl(name, cols, table_id);
+}
+
+uint32_t Database::create_table_impl(const std::string& name, const std::vector<ColumnSpec>& cols,
+                                     uint32_t tid)
+{
     if (name.empty()) {
         DB_RAISE(db::ErrCode::InvalidDdl, LogModule::STORAGE, "表名为空");
     }
@@ -86,7 +106,6 @@ uint32_t Database::create_table(const std::string& name, const std::vector<Colum
         }
     }
 
-    const uint32_t tid = catalog_.alloc_table_id();
     files_.create_table_file(tid);
 
     // 先初始化并落盘文件头页, 再写目录, 保证目录有表时数据文件必有效
@@ -106,6 +125,9 @@ void Database::drop_table(const std::string& name)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     const uint32_t tid = table_meta(name).table_id;
+    if (tid <= kReservedMaxTableId) {
+        DB_RAISE(db::ErrCode::ProtectedTable, LogModule::STORAGE, "保留表禁止删除: {}", name);
+    }
     catalog_.erase(name);
     catalog_.save(catalog_path_of(dir_));
     files_.remove_table_file(tid);

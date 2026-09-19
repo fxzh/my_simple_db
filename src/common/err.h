@@ -26,6 +26,7 @@ enum class ErrCode {
     InvalidType,    // 列类型非法
     TableNotFound,  // 表不存在
     TableExists,    // 表已存在
+    ProtectedTable, // 保留段表禁止删除
     InvalidDdl,     // 建表参数非法(空表名/空列集/重复列名)
     ValueMismatch,  // 插入值与列类型不匹配
     RecordTooLong,  // 记录超长
@@ -47,6 +48,7 @@ constexpr std::string_view errCodeName(ErrCode code) noexcept
         case ErrCode::InvalidType:    return "INVALID_TYPE";
         case ErrCode::TableNotFound:  return "TABLE_NOT_FOUND";
         case ErrCode::TableExists:    return "TABLE_EXISTS";
+        case ErrCode::ProtectedTable: return "PROTECTED_TABLE";
         case ErrCode::InvalidDdl:     return "INVALID_DDL";
         case ErrCode::ValueMismatch:  return "VALUE_MISMATCH";
         case ErrCode::RecordTooLong:  return "RECORD_TOO_LONG";

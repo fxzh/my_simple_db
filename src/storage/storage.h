@@ -59,6 +59,10 @@ public:
     void close();
 
     uint32_t create_table(const std::string& name, const std::vector<ColumnSpec>& cols);
+    // 指定保留段 id 建表, id 须在 [1, kReservedMaxTableId] 且未被占用
+    uint32_t create_reserved_table(const std::string& name, const std::vector<ColumnSpec>& cols,
+                                   uint32_t table_id);
+    // 删表, 保留段表拒绝删除
     void drop_table(const std::string& name);
     RowRef insert(const std::string& table, const std::vector<Value>& values);
     // 删除单行(按扫描得到的物理位置), 无效/已删引用返回 0
@@ -76,6 +80,9 @@ private:
     friend class Scanner;
     // 建首个数据页(页号 1)并链到文件头页, 返回新页号
     uint32_t link_header_to_first_data_page(uint32_t table_id);
+    // 建表公共路径(须持锁): 校验后按指定 id 建数据文件与目录条目
+    uint32_t create_table_impl(const std::string& name, const std::vector<ColumnSpec>& cols,
+                               uint32_t tid);
 
     std::string dir_;
     Catalog catalog_;

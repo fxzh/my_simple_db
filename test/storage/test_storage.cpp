@@ -180,8 +180,8 @@ TEST_F(StorageDb, ReopenLifecycle)
         // drop 后目录不可见且数据文件删除, 其他表文件不受影响
         db.drop_table("t");
         EXPECT_THROW(db.row_count("t"), std::runtime_error);
-        EXPECT_FALSE(std::filesystem::exists(dir.path + "/t_1.dat"));
-        EXPECT_TRUE(std::filesystem::exists(dir.path + "/t_2.dat"));
+        EXPECT_FALSE(std::filesystem::exists(dir.path + "/t_20001.dat"));
+        EXPECT_TRUE(std::filesystem::exists(dir.path + "/t_20002.dat"));
         db.close();
     }
 

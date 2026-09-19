@@ -32,6 +32,10 @@ constexpr uint32_t page_no(PageId p)
     return static_cast<uint32_t>(p & 0xffffffffLLU);
 }
 
+// table_id 保留段: 1~20000 留给系统元数据对象, 用户对象从 20001 起分配
+constexpr uint32_t kReservedMaxTableId = 20000;
+constexpr uint32_t kFirstUserTableId = 20001;
+
 // 页类型
 enum class PageType : uint8_t { FileHeader = 1, Heap = 2 };
 

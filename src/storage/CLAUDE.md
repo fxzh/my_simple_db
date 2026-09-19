@@ -3,7 +3,8 @@ M1 = 堆页追加 + 全表扫描；M3 起加入 B+树聚簇索引，M4 加 WAL�
 结构体字段按"不做版本与迁移"约定，只存放当前里程碑实际用到的。
 
 # 文件
-types.h         公共类型：PageId(table_id<<32|page_no)、ColType、Value(variant, monostate 即 NULL)、TableMeta、Row
+types.h         公共类型：PageId(table_id<<32|page_no)、ColType、Value(variant, monostate 即 NULL)、TableMeta、Row、
+                table_id 保留段常量(kReservedMaxTableId=20000, kFirstUserTableId=20001)
 page.h/.cpp     页头 24B(magic/type/slot_count/free_begin/free_end/next_page/checksum)+槽(off,len)
                 槽从页尾向 free_begin 生长；页尾 CRC32 校验，数据页损坏按尾部截断重建空页
 codec.h/.cpp    记录[长度 u16][NULL 位图][列数据]序列化；类型名解析 int/bigint/float/double/char(n)/varchar(n)
@@ -12,7 +13,8 @@ file_manager    每表一个 t_<table_id>.dat，pread/pwrite 页级 IO，fsync/f
 buffer_pool     定长帧缓存(默认 128)：Clock 淘汰 + pin 计数 + dirty 页写回；并发由上层锁保证
 catalog.h/.cpp  目录文件[CATD][表数量][TableMeta×N]，加载时缺文件/损坏即报错，DDL 全量重写
 storage.h/.cpp  Database 门面：create(初始化目录文件)/open(要求已初始化)/close、
-                create_table/drop_table/insert/scan/table_meta(公开只读元数据)；
+                create_table(自动 id 从 kFirstUserTableId 起)/create_reserved_table(手动保留段 id)/
+                drop_table(保留段拒绝删除)/insert/scan/table_meta(公开只读元数据)；
                 全局 mutex 串行化；
                 tail_pages_ 跟踪"仅存内存的尾页"，新页号取 max(磁盘页数, 尾页+1)
 

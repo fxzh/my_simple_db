@@ -1,4 +1,4 @@
-// initdb: 初始化工具, 在 -D 指定的数据目录内生成默认配置文件 db.conf 与空目录文件 catalog.dat
+// initdb: 初始化工具, 在 -D 指定的数据目录内生成默认配置文件 db.conf、目录文件 catalog.dat 与保留表 db_table
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -124,10 +124,12 @@ int main(int argc, char* argv[])
         std::cerr << error << std::endl;
         return 1;
     }
-    // 生成空目录文件, 兜 std::exception(目录不可写时 Logger 构造亦抛异常)
+    // 生成目录文件与保留表 db_table, 兜 std::exception(目录不可写时 Logger 构造亦抛异常)
     try {
         st::Database db(dir);
         db.create();
+        db.open();
+        db.create_reserved_table("db_table", {{"id", st::ColType::Int, 0}}, 1);
     } catch (const std::exception& e) {
         const bool log_kept = rollback();
         std::cerr << e.what() << std::endl;

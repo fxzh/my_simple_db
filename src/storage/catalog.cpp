@@ -181,7 +181,7 @@ uint32_t Catalog::alloc_table_id() const
             max_id = t.table_id;
         }
     }
-    return max_id + 1;
+    return std::max(max_id + 1, kFirstUserTableId);
 }
 
 void Catalog::add_or_update(const TableMeta& meta)
