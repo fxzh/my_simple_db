@@ -1,7 +1,7 @@
 已发送消息: CREATE TABLE db_table (id int);
-服务器回显: ERROR: 保留表名禁止使用: db_table
+服务器回显: ERROR: 表已存在: db_table
 已发送消息: CREATE TABLE db_column (id int);
-服务器回显: ERROR: 保留表名禁止使用: db_column
+服务器回显: ERROR: 表已存在: db_column
 已发送消息: DROP TABLE db_table;
 服务器回显: ERROR: 保留表名禁止使用: db_table
 已发送消息: DROP TABLE db_column;
@@ -14,10 +14,6 @@
 服务器回显: ERROR: 保留表名禁止使用: db_table
 已发送消息: DELETE FROM db_column;
 服务器回显: ERROR: 保留表名禁止使用: db_column
-已发送消息: SELECT * FROM db_table;
-服务器回显: ERROR: 保留表名禁止使用: db_table
-已发送消息: SELECT * FROM db_column;
-服务器回显: ERROR: 保留表名禁止使用: db_column
 已发送消息: CREATE TABLE t_reserved (id int);
 服务器回显: OK
 已发送消息: INSERT INTO t_reserved VALUES (7);
@@ -27,5 +23,31 @@ id
 --
 7
 (1 行)
+已发送消息: SELECT * FROM db_table;
+table_id | table_name
+--------+----------
+1        | db_table
+2        | db_column
+20001    | t_reserved
+(3 行)
+已发送消息: SELECT * FROM db_column;
+table_id | col_name   | ordinal | type | length | not_null
+--------+----------+-------+----+------+--------
+1        | table_id   | 0       | 1    | 0      | 1
+1        | table_name | 1       | 4    | 64     | 1
+2        | table_id   | 0       | 1    | 0      | 1
+2        | col_name   | 1       | 4    | 64     | 1
+2        | ordinal    | 2       | 1    | 0      | 1
+2        | type       | 3       | 1    | 0      | 1
+2        | length     | 4       | 1    | 0      | 1
+2        | not_null   | 5       | 1    | 0      | 1
+20001    | id         | 0       | 1    | 0      | 0
+(9 行)
 已发送消息: DROP TABLE t_reserved;
 服务器回显: OK
+已发送消息: SELECT * FROM db_table;
+table_id | table_name
+--------+----------
+1        | db_table
+2        | db_column
+(2 行)

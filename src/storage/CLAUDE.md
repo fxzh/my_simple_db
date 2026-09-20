@@ -23,8 +23,9 @@ storage.h/.cpp  Database 门面：create(引导两张元数据表, 落盘后返�
 
 # 要点/限制
 - M1 无索引/无主键，scan 全表扫，insert 返回 RowRef(页,槽)；重启后数据仍在(appended 截断容忍)
-- 元数据表由 create() 硬编码 schema 引导：建文件+头页+自描述行，SQL 层不可见；
-  执行层与存储层均拒绝保留表名；元数据表自身 schema 永远用硬编码定义, 不从 db_column 读自己
+- 元数据表由 create() 硬编码 schema 引导：建文件+头页+自描述行，select 可查；
+  执行层拦截保留表名 drop/insert/delete，存储层 drop 按保留段拒绝、create 靠重名拒绝；
+  元数据表自身 schema 永远用硬编码定义, 不从 db_column 读自己
 - 目录即元数据行：create_table 写 db_table/db_column 行并拒绝超长表/列名(64 字节)，
   drop_table 删除对应行；查找(表名→id、列定义收集)实时全扫两表, 按 ordinal 排序, 非法值报 CorruptCatalog
 - crate/drop 顺序：先落盘文件头页再写元数据行，避免"元数据有表但文件无效"

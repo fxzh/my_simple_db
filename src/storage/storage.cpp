@@ -153,10 +153,6 @@ uint32_t Database::create_table_impl(const std::string& name, const std::vector<
     if (name.empty()) {
         DB_RAISE(db::ErrCode::InvalidDdl, LogModule::STORAGE, "表名为空");
     }
-    // 临时禁用
-    if (name == kTableMetaName || name == kColumnMetaName) {
-        DB_RAISE(db::ErrCode::ProtectedTable, LogModule::STORAGE, "保留表名禁止使用: {}", name);
-    }
     if (name.size() > kMetaNameLen) {
         DB_RAISE(db::ErrCode::InvalidDdl, LogModule::STORAGE, "表名超过 {} 字节上限", kMetaNameLen);
     }

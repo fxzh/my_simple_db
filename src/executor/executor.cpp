@@ -200,7 +200,8 @@ ExecResult status_result(std::string status)
     return r;
 }
 
-// 保留表名拦截: 元数据表禁止 SQL 访问
+// 保留表名拦截: 元数据表禁止 drop/insert/delete
+// (select 可查元数据, create 由存储层按表已存在拒绝)
 void check_reserved_table(const std::string& name)
 {
     if (name == st::kTableMetaName || name == st::kColumnMetaName) {
@@ -275,7 +276,6 @@ ExecResult execute(st::Database& db, const SQLStatement& stmt)
     switch (stmt.kind()) {
     case StmtKind::CreateTable: {
         const auto& cs = static_cast<const CreateTableStmt&>(stmt);
-        check_reserved_table(cs.table_name());
         std::vector<st::ColumnSpec> cols;
         convert_columns(cs.column_defs(), cols);
         db.create_table(cs.table_name(), cols);
@@ -306,7 +306,6 @@ ExecResult execute(st::Database& db, const SQLStatement& stmt)
     }
     case StmtKind::Select: {
         const auto& ss = static_cast<const SelectStmt&>(stmt);
-        check_reserved_table(ss.table_name());
         return exec_select(db, ss);
     }
     }
