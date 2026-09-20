@@ -200,6 +200,14 @@ ExecResult status_result(std::string status)
     return r;
 }
 
+// 保留表名拦截: 元数据表禁止 SQL 访问
+void check_reserved_table(const std::string& name)
+{
+    if (name == st::kTableMetaName || name == st::kColumnMetaName) {
+        DB_RAISE(db::ErrCode::ProtectedTable, LogModule::EXECUTOR, "保留表名禁止使用: {}", name);
+    }
+}
+
 // ==================== SELECT 执行 ====================
 
 // 投影输出列: star 展开的原始列直接取行值, 其余按表达式逐行求值
@@ -212,7 +220,7 @@ struct ProjCol {
 // SELECT 执行: 编译投影(列定位/stars 展开/输出列名)后全表扫描逐行物化
 ExecResult exec_select(st::Database& db, const SelectStmt& ss)
 {
-    const st::TableMeta& meta = db.table_meta(ss.table_name());
+    const st::TableMeta meta = db.table_meta(ss.table_name());
 
     // 编译期: 列定位表与投影展开
     ColMap cols;
@@ -267,11 +275,7 @@ ExecResult execute(st::Database& db, const SQLStatement& stmt)
     switch (stmt.kind()) {
     case StmtKind::CreateTable: {
         const auto& cs = static_cast<const CreateTableStmt&>(stmt);
-        // 临时禁用
-        if (cs.table_name() == st::kTableMetaName || cs.table_name() == st::kColumnMetaName) {
-            DB_RAISE(db::ErrCode::ProtectedTable, LogModule::EXECUTOR, "保留表名禁止使用: {}",
-                     cs.table_name());
-        }
+        check_reserved_table(cs.table_name());
         std::vector<st::ColumnSpec> cols;
         convert_columns(cs.column_defs(), cols);
         db.create_table(cs.table_name(), cols);
@@ -279,11 +283,13 @@ ExecResult execute(st::Database& db, const SQLStatement& stmt)
     }
     case StmtKind::DropTable: {
         const auto& ds = static_cast<const DropTableStmt&>(stmt);
+        check_reserved_table(ds.table_name());
         db.drop_table(ds.table_name());
         return status_result("OK");
     }
     case StmtKind::Insert: {
         const auto& is = static_cast<const InsertStmt&>(stmt);
+        check_reserved_table(is.table_name());
         std::vector<st::Value> values;
         values.reserve(is.values().size());
         for (const auto& v : is.values()) {
@@ -294,11 +300,15 @@ ExecResult execute(st::Database& db, const SQLStatement& stmt)
     }
     case StmtKind::Delete: {
         const auto& ds = static_cast<const DeleteStmt&>(stmt);
+        check_reserved_table(ds.table_name());
         const size_t n = db.delete_all(ds.table_name());
         return status_result("OK (删除 " + std::to_string(n) + " 行)");
     }
-    case StmtKind::Select:
-        return exec_select(db, static_cast<const SelectStmt&>(stmt));
+    case StmtKind::Select: {
+        const auto& ss = static_cast<const SelectStmt&>(stmt);
+        check_reserved_table(ss.table_name());
+        return exec_select(db, ss);
+    }
     }
     // 不可达: 全部语句种类已在上方穷尽
     DB_RAISE(db::ErrCode::UnknownStmt, LogModule::EXECUTOR, "executor: 未知语句种类");

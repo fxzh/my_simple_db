@@ -5,7 +5,6 @@ add_library(storage STATIC
     storage.cpp
     file_manager.cpp
     buffer_pool.cpp
-    catalog.cpp
     codec.cpp
     page.cpp
 )

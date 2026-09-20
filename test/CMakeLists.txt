@@ -108,3 +108,8 @@ add_test(NAME sql_types COMMAND test_sql
     ${SQL_CASES_DIR}/types/cases/types.sql
     ${SQL_CASES_DIR}/types/expected/types.out)
 set_tests_properties(sql_types PROPERTIES FIXTURES_REQUIRED SRV_UP)
+
+add_test(NAME sql_reserved COMMAND test_sql
+    ${SQL_CASES_DIR}/reserved/cases/reserved.sql
+    ${SQL_CASES_DIR}/reserved/expected/reserved.out)
+set_tests_properties(sql_reserved PROPERTIES FIXTURES_REQUIRED SRV_UP)

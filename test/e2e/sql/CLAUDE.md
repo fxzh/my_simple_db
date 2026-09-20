@@ -14,3 +14,6 @@ sql用例功能目录说明
 
 # types
 列类型（bigint、char(n) 定长补空格、varchar(n) 变长、超长拒绝）
+
+# reserved
+保留表拦截（db_table/db_column 的 create/drop/insert/delete/select 一律拒绝）

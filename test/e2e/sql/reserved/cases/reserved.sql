@@ -1,0 +1,14 @@
+CREATE TABLE db_table (id int);
+CREATE TABLE db_column (id int);
+DROP TABLE db_table;
+DROP TABLE db_column;
+INSERT INTO db_table VALUES (1, 'x');
+INSERT INTO db_column VALUES (1, 'x', 0, 1, 0, 1);
+DELETE FROM db_table;
+DELETE FROM db_column;
+SELECT * FROM db_table;
+SELECT * FROM db_column;
+CREATE TABLE t_reserved (id int);
+INSERT INTO t_reserved VALUES (7);
+SELECT * FROM t_reserved;
+DROP TABLE t_reserved;

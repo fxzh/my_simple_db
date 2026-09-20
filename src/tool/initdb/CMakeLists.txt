@@ -1,4 +1,4 @@
-# initdb: 复用 config.cpp(db.conf 路径推导)与 storage(生成 catalog.dat), 不链接 sql_parser/executor/readline
+# initdb: 复用 config.cpp(db.conf 路径推导)与 storage(生成元数据表), 不链接 sql_parser/executor/readline
 add_executable(initdb
     initdb.cpp
     ${CMAKE_SOURCE_DIR}/src/server/config.cpp

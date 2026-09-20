@@ -6,7 +6,7 @@
 
 范围：
 
-- 表/列的元数据持久化（目录 catalog）
+- 表/列的元数据持久化（元数据表 catalog）
 - 行数据的持久化：插入、按 rowid 点查、全表扫描
 - 索引：隐式 rowid 为聚簇键的 B+ 树
 - 崩溃恢复：WAL + 检查点
@@ -30,7 +30,7 @@ src/storage(静态库 storage)
    ├── page.h          页头与槽(Slot)内存布局
    ├── file_manager    每表一个文件的读写原语(pread/pwrite)
    ├── buffer_pool     页缓存, LRU/Clock 淘汰
-   ├── catalog         表元数据: 启动加载, DDL 时改内存再重写文件
+   ├── 元数据表       db_table/db_column: 目录唯一事实来源, 查找实时扫描
    ├── btree           B+ 树(叶/内节点, 查找/插入/分裂)
    ├── wal             追加式日志, 检查点
    └── recovery        启动时崩溃恢复
@@ -60,7 +60,7 @@ Scan*   scan(std::string_view table);
 }
 ```
 
-`Storage` 内部成员：`BufferPool`、`FileManager`、`Catalog`、`BTreeMgr`（每表一棵树）、`Wal`。所有修改先经 WAL 再改页（见 §9）。
+`Storage` 内部成员：`BufferPool`、`FileManager`、`BTreeMgr`（每表一棵树）、`Wal`。所有修改先经 WAL 再改页（见 §9）。
 
 ## 3. 文件布局
 
@@ -68,7 +68,7 @@ Scan*   scan(std::string_view table);
 
 ```
 data/
-  catalog.dat     目录文件: 所有表的元数据, 见 §6
+  t_1.dat/t_2.dat  元数据表文件(db_table/db_column), 见 §6
   wal.log         WAL 日志(所有表共享)
   t_<table_id>.dat  每表一个数据文件, 全部由 4KB 页组成
 ```
@@ -150,23 +150,18 @@ struct Slot {
 
 rowid（§8 详述）：表内自增 int64，是聚簇索引键。叶子节点里 **payload 不含 rowid**，rowid 在节点的 key 数组里，由 B+ 树迭代器补成 `Row{rid, values}`。
 
-## 6. 目录 Catalog
+## 6. 目录（元数据表）
 
-`catalog.dat` 结构：`[文件头 magic/版本/记录数 checksum][TableMeta × N]`，每个 TableMeta 变长：
+目录不是独立文件, 而是两张保留段元数据表, schema 硬编码引导, 不存于自身:
 
-```cpp
-struct TableMeta {
-  uint32_t     table_id;           // 全局唯一, 自增
-  std::string  name;
-  std::vector<ColumnSpec> cols;    // {name, type, length, not_null}
-};
-```
+- db_table(table_id, table_name): 每表一行
+- db_column(table_id, col_name, ordinal, type, length, not_null): 每列一行
 
-读写规则：
+读写规则:
 
-- 启动时整文件读入内存（小库可接受）；发现损坏且无 WAL 可救时直接报错拒绝启动
-- DDL（create/drop）流程：先写 WAL(OP_CREATE_TABLE / OP_DROP_TABLE) → 改内存 catalog → fsync 后整体重写 catalog.dat
-- 引入 WAL 之前（M1），catalog 直接重写；catalog.dat 由 initdb 经 Database::create 生成，open 只加载，缺文件或校验失败即报错拒绝启动
+- 元数据行是目录唯一事实来源, 无内存缓存, 查找(表名→id、列定义)实时全扫两表
+- DDL: create_table 先建数据文件再写元数据行; drop_table 删元数据行并删数据文件
+- initdb 经 Database::create 引导两表(含自描述行); open 以两表文件存在为准, 缺失即报错拒绝启动
 
 ## 7. 缓冲池 Buffer Pool
 
@@ -256,9 +251,9 @@ insert:
 
 **启动恢复流程**（recovery.cpp）：
 
-1. 加载 catalog.dat
+1. 读取元数据表
 2. 打开 wal.log；若头部 `start_lsn` 有效且日志非空 → 从该 LSN 起顺序扫描重放：
-   - OP_CREATE_TABLE / OP_DROP_TABLE：重放目录变化
+   - OP_CREATE_TABLE / OP_DROP_TABLE：重放元数据行变化
    - OP_PAGE_PATCH：读页，若 `页.page_lsn < 记录LSN` 且页当前存在（表未被后续 DROP）→ 应用字节补丁、置 page_lsn，标记脏
    - 日志尾部不完整（无 OP_PAGE_PATCH 全长）→ 截断丢弃，属正常崩溃边界
 3. 回放结束后 flush 脏页、写检查点、清空日志
@@ -267,7 +262,7 @@ insert:
 
 - 文件扩展产生的"空洞页"没进 WAL：恢复时将未触及的文件区域视为全零页，合法空页
 - 页校验和：每次写盘前算，读盘后校验，防错位/坏块
-- 首次 fsync 前崩溃 → 数据文件保持旧状态，与目录半新状态由下一条规则处理：DDL 的 WAL 记录在 fsync 后再改内存并重写 catalog，二者成对回放，不会出现"目录有新表但数据文件没有/反过来"
+- 首次 fsync 前崩溃 → 数据文件保持旧状态，与元数据半新状态由下一条规则处理：DDL 的 WAL 记录在 fsync 后再写元数据行，二者成对回放，不会出现"元数据有新表但数据文件没有/反过来"
 
 ## 10. 并发控制（分阶段）
 
@@ -280,7 +275,7 @@ insert:
 
 | 阶段 | 内容 | 完成后可做 |
 |---|---|---|
-| M1 | types/codec/page 布局；file_manager 按页读写；buffer_pool；catalog 建表落盘；heap 追加写 + 全扫描(无索引)；重启读回 | CREATE/DROP/INSERT 持久化，重启数据还在 |
+| M1 | types/codec/page 布局；file_manager 按页读写；buffer_pool；元数据表引导；heap 追加写 + 全扫描(无索引)；重启读回 | CREATE/DROP/INSERT 持久化，重启数据还在 |
 | M2 | 空闲页链表；删除(标记+compact)；页 checksum 校验读盘 | DELETE 行、碎片整理 |
 | M3 | B+树叶子+内节点、插入/分裂、按 rowid 点查、叶子链 scan；行内不再带 rowid | point_get、有序全表扫描 |
 | M4 | WAL + checkpoint + recovery，接入 buffer_pool 刷盘判定 | 抗崩溃，事务提交语义 |

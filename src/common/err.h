@@ -19,9 +19,9 @@ namespace db {
 // 客户端/服务端共用的错误分类码; 后续 wire 协议定型时可直接入帧
 enum class ErrCode {
     IoError,        // 文件/IO 类失败
-    CorruptCatalog, // 目录文件损坏
-    CatalogMissing, // 目录文件不存在(数据目录未初始化)
-    CatalogExists,  // 目录文件已存在(数据目录已初始化)
+    CorruptCatalog, // 元数据表损坏
+    CatalogMissing, // 元数据表缺失(数据目录未初始化)
+    CatalogExists,  // 元数据表已存在(数据目录已初始化)
     CorruptData,    // 数据页/记录损坏
     InvalidType,    // 列类型非法
     TableNotFound,  // 表不存在

@@ -2,7 +2,6 @@
 #include "storage.h"
 
 #include <algorithm>
-#include <filesystem>
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
@@ -15,8 +14,6 @@
 namespace st {
 
 namespace {
-
-std::string catalog_path_of(const std::string& dir) { return dir + "/catalog.dat"; }
 
 // 元数据表名/列名的 varchar 声明长度
 constexpr uint16_t kMetaNameLen = 64;
@@ -54,6 +51,46 @@ std::vector<std::vector<Value>> column_meta_rows(uint32_t tid, const std::vector
     return rows;
 }
 
+// 行内取 int 字段, NULL 或类型不符报元数据行损坏
+int64_t row_int(const std::vector<Value>& row, size_t idx)
+{
+    const int64_t* v = std::get_if<int64_t>(&row[idx]);
+    if (v == nullptr) {
+        DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::STORAGE, "元数据行损坏");
+    }
+    return *v;
+}
+
+// 行内取字符串字段, NULL 或类型不符报元数据行损坏
+const std::string& row_str(const std::vector<Value>& row, size_t idx)
+{
+    const std::string* v = std::get_if<std::string>(&row[idx]);
+    if (v == nullptr) {
+        DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::STORAGE, "元数据行损坏");
+    }
+    return *v;
+}
+
+// db_column 行解出 (ordinal, 列定义), 值缺失或非法当场报错
+std::pair<int64_t, ColumnSpec> parse_column_row(const std::vector<Value>& row)
+{
+    const int64_t type = row_int(row, 3);
+    const int64_t length = row_int(row, 4);
+    const int64_t not_null = row_int(row, 5);
+    if (type < static_cast<int64_t>(ColType::Int) ||
+        type > static_cast<int64_t>(ColType::Char)) {
+        DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::STORAGE, "列类型值非法: {}", type);
+    }
+    if (length < 0 || length > UINT16_MAX) {
+        DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::STORAGE, "列长度值非法: {}", length);
+    }
+    if (not_null != 0 && not_null != 1) {
+        DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::STORAGE, "非空标记值非法: {}", not_null);
+    }
+    return {row_int(row, 2), ColumnSpec{row_str(row, 1), static_cast<ColType>(type),
+                                        static_cast<uint16_t>(length), not_null == 1}};
+}
+
 }  // namespace
 
 // ==================== Database ====================
@@ -70,12 +107,10 @@ Database::~Database()
 
 void Database::create()
 {
-    const std::string path = catalog_path_of(dir_);
-    if (std::filesystem::exists(path)) {
-        DB_RAISE(db::ErrCode::CatalogExists, LogModule::STORAGE, "目录文件已存在: {}", path);
+    if (files_.table_file_exists(kTableMetaId)) {
+        DB_RAISE(db::ErrCode::CatalogExists, LogModule::STORAGE, "数据目录已初始化: {}", dir_);
     }
     bootstrap_meta_tables();
-    catalog_.save(path);
     // create 不进入打开状态, 落盘脏页与文件后再返回
     pool_.flush_all(files_);
     files_.flush_all();
@@ -83,7 +118,9 @@ void Database::create()
 
 void Database::open()
 {
-    catalog_.load(catalog_path_of(dir_));
+    if (!files_.table_file_exists(kTableMetaId) || !files_.table_file_exists(kColumnMetaId)) {
+        DB_RAISE(db::ErrCode::CatalogMissing, LogModule::STORAGE, "数据目录未初始化: {}", dir_);
+    }
     pool_.invalidate_all();
     tail_pages_.clear();
     open_ = true;
@@ -98,19 +135,16 @@ void Database::close()
     open_ = false;
 }
 
-const TableMeta& Database::table_meta(const std::string& name) const
+TableMeta Database::table_meta(const std::string& name)
 {
-    const TableMeta* meta = catalog_.find(name);
-    if (meta == nullptr) {
-        DB_RAISE(db::ErrCode::TableNotFound, LogModule::STORAGE, "表不存在: {}", name);
-    }
-    return *meta;
+    std::lock_guard<std::mutex> lock(mutex_);
+    return find_table_meta(name);
 }
 
 uint32_t Database::create_table(const std::string& name, const std::vector<ColumnSpec>& cols)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    return create_table_impl(name, cols, catalog_.alloc_table_id());
+    return create_table_impl(name, cols, alloc_table_id());
 }
 
 uint32_t Database::create_table_impl(const std::string& name, const std::vector<ColumnSpec>& cols,
@@ -126,7 +160,7 @@ uint32_t Database::create_table_impl(const std::string& name, const std::vector<
     if (name.size() > kMetaNameLen) {
         DB_RAISE(db::ErrCode::InvalidDdl, LogModule::STORAGE, "表名超过 {} 字节上限", kMetaNameLen);
     }
-    if (catalog_.find(name) != nullptr) {
+    if (has_table_name(name)) {
         DB_RAISE(db::ErrCode::TableExists, LogModule::STORAGE, "表已存在: {}", name);
     }
     if (cols.empty()) {
@@ -144,13 +178,9 @@ uint32_t Database::create_table_impl(const std::string& name, const std::vector<
         }
     }
 
-    // 先建数据文件, 再写元数据行与目录, 保证目录有表时数据文件必有效
+    // 先建数据文件, 再写元数据行, 保证元数据可见时数据文件必有效
     init_table_file(tid);
     write_meta_rows(tid, name, cols);
-
-    TableMeta meta{tid, name, cols};
-    catalog_.add_or_update(meta);
-    catalog_.save(catalog_path_of(dir_));
     return tid;
 }
 
@@ -223,16 +253,120 @@ void Database::delete_meta_rows(uint32_t tid)
     }
 }
 
+// 读取指定表全部存活行(须持锁): 沿页链解码, 行损坏当场报错
+std::vector<std::vector<Value>> Database::read_rows(uint32_t table_id,
+                                                    const std::vector<ColumnSpec>& cols)
+{
+    std::vector<std::vector<Value>> rows;
+    const PageId pid0 = make_page_id(table_id, 0);
+    char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);
+    uint32_t pno = header(h)->next_page;
+    pool_.unpin(h);
+    while (pno != 0) {
+        const PageId pid = make_page_id(table_id, pno);
+        char* pg = pool_.read(pid, MAGIC_HEAP, files_);
+        const PageHeader* ph = header(pg);
+        for (uint16_t i = 0; i < ph->slot_count; ++i) {
+            if (slot_tombstone(pg, i)) {
+                continue;
+            }
+            std::vector<Value> vals;
+            const Slot* s = slot_at(pg, i);
+            if (!decode_row(cols, record(pg, i), s->len, vals)) {
+                DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::STORAGE, "元数据行损坏");
+            }
+            rows.push_back(std::move(vals));
+        }
+        pno = ph->next_page;
+        pool_.unpin(pg);
+    }
+    return rows;
+}
+
+// 按表名查元数据(须持锁): db_table 定位 id, db_column 收集列并按 ordinal 排序
+TableMeta Database::find_table_meta(const std::string& name)
+{
+    uint32_t tid = 0;
+    bool found = false;
+    for (const std::vector<Value>& row : read_rows(kTableMetaId, table_meta_cols())) {
+        if (row_str(row, 1) == name) {
+            tid = static_cast<uint32_t>(row_int(row, 0));
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        DB_RAISE(db::ErrCode::TableNotFound, LogModule::STORAGE, "表不存在: {}", name);
+    }
+
+    std::vector<std::pair<int64_t, ColumnSpec>> pairs;
+    for (const std::vector<Value>& row : read_rows(kColumnMetaId, column_meta_cols())) {
+        if (row_int(row, 0) == static_cast<int64_t>(tid)) {
+            pairs.push_back(parse_column_row(row));
+        }
+    }
+    if (pairs.empty()) {
+        DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::STORAGE, "表无列定义: {}", name);
+    }
+    std::sort(pairs.begin(), pairs.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
+    for (size_t i = 1; i < pairs.size(); ++i) {
+        if (pairs[i].first == pairs[i - 1].first) {
+            DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::STORAGE, "列序号重复: {}", name);
+        }
+    }
+
+    TableMeta meta;
+    meta.table_id = tid;
+    meta.name = name;
+    meta.cols.reserve(pairs.size());
+    for (std::pair<int64_t, ColumnSpec>& p : pairs) {
+        meta.cols.push_back(std::move(p.second));
+    }
+    return meta;
+}
+
+// 表名是否已存在(须持锁): 全扫 db_table 匹配
+bool Database::has_table_name(const std::string& name)
+{
+    for (const std::vector<Value>& row : read_rows(kTableMetaId, table_meta_cols())) {
+        if (row_str(row, 1) == name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// table_id 是否已存在(须持锁): 全扫 db_table 匹配
+bool Database::table_id_exists(uint32_t table_id)
+{
+    for (const std::vector<Value>& row : read_rows(kTableMetaId, table_meta_cols())) {
+        if (static_cast<uint32_t>(row_int(row, 0)) == table_id) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// 用户段分配(须持锁): max(当前最大表 id + 1, kFirstUserTableId)
+uint32_t Database::alloc_table_id()
+{
+    int64_t max_id = 0;
+    for (const std::vector<Value>& row : read_rows(kTableMetaId, table_meta_cols())) {
+        max_id = std::max(max_id, row_int(row, 0));
+    }
+    return static_cast<uint32_t>(
+            std::max(max_id + 1, static_cast<int64_t>(kFirstUserTableId)));
+}
+
 void Database::drop_table(const std::string& name)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    const uint32_t tid = table_meta(name).table_id;
+    const uint32_t tid = find_table_meta(name).table_id;
     if (tid <= kReservedMaxTableId) {
         DB_RAISE(db::ErrCode::ProtectedTable, LogModule::STORAGE, "保留表禁止删除: {}", name);
     }
     delete_meta_rows(tid);
-    catalog_.erase(name);
-    catalog_.save(catalog_path_of(dir_));
     files_.remove_table_file(tid);
     pool_.drop_table(tid);
     tail_pages_.erase(tid);
@@ -259,7 +393,7 @@ uint32_t Database::link_header_to_first_data_page(uint32_t table_id)
 RowRef Database::insert(const std::string& table, const std::vector<Value>& values)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    const TableMeta& meta = table_meta(table);
+    const TableMeta meta = find_table_meta(table);
     return insert_impl(meta.table_id, meta.cols, values);
 }
 
@@ -327,7 +461,7 @@ size_t Database::delete_by_ref(const RowRef& ref)
     }
     const uint32_t tid = page_table_id(ref.page);
     const uint32_t no = page_no(ref.page);
-    if (catalog_.find_by_id(tid) == nullptr || no == 0) {
+    if (!table_id_exists(tid) || no == 0) {
         return 0;  // 表不存在或指向文件头页
     }
     uint32_t max_no = files_.page_count(tid) - 1;
@@ -353,7 +487,7 @@ size_t Database::delete_by_ref(const RowRef& ref)
 size_t Database::delete_all(const std::string& table)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    const TableMeta& meta = table_meta(table);
+    const TableMeta meta = find_table_meta(table);
     size_t n = 0;
     const PageId pid0 = make_page_id(meta.table_id, 0);
     char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);
@@ -381,14 +515,13 @@ size_t Database::delete_all(const std::string& table)
 
 std::unique_ptr<Scanner> Database::scan(const std::string& table)
 {
-    const TableMeta& meta = table_meta(table);
-    return std::make_unique<Scanner>(this, meta);
+    return std::make_unique<Scanner>(this, table_meta(table));
 }
 
 size_t Database::row_count(const std::string& table)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    const TableMeta& meta = table_meta(table);
+    const TableMeta meta = find_table_meta(table);
     size_t n = 0;
     const PageId pid0 = make_page_id(meta.table_id, 0);
     char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);

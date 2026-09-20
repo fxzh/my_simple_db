@@ -143,7 +143,7 @@ int main(int argc, char* argv[])
     } catch (const db::DbError& e) {
         LOG(CRITICAL, SYSTEM, "打开数据目录失败: %s", e.what());
         if (e.code() == db::ErrCode::CatalogMissing) {
-            std::cout << "数据目录不完整: 缺少 catalog.dat" << std::endl;
+            std::cout << "数据目录未初始化, 请先执行 initdb" << std::endl;
         }
         return -1;
     } catch (const std::exception& e) {

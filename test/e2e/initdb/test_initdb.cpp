@@ -55,7 +55,8 @@ TEST(Initdb, Ok)
     EXPECT_NE(r.out.find("已初始化数据目录"), std::string::npos) << r.err;
     std::filesystem::path conf = std::filesystem::path(data) / "db.conf";
     EXPECT_TRUE(std::filesystem::is_regular_file(conf));
-    EXPECT_TRUE(std::filesystem::is_regular_file(std::filesystem::path(data) / "catalog.dat"));
+    EXPECT_TRUE(std::filesystem::is_regular_file(std::filesystem::path(data) / "t_1.dat"));
+    EXPECT_TRUE(std::filesystem::is_regular_file(std::filesystem::path(data) / "t_2.dat"));
     std::ifstream in(conf);
     std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     EXPECT_NE(content.find("port = 8123"), std::string::npos);
