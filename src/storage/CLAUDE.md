@@ -23,7 +23,9 @@ storage.h/.cpp  Database 门面：create(引导两张元数据表+空目录文�
 # 要点/限制
 - M1 无索引/无主键，scan 全表扫，insert 返回 RowRef(页,槽)；重启后数据仍在(appended 截断容忍)
 - 元数据表由 create() 硬编码 schema 引导：建文件+头页+自描述行，不进 catalog，SQL 层不可见；
-  执行层特判保留表名禁止 create table
+  执行层与存储层均拒绝保留表名
+- DDL 维护元数据行：create_table 写 db_table/db_column 行并拒绝超长表/列名(64 字节)，
+  drop_table 删除对应行；元数据行暂不回读，目录仍以 catalog.dat 为准
 - crate/drop 顺序：先落盘文件头页再写目录，避免"目录有表但文件无效"
 - scan() 不加锁(游标持有页 pin)，并发 DDL 期间扫描未定义行为；row_count() 加锁
 - 记录 ≤4068B，NULL 经记录头位图存储(NULL 列不占字节, NOT NULL 列拒绝 NULL)，表最多约 4000B/行；跨页记录不支持(将来 M3 树内处理)

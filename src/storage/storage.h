@@ -77,7 +77,7 @@ private:
     friend class Scanner;
     // 建首个数据页(页号 1)并链到文件头页, 返回新页号
     uint32_t link_header_to_first_data_page(uint32_t table_id);
-    // 建表公共路径(须持锁): 校验后按指定 id 建数据文件与目录条目
+    // 建表公共路径(须持锁): 校验后按指定 id 建数据文件、写元数据行与目录条目
     uint32_t create_table_impl(const std::string& name, const std::vector<ColumnSpec>& cols,
                                uint32_t tid);
     // 物理建表(须持锁): 建数据文件并初始化落盘文件头页
@@ -85,8 +85,13 @@ private:
     // 插行公共路径(须持锁): 校验编码后追加, 用户插行与元数据表引导共用
     RowRef insert_impl(uint32_t table_id, const std::vector<ColumnSpec>& cols,
                        const std::vector<Value>& values);
+    // 写入指定表的元数据行(须持锁): db_table 一行, db_column 每列一行, 引导与建表共用
+    void write_meta_rows(uint32_t tid, const std::string& name,
+                         const std::vector<ColumnSpec>& cols);
     // 引导元数据表: 直接建数据文件并写入自描述行, 不经过目录
     void bootstrap_meta_tables();
+    // 删除指定表的元数据行(须持锁): 按 table_id 匹配 db_table/db_column
+    void delete_meta_rows(uint32_t tid);
 
     std::string dir_;
     Catalog catalog_;

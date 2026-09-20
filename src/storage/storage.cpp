@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <stdexcept>
 #include <unordered_map>
+#include <utility>
 
 #include "codec.h"
 #include "common/err.h"
@@ -118,6 +119,13 @@ uint32_t Database::create_table_impl(const std::string& name, const std::vector<
     if (name.empty()) {
         DB_RAISE(db::ErrCode::InvalidDdl, LogModule::STORAGE, "表名为空");
     }
+    // 临时禁用
+    if (name == kTableMetaName || name == kColumnMetaName) {
+        DB_RAISE(db::ErrCode::ProtectedTable, LogModule::STORAGE, "保留表名禁止使用: {}", name);
+    }
+    if (name.size() > kMetaNameLen) {
+        DB_RAISE(db::ErrCode::InvalidDdl, LogModule::STORAGE, "表名超过 {} 字节上限", kMetaNameLen);
+    }
     if (catalog_.find(name) != nullptr) {
         DB_RAISE(db::ErrCode::TableExists, LogModule::STORAGE, "表已存在: {}", name);
     }
@@ -125,6 +133,10 @@ uint32_t Database::create_table_impl(const std::string& name, const std::vector<
         DB_RAISE(db::ErrCode::InvalidDdl, LogModule::STORAGE, "表至少需要一列");
     }
     for (size_t i = 0; i < cols.size(); ++i) {
+        if (cols[i].name.size() > kMetaNameLen) {
+            DB_RAISE(db::ErrCode::InvalidDdl, LogModule::STORAGE, "列名超过 {} 字节上限: {}",
+                     kMetaNameLen, cols[i].name);
+        }
         for (size_t j = i + 1; j < cols.size(); ++j) {
             if (cols[i].name == cols[j].name) {
                 DB_RAISE(db::ErrCode::InvalidDdl, LogModule::STORAGE, "存在重复列名: {}", cols[i].name);
@@ -132,8 +144,9 @@ uint32_t Database::create_table_impl(const std::string& name, const std::vector<
         }
     }
 
-    // 先建数据文件, 再写目录, 保证目录有表时数据文件必有效
+    // 先建数据文件, 再写元数据行与目录, 保证目录有表时数据文件必有效
     init_table_file(tid);
+    write_meta_rows(tid, name, cols);
 
     TableMeta meta{tid, name, cols};
     catalog_.add_or_update(meta);
@@ -153,21 +166,60 @@ void Database::init_table_file(uint32_t tid)
     pool_.flush(pid0, files_);
 }
 
+// 写入指定表的元数据行: db_table 一行 + db_column 每列一行
+void Database::write_meta_rows(uint32_t tid, const std::string& name,
+                               const std::vector<ColumnSpec>& cols)
+{
+    insert_impl(kTableMetaId, table_meta_cols(),
+                {Value{static_cast<int64_t>(tid)}, Value{name}});
+    for (const std::vector<Value>& row : column_meta_rows(tid, cols)) {
+        insert_impl(kColumnMetaId, column_meta_cols(), row);
+    }
+}
+
 void Database::bootstrap_meta_tables()
 {
-    const std::vector<ColumnSpec> tcols = table_meta_cols();
-    const std::vector<ColumnSpec> ccols = column_meta_cols();
     init_table_file(kTableMetaId);
     init_table_file(kColumnMetaId);
-    insert_impl(kTableMetaId, tcols, {Value{static_cast<int64_t>(kTableMetaId)},
-                                      Value{std::string{kTableMetaName}}});
-    insert_impl(kTableMetaId, tcols, {Value{static_cast<int64_t>(kColumnMetaId)},
-                                      Value{std::string{kColumnMetaName}}});
-    for (const std::vector<Value>& row : column_meta_rows(kTableMetaId, tcols)) {
-        insert_impl(kColumnMetaId, ccols, row);
-    }
-    for (const std::vector<Value>& row : column_meta_rows(kColumnMetaId, ccols)) {
-        insert_impl(kColumnMetaId, ccols, row);
+    write_meta_rows(kTableMetaId, kTableMetaName, table_meta_cols());
+    write_meta_rows(kColumnMetaId, kColumnMetaName, column_meta_cols());
+}
+
+// 删除指定表的元数据行: 两表第 0 列均为 table_id, 匹配即删
+void Database::delete_meta_rows(uint32_t tid)
+{
+    const std::vector<std::pair<uint32_t, std::vector<ColumnSpec>>> metas = {
+            {kTableMetaId, table_meta_cols()}, {kColumnMetaId, column_meta_cols()}};
+    for (const auto& [meta_tid, cols] : metas) {
+        const PageId pid0 = make_page_id(meta_tid, 0);
+        char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);
+        uint32_t pno = header(h)->next_page;
+        pool_.unpin(h);
+        while (pno != 0) {
+            const PageId pid = make_page_id(meta_tid, pno);
+            char* pg = pool_.read(pid, MAGIC_HEAP, files_);
+            PageHeader* ph = header(pg);
+            for (uint16_t i = 0; i < ph->slot_count; ++i) {
+                if (slot_tombstone(pg, i)) {
+                    continue;
+                }
+                std::vector<Value> vals;
+                const Slot* s = slot_at(pg, i);
+                if (!decode_row(cols, record(pg, i), s->len, vals)) {
+                    DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::STORAGE, "元数据行损坏");
+                }
+                const int64_t* row_tid = std::get_if<int64_t>(&vals[0]);
+                if (row_tid == nullptr) {
+                    DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::STORAGE, "元数据行损坏");
+                }
+                if (*row_tid == static_cast<int64_t>(tid)) {
+                    heap_delete(pg, i);
+                    pool_.mark_dirty(pg);
+                }
+            }
+            pno = ph->next_page;
+            pool_.unpin(pg);
+        }
     }
 }
 
@@ -178,6 +230,7 @@ void Database::drop_table(const std::string& name)
     if (tid <= kReservedMaxTableId) {
         DB_RAISE(db::ErrCode::ProtectedTable, LogModule::STORAGE, "保留表禁止删除: {}", name);
     }
+    delete_meta_rows(tid);
     catalog_.erase(name);
     catalog_.save(catalog_path_of(dir_));
     files_.remove_table_file(tid);
