@@ -21,14 +21,14 @@ constexpr uint16_t kMetaNameLen = 64;
 // db_table 列定义
 std::vector<ColumnSpec> table_meta_cols()
 {
-    return {{"table_id", ColType::Int, 0, true},
+    return {{"table_id", ColType::BigInt, 0, true},
             {"table_name", ColType::VarChar, kMetaNameLen, true}};
 }
 
 // db_column 列定义
 std::vector<ColumnSpec> column_meta_cols()
 {
-    return {{"table_id", ColType::Int, 0, true},
+    return {{"table_id", ColType::BigInt, 0, true},
             {"col_name", ColType::VarChar, kMetaNameLen, true},
             {"ordinal", ColType::Int, 0, true},
             {"type", ColType::Int, 0, true},
@@ -37,7 +37,7 @@ std::vector<ColumnSpec> column_meta_cols()
 }
 
 // 生成某表的 db_column 自描述行(ordinal 从 0 起, type/not_null 存枚举值与 0/1)
-std::vector<std::vector<Value>> column_meta_rows(uint32_t tid, const std::vector<ColumnSpec>& cols)
+std::vector<std::vector<Value>> column_meta_rows(uint64_t tid, const std::vector<ColumnSpec>& cols)
 {
     std::vector<std::vector<Value>> rows;
     rows.reserve(cols.size());
@@ -141,14 +141,14 @@ TableMeta Database::table_meta(const std::string& name)
     return find_table_meta(name);
 }
 
-uint32_t Database::create_table(const std::string& name, const std::vector<ColumnSpec>& cols)
+uint64_t Database::create_table(const std::string& name, const std::vector<ColumnSpec>& cols)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     return create_table_impl(name, cols, alloc_table_id());
 }
 
-uint32_t Database::create_table_impl(const std::string& name, const std::vector<ColumnSpec>& cols,
-                                     uint32_t tid)
+uint64_t Database::create_table_impl(const std::string& name, const std::vector<ColumnSpec>& cols,
+                                     uint64_t tid)
 {
     if (name.empty()) {
         DB_RAISE(db::ErrCode::InvalidDdl, LogModule::STORAGE, "表名为空");
@@ -180,12 +180,12 @@ uint32_t Database::create_table_impl(const std::string& name, const std::vector<
     return tid;
 }
 
-void Database::init_table_file(uint32_t tid)
+void Database::init_table_file(uint64_t tid)
 {
     files_.create_table_file(tid);
 
     // 初始化并落盘文件头页
-    const PageId pid0 = make_page_id(tid, 0);
+    const PageId pid0 = PageId{tid, 0};
     char* h = pool_.allocate(pid0, files_);
     init_page(h, MAGIC_FILE_HEADER, PageType::FileHeader);
     pool_.unpin(h);
@@ -193,7 +193,7 @@ void Database::init_table_file(uint32_t tid)
 }
 
 // 写入指定表的元数据行: db_table 一行 + db_column 每列一行
-void Database::write_meta_rows(uint32_t tid, const std::string& name,
+void Database::write_meta_rows(uint64_t tid, const std::string& name,
                                const std::vector<ColumnSpec>& cols)
 {
     insert_impl(kTableMetaId, table_meta_cols(),
@@ -212,17 +212,17 @@ void Database::bootstrap_meta_tables()
 }
 
 // 删除指定表的元数据行: 两表第 0 列均为 table_id, 匹配即删
-void Database::delete_meta_rows(uint32_t tid)
+void Database::delete_meta_rows(uint64_t tid)
 {
-    const std::vector<std::pair<uint32_t, std::vector<ColumnSpec>>> metas = {
+    const std::vector<std::pair<uint64_t, std::vector<ColumnSpec>>> metas = {
             {kTableMetaId, table_meta_cols()}, {kColumnMetaId, column_meta_cols()}};
     for (const auto& [meta_tid, cols] : metas) {
-        const PageId pid0 = make_page_id(meta_tid, 0);
+        const PageId pid0 = PageId{meta_tid, 0};
         char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);
         uint32_t pno = header(h)->next_page;
         pool_.unpin(h);
         while (pno != 0) {
-            const PageId pid = make_page_id(meta_tid, pno);
+            const PageId pid = PageId{meta_tid, pno};
             char* pg = pool_.read(pid, MAGIC_HEAP, files_);
             PageHeader* ph = header(pg);
             for (uint16_t i = 0; i < ph->slot_count; ++i) {
@@ -250,16 +250,16 @@ void Database::delete_meta_rows(uint32_t tid)
 }
 
 // 读取指定表全部存活行(须持锁): 沿页链解码, 行损坏当场报错
-std::vector<std::vector<Value>> Database::read_rows(uint32_t table_id,
+std::vector<std::vector<Value>> Database::read_rows(uint64_t table_id,
                                                     const std::vector<ColumnSpec>& cols)
 {
     std::vector<std::vector<Value>> rows;
-    const PageId pid0 = make_page_id(table_id, 0);
+    const PageId pid0 = PageId{table_id, 0};
     char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);
     uint32_t pno = header(h)->next_page;
     pool_.unpin(h);
     while (pno != 0) {
-        const PageId pid = make_page_id(table_id, pno);
+        const PageId pid = PageId{table_id, pno};
         char* pg = pool_.read(pid, MAGIC_HEAP, files_);
         const PageHeader* ph = header(pg);
         for (uint16_t i = 0; i < ph->slot_count; ++i) {
@@ -282,11 +282,11 @@ std::vector<std::vector<Value>> Database::read_rows(uint32_t table_id,
 // 按表名查元数据(须持锁): db_table 定位 id, db_column 收集列并按 ordinal 排序
 TableMeta Database::find_table_meta(const std::string& name)
 {
-    uint32_t tid = 0;
+    uint64_t tid = 0;
     bool found = false;
     for (const std::vector<Value>& row : read_rows(kTableMetaId, table_meta_cols())) {
         if (row_str(row, 1) == name) {
-            tid = static_cast<uint32_t>(row_int(row, 0));
+            tid = static_cast<uint64_t>(row_int(row, 0));
             found = true;
             break;
         }
@@ -334,10 +334,10 @@ bool Database::has_table_name(const std::string& name)
 }
 
 // table_id 是否已存在(须持锁): 全扫 db_table 匹配
-bool Database::table_id_exists(uint32_t table_id)
+bool Database::table_id_exists(uint64_t table_id)
 {
     for (const std::vector<Value>& row : read_rows(kTableMetaId, table_meta_cols())) {
-        if (static_cast<uint32_t>(row_int(row, 0)) == table_id) {
+        if (static_cast<uint64_t>(row_int(row, 0)) == table_id) {
             return true;
         }
     }
@@ -345,20 +345,20 @@ bool Database::table_id_exists(uint32_t table_id)
 }
 
 // 用户段分配(须持锁): max(当前最大表 id + 1, kFirstUserTableId)
-uint32_t Database::alloc_table_id()
+uint64_t Database::alloc_table_id()
 {
     int64_t max_id = 0;
     for (const std::vector<Value>& row : read_rows(kTableMetaId, table_meta_cols())) {
         max_id = std::max(max_id, row_int(row, 0));
     }
-    return static_cast<uint32_t>(
+    return static_cast<uint64_t>(
             std::max(max_id + 1, static_cast<int64_t>(kFirstUserTableId)));
 }
 
 void Database::drop_table(const std::string& name)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    const uint32_t tid = find_table_meta(name).table_id;
+    const uint64_t tid = find_table_meta(name).table_id;
     if (tid <= kReservedMaxTableId) {
         DB_RAISE(db::ErrCode::ProtectedTable, LogModule::STORAGE, "保留表禁止删除: {}", name);
     }
@@ -368,13 +368,13 @@ void Database::drop_table(const std::string& name)
     tail_pages_.erase(tid);
 }
 
-uint32_t Database::link_header_to_first_data_page(uint32_t table_id)
+uint32_t Database::link_header_to_first_data_page(uint64_t table_id)
 {
     // 页号 0 是文件头页, 首个数据页固定为页号 1
-    const PageId pid0 = make_page_id(table_id, 0);
+    const PageId pid0 = PageId{table_id, 0};
     char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);
     const uint32_t new_no = 1;
-    char* np = pool_.allocate(make_page_id(table_id, new_no), files_);
+    char* np = pool_.allocate(PageId{table_id, new_no}, files_);
     init_page(np, MAGIC_HEAP, PageType::Heap);
     pool_.unpin(np);
 
@@ -393,7 +393,7 @@ RowRef Database::insert(const std::string& table, const std::vector<Value>& valu
     return insert_impl(meta.table_id, meta.cols, values);
 }
 
-RowRef Database::insert_impl(uint32_t table_id, const std::vector<ColumnSpec>& cols,
+RowRef Database::insert_impl(uint64_t table_id, const std::vector<ColumnSpec>& cols,
                              const std::vector<Value>& values)
 {
     if (cols.size() != values.size()) {
@@ -425,7 +425,7 @@ RowRef Database::insert_impl(uint32_t table_id, const std::vector<ColumnSpec>& c
     }
 
     for (;;) {
-        const PageId pid = make_page_id(table_id, tail);
+        const PageId pid = PageId{table_id, tail};
         char* pg = pool_.read(pid, MAGIC_HEAP, files_);
         uint16_t slot = 0;
         if (heap_append(pg, rec.data(), static_cast<uint16_t>(rec.size()), &slot)) {
@@ -438,7 +438,7 @@ RowRef Database::insert_impl(uint32_t table_id, const std::vector<ColumnSpec>& c
         // 新页号取磁盘页数与当前尾页+1 的较大值, 避免与仅存内存中的页冲突
         PageHeader* ph = header(pg);
         const uint32_t new_no = std::max(files_.page_count(table_id), tail + 1);
-        char* np = pool_.allocate(make_page_id(table_id, new_no), files_);
+        char* np = pool_.allocate(PageId{table_id, new_no}, files_);
         init_page(np, MAGIC_HEAP, PageType::Heap);
         pool_.unpin(np);
         ph->next_page = new_no;
@@ -455,8 +455,8 @@ size_t Database::delete_by_ref(const RowRef& ref)
     if (ref.page == INVALID_PAGE) {
         return 0;
     }
-    const uint32_t tid = page_table_id(ref.page);
-    const uint32_t no = page_no(ref.page);
+    const uint64_t tid = ref.page.table_id;
+    const uint32_t no = ref.page.page_no;
     if (!table_id_exists(tid) || no == 0) {
         return 0;  // 表不存在或指向文件头页
     }
@@ -485,12 +485,12 @@ size_t Database::delete_all(const std::string& table)
     std::lock_guard<std::mutex> lock(mutex_);
     const TableMeta meta = find_table_meta(table);
     size_t n = 0;
-    const PageId pid0 = make_page_id(meta.table_id, 0);
+    const PageId pid0 = PageId{meta.table_id, 0};
     char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);
     uint32_t pno = header(h)->next_page;
     pool_.unpin(h);
     while (pno != 0) {
-        const PageId pid = make_page_id(meta.table_id, pno);
+        const PageId pid = PageId{meta.table_id, pno};
         char* pg = pool_.read(pid, MAGIC_HEAP, files_);
         PageHeader* ph = header(pg);
         for (uint16_t i = 0; i < ph->slot_count; ++i) {
@@ -519,12 +519,12 @@ size_t Database::row_count(const std::string& table)
     std::lock_guard<std::mutex> lock(mutex_);
     const TableMeta meta = find_table_meta(table);
     size_t n = 0;
-    const PageId pid0 = make_page_id(meta.table_id, 0);
+    const PageId pid0 = PageId{meta.table_id, 0};
     char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);
     uint32_t pno = header(h)->next_page;
     pool_.unpin(h);
     while (pno != 0) {
-        const PageId pid = make_page_id(meta.table_id, pno);
+        const PageId pid = PageId{meta.table_id, pno};
         char* pg = pool_.read(pid, MAGIC_HEAP, files_);
         const PageHeader* ph = header(pg);
         for (uint16_t i = 0; i < ph->slot_count; ++i) {
@@ -543,7 +543,7 @@ size_t Database::row_count(const std::string& table)
 Scanner::Scanner(Database* db, const TableMeta& meta)
         : db_(db), meta_(meta)
 {
-    const PageId pid0 = make_page_id(meta_.table_id, 0);
+    const PageId pid0 = PageId{meta_.table_id, 0};
     char* h = db_->pool_.read(pid0, MAGIC_FILE_HEADER, db_->files_);
     next_page_no_ = header(h)->next_page;
     db_->pool_.unpin(h);
@@ -570,7 +570,7 @@ void Scanner::advance_page()
         done_ = true;
         return;
     }
-    cur_page_ = make_page_id(meta_.table_id, next_page_no_);
+    cur_page_ = PageId{meta_.table_id, next_page_no_};
     cur_data_ = db_->pool_.read(cur_page_, MAGIC_HEAP, db_->files_);
     slot_ = 0;
     next_page_no_ = header(cur_data_)->next_page;

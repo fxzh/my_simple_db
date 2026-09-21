@@ -3,7 +3,7 @@ M1 = 堆页追加 + 全表扫描；M3 起加入 B+树聚簇索引，M4 加 WAL�
 结构体字段按"不做版本与迁移"约定，只存放当前里程碑实际用到的。
 
 # 文件
-types.h         公共类型：PageId(table_id<<32|page_no)、ColType、Value(variant, monostate 即 NULL)、TableMeta、Row、
+types.h         公共类型：PageId(结构体 table_id:u64+page_no:u32)、ColType、Value(variant, monostate 即 NULL)、TableMeta、Row、
                 table_id 保留段常量(kReservedMaxTableId=20000, kFirstUserTableId=20001)、
                 元数据表常量(kTableMetaId=1 db_table 记表名, kColumnMetaId=2 db_column 记列定义)
 page.h/.cpp     页头 24B(magic/type/slot_count/free_begin/free_end/next_page/checksum)+槽(off,len)

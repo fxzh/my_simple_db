@@ -55,7 +55,7 @@ public:
     // 丢弃全部缓存帧(不写回, 用于重开/切换数据目录)
     void invalidate_all();
     // 丢弃某表全部帧(表已删除)
-    void drop_table(uint32_t table_id);
+    void drop_table(uint64_t table_id);
 
     size_t capacity() const { return frames_.size(); }
 

@@ -76,7 +76,7 @@ data/
 页号编码（跨表全局）：
 
 ```
-page_id(uint64) = (table_id:uint32 << 32) | page_no:uint32
+page_id = struct { table_id:uint64, page_no:uint32 }
 ```
 
 page_no 从 0 开始；文件内物理偏移 = `page_no * PAGE_SIZE`。数据文件第 0 页为"文件头页"（magic、版本、table_id、下一个空闲页链表头），之后是数据页。
@@ -232,7 +232,7 @@ WHY: B+ 树原地改写页 + 缓冲池延迟写盘（性能），若不做日志
 体:
   OP_PAGE_PATCH   [offset uint32][len uint16][字节]   # 物理重做, 直接补页区域
   OP_CREATE_TABLE [name 长度前缀 + name][schema...]
-  OP_DROP_TABLE   [table_id uint32]
+  OP_DROP_TABLE   [table_id uint64]
   OP_CHECKPOINT   (仅出现在日志头部位置)
 ```
 

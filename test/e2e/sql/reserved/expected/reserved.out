@@ -33,9 +33,9 @@ table_id | table_name
 已发送消息: SELECT * FROM db_column;
 table_id | col_name   | ordinal | type | length | not_null
 --------+----------+-------+----+------+--------
-1        | table_id   | 0       | 1    | 0      | 1
+1        | table_id   | 0       | 2    | 0      | 1
 1        | table_name | 1       | 4    | 64     | 1
-2        | table_id   | 0       | 1    | 0      | 1
+2        | table_id   | 0       | 2    | 0      | 1
 2        | col_name   | 1       | 4    | 64     | 1
 2        | ordinal    | 2       | 1    | 0      | 1
 2        | type       | 3       | 1    | 0      | 1

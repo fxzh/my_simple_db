@@ -38,7 +38,7 @@ void BufferPool::write_back(PageFrame& f, FileManager& files)
     if (!f.valid || !f.dirty) {
         return;
     }
-    files.write_page(page_table_id(f.page), page_no(f.page), f.data);
+    files.write_page(f.page.table_id, f.page.page_no, f.data);
     f.dirty = false;
 }
 
@@ -78,15 +78,15 @@ char* BufferPool::read(PageId page, uint32_t expect_magic, FileManager& files)
     f.valid = true;
     f.ref = true;
     f.pin = 1;
-    files.read_page(page_table_id(page), page_no(page), f.data);
+    files.read_page(page.table_id, page.page_no, f.data);
 
     if (!page_valid(f.data, expect_magic)) {
         if (expect_magic == MAGIC_FILE_HEADER) {
             raise_error(db::ErrCode::CorruptData, "文件头页损坏");
         }
         // 数据页损坏: 按追加截断处理, 重建空页
-        LOG_WARNING(LogModule::STORAGE, "检测到损坏数据页, 按空页重建: table=%u page=%u",
-                    page_table_id(page), page_no(page));
+        LOG_WARNING(LogModule::STORAGE, "检测到损坏数据页, 按空页重建: table=%llu page=%u",
+                    static_cast<unsigned long long>(page.table_id), page.page_no);
         init_page(f.data, MAGIC_HEAP, PageType::Heap);
         f.dirty = true;
     }
@@ -160,10 +160,10 @@ void BufferPool::invalidate_all()
     clock_hand_ = 0;
 }
 
-void BufferPool::drop_table(uint32_t table_id)
+void BufferPool::drop_table(uint64_t table_id)
 {
     for (auto& f : frames_) {
-        if (f.valid && page_table_id(f.page) == table_id) {
+        if (f.valid && f.page.table_id == table_id) {
             f = PageFrame{};
         }
     }
