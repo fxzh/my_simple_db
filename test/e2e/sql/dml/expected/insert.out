@@ -1,12 +1,12 @@
 CREATE TABLE t_user (id int, score double);
-服务器回显: OK
+CREATE
 INSERT INTO t_user VALUES (1, 95.5);
-服务器回显: OK
+INSERT 1
 INSERT INTO t_user VALUES (2, 60 + 30.5);
-服务器回显: OK
+INSERT 1
 INSERT INTO t_order VALUES (10, 1, 200.5);
-服务器回显: ERROR: 表不存在: t_order
+ERROR: 表不存在: t_order
 INSERT INTO t_user VALUES (3, 88.0);
-服务器回显: OK
+INSERT 1
 DROP TABLE t_user;
-服务器回显: OK
+DROP

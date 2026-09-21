@@ -25,9 +25,18 @@ constexpr uint32_t MAX_REQUEST_PAYLOAD = 10240;
 // 消息类型: Query 为请求方向, 其余为响应方向
 enum class MsgType : uint8_t {
     Query = 1,      // body: SQL 原文
-    Ok = 2,         // body: 状态文本
+    Ok = 2,         // body: 命令标签(编码见下方命令标签部分)
     Error = 3,      // body: 错误文案
     ResultSet = 4,  // body: 结果集(编码见下方 ResultSet 部分)
+};
+
+// 命令完成标签: 非结果集语句的执行语义, 展示格式由 client 决定
+enum class CommandTag : uint8_t {
+    Empty = 0,       // 空语句(无实际语句)
+    CreateTable = 1, // count 恒 0
+    DropTable = 2,   // count 恒 0
+    Insert = 3,      // count 为插入行数
+    Delete = 4,      // count 为删除行数
 };
 
 // 读满 len 字节: 对端关闭或系统错误返回 false, EINTR 自动重试
@@ -274,6 +283,35 @@ inline bool decode_result_set(std::string_view body, ResultSet& out)
         out.rows.push_back(std::move(row));
     }
     return off == body.size();
+}
+
+// ==================== 命令标签(Ok body 编解码) ====================
+
+// body 布局: [tag u8][count u64 大端], 共 9 字节
+inline std::string encode_command(CommandTag tag, uint64_t count)
+{
+    std::string body(1, static_cast<char>(tag));
+    append_u64(body, count);
+    return body;
+}
+
+// 命令标签解码; 长度不为 9 或 tag 超出已知值返回 false
+inline bool decode_command(std::string_view body, CommandTag& tag, uint64_t& count)
+{
+    if (body.size() != 9) {
+        return false;
+    }
+    const auto t = static_cast<unsigned char>(body[0]);
+    if (t > static_cast<unsigned char>(CommandTag::Delete)) {
+        return false;  // 未知 tag
+    }
+    tag = static_cast<CommandTag>(t);
+    uint64_t v = 0;
+    for (std::size_t i = 0; i < 8; ++i) {
+        v = (v << 8) | static_cast<unsigned char>(body[1 + i]);
+    }
+    count = v;
+    return true;
 }
 
 }  // namespace proto

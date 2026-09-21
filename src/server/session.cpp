@@ -34,6 +34,23 @@ void safe_cout(const std::string& message)
     std::cout << message << std::endl;
 }
 
+namespace {
+
+// 命令标签日志名: server 日志文案, 与 client 展示格式互不相关
+const char* tag_log_name(proto::CommandTag tag)
+{
+    switch (tag) {
+    case proto::CommandTag::Empty: return "EMPTY";
+    case proto::CommandTag::CreateTable: return "CREATE";
+    case proto::CommandTag::DropTable: return "DROP";
+    case proto::CommandTag::Insert: return "INSERT";
+    case proto::CommandTag::Delete: return "DELETE";
+    }
+    return "";
+}
+
+}  // namespace
+
 // 处理单个客户端的函数
 void handle_client(int client_socket, int client_id, const std::string& client_ip,
                    st::Database* db)
@@ -62,9 +79,6 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
 
         // 检查是否收到退出指令
         if (msg_str == "quit" || msg_str == "exit") {
-            std::string goodbye_msg = "再见!";
-            proto::send_frame(client_socket, proto::MsgType::Ok, goodbye_msg);
-
             std::string leave_msg = "客户端 ID:" + std::to_string(client_id) + " 主动退出";
             LOG(INFO, NETWORK, "%s", leave_msg.c_str());
             break;
@@ -99,13 +113,18 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
                                       proto::encode_result_set(rs));
                 } else {
                     std::string exec_log = "ID:" + std::to_string(client_id)
-                                         + " SQL执行结果: " + result.status;
+                                         + " SQL执行结果: " + tag_log_name(result.tag);
+                    if (result.count > 0) {
+                        exec_log += " " + std::to_string(result.count);
+                    }
                     LOG(INFO, EXECUTOR, "%s", exec_log.c_str());
-                    proto::send_frame(client_socket, proto::MsgType::Ok, result.status);
+                    proto::send_frame(client_socket, proto::MsgType::Ok,
+                                      proto::encode_command(result.tag, result.count));
                 }
             } else {
                 // 空输入或仅 ";", 无实际语句
-                proto::send_frame(client_socket, proto::MsgType::Ok, msg_str);
+                proto::send_frame(client_socket, proto::MsgType::Ok,
+                                  proto::encode_command(proto::CommandTag::Empty, 0));
             }
         } else {
             std::string err_log = "SQL解析失败 ID:" + std::to_string(client_id) + ": " + parse_error;

@@ -3,7 +3,7 @@ client 与 server 的 TCP 消息格式：[4B 网络序 payload 长度][1B 消息
 无 CMake 目标，经顶层 include_directories(src) 以 "proto/proto.h" 引用；不依赖 log/common，client 端可直接使用
 
 # 消息类型
-Query(请求方向, body=SQL 原文)、Ok(状态文本)、Error(错误文案)、ResultSet(结果集, body=列名+行值的大端序编码, 编解码函数与布局见 proto.h)
+Query(请求方向, body=SQL 原文)、Ok(命令标签, body=[tag u8][count u64] 大端序 9 字节, tag 为 CommandTag 枚举, count 为影响行数)、Error(错误文案)、ResultSet(结果集, body=列名+行值的大端序编码, 编解码函数与布局见 proto.h)
 
 # 收发
 - send_frame/recv_frame 处理部分读写与 EINTR；recv_frame 的 max_payload 传 0 表示不限

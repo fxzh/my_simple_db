@@ -66,6 +66,24 @@ std::string cell_text(const proto::CellVal& cell)
     return "NULL";
 }
 
+// 命令标签展示文本: 标签关键词, insert/delete 附影响行数
+std::string command_display(proto::CommandTag tag, uint64_t count)
+{
+    switch (tag) {
+    case proto::CommandTag::CreateTable:
+        return "CREATE";
+    case proto::CommandTag::DropTable:
+        return "DROP";
+    case proto::CommandTag::Insert:
+        return "INSERT " + std::to_string(count);
+    case proto::CommandTag::Delete:
+        return "DELETE " + std::to_string(count);
+    case proto::CommandTag::Empty:
+        return "";
+    }
+    return "";  // 不可达: 全部标签已在上方穷尽
+}
+
 // 结果集渲染为表格: 列宽取表头与各单元格的最大字节宽, 全左对齐,
 // 每列前后各一空格且补齐列宽, 列间 '|' 分隔, 表头下每列 '-' × (列宽+2) 以 '+' 连接,
 // 末列不补尾空格, 末行输出 (N 行)
@@ -161,12 +179,19 @@ void send_to_server()
         return;
     }
 
-    // Ok 原样回显, Error 补前缀打印, ResultSet 渲染为表格
+    // Error 补前缀打印, Ok 解码命令标签后打印(空语句无输出), ResultSet 渲染为表格
     if (type == proto::MsgType::Error) {
         sql_failed = true;
-        std::cout << "服务器回显: ERROR: " << body << std::endl;
+        std::cout << "ERROR: " << body << std::endl;
     } else if (type == proto::MsgType::Ok) {
-        std::cout << "服务器回显: " << body << std::endl;
+        proto::CommandTag tag;
+        uint64_t count = 0;
+        if (!proto::decode_command(body, tag, count)) {
+            std::cerr << "错误: 命令标签解码失败" << std::endl;
+            sql_failed = true;
+        } else if (tag != proto::CommandTag::Empty) {
+            std::cout << command_display(tag, count) << std::endl;
+        }
     } else if (type == proto::MsgType::ResultSet) {
         proto::ResultSet rs;
         if (!proto::decode_result_set(body, rs)) {

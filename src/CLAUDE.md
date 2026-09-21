@@ -9,4 +9,4 @@ proto    帧协议头文件(header-only)：长度前缀+消息类型，client �
 storage  存储引擎静态库：M1 堆页追加+全表扫描(页/缓冲池/编解码)，后续 B+树/WAL
 tool     独立工具
 
-依赖关系：server → parser、log、common、executor；executor → parser、storage、log、common(报错/告警)；storage → log、common(报错/告警)；client 与 server 仅通过 TCP 帧协议(proto)交互
+依赖关系：server → parser、log、common、executor；executor → parser、storage、log、common(报错/告警)、proto(header-only)；storage → log、common(报错/告警)；client 与 server 仅通过 TCP 帧协议(proto)交互

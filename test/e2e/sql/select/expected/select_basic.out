@@ -1,9 +1,9 @@
 CREATE TABLE t_score (id int, score double);
-服务器回显: OK
+CREATE
 INSERT INTO t_score VALUES (1, 95.5);
-服务器回显: OK
+INSERT 1
 INSERT INTO t_score VALUES (2, 88.0);
-服务器回显: OK
+INSERT 1
 SELECT * FROM t_score;
  id | score
 ----+-------
@@ -29,15 +29,15 @@ SELECT 1 + 2 * 3, 'hi', 7.5 FROM t_score;
  7             | hi   | 7.5
 (2 行)
 SELECT nosuchcol FROM t_score;
-服务器回显: ERROR: 列不存在: nosuchcol
+ERROR: 列不存在: nosuchcol
 CREATE TABLE t_empty (id int);
-服务器回显: OK
+CREATE
 SELECT * FROM t_empty;
  id
 (0 行)
 DROP TABLE t_empty;
-服务器回显: OK
+DROP
 SELECT * FROM t_missing;
-服务器回显: ERROR: 表不存在: t_missing
+ERROR: 表不存在: t_missing
 DROP TABLE t_score;
-服务器回显: OK
+DROP

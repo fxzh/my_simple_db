@@ -1,9 +1,10 @@
 # 执行层(executor 静态库，server 链接)
-把 parser 产出的 AST 转成 storage 门面调用，返回结构化执行结果(状态文本或结果集)；
+把 parser 产出的 AST 转成 storage 门面调用，返回结构化执行结果(命令标签或结果集)；
 错误经 DB_RAISE 记日志后当场抛异常，由调用方回客户端 "ERROR: <原因>"
 
 # 文件
-executor.h      唯一入口 exec::execute(db, stmt) + ExecResult：is_result_set=false 带状态文本，
+executor.h      唯一入口 exec::execute(db, stmt) + ExecResult：is_result_set=false 带命令标签
+                (proto::CommandTag + count)，
                 true 带结果集(col_names + rows, Value 的 monostate 即 NULL)
 executor.cpp    语句分发 create/drop/insert/delete/select → storage；drop/insert/delete 拦截保留表名
                 (db_table/db_column)，select 可查元数据，create 由存储层按表已存在拒绝；

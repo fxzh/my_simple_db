@@ -192,11 +192,12 @@ st::Value to_st_value(const EvalValue& v)
     return std::visit([](const auto& val) -> st::Value { return val; }, v);
 }
 
-// 状态文本结果(非结果集语句)
-ExecResult status_result(std::string status)
+// 命令标签结果(非结果集语句)
+ExecResult tag_result(proto::CommandTag tag, uint64_t count)
 {
     ExecResult r;
-    r.status = std::move(status);
+    r.tag = tag;
+    r.count = count;
     return r;
 }
 
@@ -279,13 +280,13 @@ ExecResult execute(st::Database& db, const SQLStatement& stmt)
         std::vector<st::ColumnSpec> cols;
         convert_columns(cs.column_defs(), cols);
         db.create_table(cs.table_name(), cols);
-        return status_result("OK");
+        return tag_result(proto::CommandTag::CreateTable, 0);
     }
     case StmtKind::DropTable: {
         const auto& ds = static_cast<const DropTableStmt&>(stmt);
         check_reserved_table(ds.table_name());
         db.drop_table(ds.table_name());
-        return status_result("OK");
+        return tag_result(proto::CommandTag::DropTable, 0);
     }
     case StmtKind::Insert: {
         const auto& is = static_cast<const InsertStmt&>(stmt);
@@ -296,13 +297,13 @@ ExecResult execute(st::Database& db, const SQLStatement& stmt)
             values.push_back(to_st_value(eval_const(*v)));
         }
         db.insert(is.table_name(), values);
-        return status_result("OK");
+        return tag_result(proto::CommandTag::Insert, 1);
     }
     case StmtKind::Delete: {
         const auto& ds = static_cast<const DeleteStmt&>(stmt);
         check_reserved_table(ds.table_name());
-        const size_t n = db.delete_all(ds.table_name());
-        return status_result("OK (删除 " + std::to_string(n) + " 行)");
+        const uint64_t n = db.delete_all(ds.table_name());
+        return tag_result(proto::CommandTag::Delete, n);
     }
     case StmtKind::Select: {
         const auto& ss = static_cast<const SelectStmt&>(stmt);

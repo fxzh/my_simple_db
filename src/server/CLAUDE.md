@@ -13,10 +13,10 @@
 
 # 请求处理
 1. 按帧收整条请求(proto)：[4B 长度][Query][SQL 原文]；长度为 0/超 MAX_REQUEST_PAYLOAD(10240) 或类型非 Query 即断连
-2. "quit"/"exit" → 回 Ok 帧"再见!"并断开；其余交给 sql::parse(msg_str, err, stmt)
+2. "quit"/"exit" → 记日志并断开；其余交给 sql::parse(msg_str, err, stmt)
 3. 解析合法 → 非空语句交给 exec::execute(共享的 st::Database, *stmt)执行，按 ExecResult 分流：
-   create/drop table/insert 成功回 Ok 帧 "OK"，delete 回 Ok 帧 "OK (删除 N 行)"，
-   select 回 ResultSet 帧(结果集，client 渲染，EXECUTOR 日志记返回行数)，空语句回显原文；
+   非结果集语句回 Ok 帧命令标签，
+   select 回 ResultSet 帧(结果集，client 渲染，EXECUTOR 日志记返回行数)，空语句回 Empty 标签帧(client 无输出)；
    解析失败回 Error 帧(文案)；执行/存储错误以 DB_RAISE 抛 DbError，handle_client 统一 catch 转 Error 帧
 4. 全程记录日志
 

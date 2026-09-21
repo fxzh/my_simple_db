@@ -1,8 +1,8 @@
 CREATE TABLE t_user (id int, score double);
-服务器回显: OK
+CREATE
 CREATE TABLE t_order (id int, uid int, amount double);
-服务器回显: OK
+CREATE
 DROP TABLE t_order;
-服务器回显: OK
+DROP
 DROP TABLE t_user;
-服务器回显: OK
+DROP
