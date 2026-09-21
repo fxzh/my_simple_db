@@ -23,6 +23,9 @@ bool sql_overflow = false;
 // -c 模式退出码依据: 任一语句出错即置位
 bool sql_failed = false;
 
+// -a 回显开关, 置位时逐行原样回显输入
+bool echo_all = false;
+
 // 跨行累积依赖扫描器的 start condition 记忆, 实例全程复用
 std::unique_ptr<yyFlexLexer> lexer;
 
@@ -139,7 +142,6 @@ void send_to_server()
         return;
     }
 
-    std::cout << "已发送消息: " << sql_buffer << std::endl;
     // 整条 SQL 组帧发送
     if (!proto::send_frame(sock, proto::MsgType::Query, sql_buffer)) {
         std::cerr << "服务器连接已断开" << std::endl;
@@ -200,6 +202,7 @@ int main(int argc, char* argv[])
     if (!parse_args(argc, argv, opts)) {
         return -1;
     }
+    echo_all = opts.echo_all;
 
     // 创建socket
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -235,7 +238,15 @@ int main(int argc, char* argv[])
 
     // -c 模式: 整段输入按 ';' 逐条发送, 末尾无 ';' 的残留缓冲补上终结符后发送, 按执行结果定退出码
     if (!opts.sql.empty()) {
-        process_input(opts.sql);
+        std::istringstream payload(opts.sql);
+        std::string line;
+        while (std::getline(payload, line)) {
+            // -a 逐行回显非空原始输入
+            if (echo_all && !line.empty()) {
+                std::cout << line << std::endl;
+            }
+            process_input(line);
+        }
         if (!sql_buffer.empty()) {
             append_to_sql(";", 1);
             send_to_server();
@@ -262,6 +273,11 @@ int main(int argc, char* argv[])
         }
         std::string message = std::string(line);
         free(line);
+
+        // -a 逐行回显非空原始输入
+        if (echo_all && !message.empty()) {
+            std::cout << message << std::endl;
+        }
 
         // 检查退出指令
         if (message == "quit" || message == "exit") {

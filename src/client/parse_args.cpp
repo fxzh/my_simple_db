@@ -14,6 +14,7 @@ using ParseFn = bool (*)(std::string_view value, Options& opts);
 struct OptionSpec {
     const char* flag;         // 形如 "-p"
     const char* name;         // 中文名, 用于报错与用法提示
+    bool takes_value;         // 是否取值, 无值选项仅支持独立形式
     ParseFn parse;            // 取值并校验, 失败时已打印错误并返回 false
 };
 
@@ -54,10 +55,18 @@ static bool parse_sql(std::string_view value, Options& opts)
     return true;
 }
 
+// -a 无值选项, 置位回显开关
+static bool parse_echo(std::string_view, Options& opts)
+{
+    opts.echo_all = true;
+    return true;
+}
+
 static const OptionSpec kOptions[] = {
-    {"-p", "端口号", parse_port},
-    {"-h", "主机地址", parse_host},
-    {"-c", "SQL文本", parse_sql},
+    {"-p", "端口号", true, parse_port},
+    {"-h", "主机地址", true, parse_host},
+    {"-c", "SQL文本", true, parse_sql},
+    {"-a", "回显原始SQL", false, parse_echo},
 };
 
 // 打印命令行用法
@@ -65,7 +74,11 @@ static void print_usage(const char* prog)
 {
     std::cerr << "用法: " << prog;
     for (const auto& spec : kOptions) {
-        std::cerr << " [" << spec.flag << " " << spec.name << "]";
+        if (spec.takes_value) {
+            std::cerr << " [" << spec.flag << " " << spec.name << "]";
+        } else {
+            std::cerr << " [" << spec.flag << "]";
+        }
     }
     std::cerr << std::endl;
 }
@@ -74,7 +87,7 @@ bool parse_args(int argc, char* argv[], Options& opts)
 {
     bool seen[sizeof(kOptions) / sizeof(kOptions[0])] = {false};
 
-    // 按选项表逐项解析, 支持 -p 8123 与 -p8123 两种写法, 缺省取表格默认值
+    // 按选项表逐项解析, 取值参数支持 -p 8123 与 -p8123 两种写法, 无值参数仅支持独立形式
     for (int i = 1; i < argc; ++i) {
         std::string_view arg(argv[i]);
         const OptionSpec* spec = nullptr;
@@ -85,15 +98,18 @@ bool parse_args(int argc, char* argv[], Options& opts)
             std::string_view flag(candidate.flag);
             if (arg == flag) {
                 spec = &candidate;
-                if (i + 1 >= argc) {
-                    std::cerr << "错误: " << flag << " 后缺少" << candidate.name << std::endl;
-                    print_usage(argv[0]);
-                    return false;
+                if (candidate.takes_value) {
+                    if (i + 1 >= argc) {
+                        std::cerr << "错误: " << flag << " 后缺少" << candidate.name << std::endl;
+                        print_usage(argv[0]);
+                        return false;
+                    }
+                    value = argv[++i];
                 }
-                value = argv[++i];
                 break;
             }
-            if (arg.size() > flag.size() && arg.starts_with(candidate.flag)) {
+            if (candidate.takes_value && arg.size() > flag.size()
+                && arg.starts_with(candidate.flag)) {
                 spec = &candidate;
                 value = arg.substr(flag.size());
                 break;
