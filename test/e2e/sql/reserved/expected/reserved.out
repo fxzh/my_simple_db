@@ -19,35 +19,35 @@
 已发送消息: INSERT INTO t_reserved VALUES (7);
 服务器回显: OK
 已发送消息: SELECT * FROM t_reserved;
-id
---
-7
+ id
+----
+ 7
 (1 行)
 已发送消息: SELECT * FROM db_table;
-table_id | table_name
---------+----------
-1        | db_table
-2        | db_column
-20001    | t_reserved
+ table_id | table_name
+----------+------------
+ 1        | db_table
+ 2        | db_column
+ 20001    | t_reserved
 (3 行)
 已发送消息: SELECT * FROM db_column;
-table_id | col_name   | ordinal | type | length | not_null
---------+----------+-------+----+------+--------
-1        | table_id   | 0       | 2    | 0      | 1
-1        | table_name | 1       | 4    | 64     | 1
-2        | table_id   | 0       | 2    | 0      | 1
-2        | col_name   | 1       | 4    | 64     | 1
-2        | ordinal    | 2       | 1    | 0      | 1
-2        | type       | 3       | 1    | 0      | 1
-2        | length     | 4       | 1    | 0      | 1
-2        | not_null   | 5       | 1    | 0      | 1
-20001    | id         | 0       | 1    | 0      | 0
+ table_id | col_name   | ordinal | type | length | not_null
+----------+------------+---------+------+--------+----------
+ 1        | table_id   | 0       | 2    | 0      | 1
+ 1        | table_name | 1       | 4    | 64     | 1
+ 2        | table_id   | 0       | 2    | 0      | 1
+ 2        | col_name   | 1       | 4    | 64     | 1
+ 2        | ordinal    | 2       | 1    | 0      | 1
+ 2        | type       | 3       | 1    | 0      | 1
+ 2        | length     | 4       | 1    | 0      | 1
+ 2        | not_null   | 5       | 1    | 0      | 1
+ 20001    | id         | 0       | 1    | 0      | 0
 (9 行)
 已发送消息: DROP TABLE t_reserved;
 服务器回显: OK
 已发送消息: SELECT * FROM db_table;
-table_id | table_name
---------+----------
-1        | db_table
-2        | db_column
+ table_id | table_name
+----------+------------
+ 1        | db_table
+ 2        | db_column
 (2 行)

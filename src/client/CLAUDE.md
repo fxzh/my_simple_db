@@ -23,5 +23,5 @@ client.l     flex 扫描器：状态机(COMMENT/STRING_SINGLE/STRING_DOUBLE)累�
 # 交互
 scanner_state 决定 readline 提示符("SQL> " / "SQL>' " / "SQL>\" ")，实现多行输入感知；
 输入未到 ';' 时只积累不发送。Ok 帧原样回显(含空语句回显原文)，Error 帧补 "ERROR: " 前缀打印，
-ResultSet 帧解码后渲染为表格(列宽取表头与单元格最大字节宽、全左对齐、末列不补尾空格、末行 "(N 行)"，
+ResultSet 帧解码后渲染为表格(列宽取表头与单元格最大字节宽、每列前后各一空格、全左对齐、表头下每列 '-' × (列宽+2) 以 '+' 连接、末列不补尾空格、末行 "(N 行)"，
 空结果仅表头；解码失败走 stderr 并置退出码 1)

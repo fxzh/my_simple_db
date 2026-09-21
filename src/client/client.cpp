@@ -64,7 +64,8 @@ std::string cell_text(const proto::CellVal& cell)
 }
 
 // 结果集渲染为表格: 列宽取表头与各单元格的最大字节宽, 全左对齐,
-// 列间 " | " 分隔, 表头下每列 '-' × 列宽以 '+' 连接, 末列不补尾空格, 末行输出 (N 行)
+// 每列前后各一空格且补齐列宽, 列间 '|' 分隔, 表头下每列 '-' × (列宽+2) 以 '+' 连接,
+// 末列不补尾空格, 末行输出 (N 行)
 void render_result_set(const proto::ResultSet& rs)
 {
     const std::size_t ncol = rs.cols.size();
@@ -87,15 +88,18 @@ void render_result_set(const proto::ResultSet& rs)
         cells.push_back(std::move(texts));
     }
 
-    // 输出一行: 单元格补齐列宽(末列除外), 列间 " | " 分隔
+    // 输出一行: 每列前后各一空格且补齐列宽, 列间 '|' 连接, 末列不补尾空格
     const auto print_row = [&](const std::vector<std::string>& texts) {
         for (std::size_t c = 0; c < ncol; ++c) {
             if (c > 0) {
-                std::cout << " | ";
+                std::cout << '|';
             }
-            std::cout << texts[c];
-            if (c + 1 < ncol && texts[c].size() < widths[c]) {
-                std::cout << std::string(widths[c] - texts[c].size(), ' ');
+            std::cout << ' ' << texts[c];
+            if (c + 1 < ncol) {
+                if (texts[c].size() < widths[c]) {
+                    std::cout << std::string(widths[c] - texts[c].size(), ' ');
+                }
+                std::cout << ' ';
             }
         }
         std::cout << "\n";
@@ -109,12 +113,12 @@ void render_result_set(const proto::ResultSet& rs)
         return;
     }
 
-    // 表头下分隔行
+    // 表头下分隔行: 每列 '-' × (列宽+2), 以 '+' 连接
     for (std::size_t c = 0; c < ncol; ++c) {
         if (c > 0) {
             std::cout << '+';
         }
-        std::cout << std::string(widths[c], '-');
+        std::cout << std::string(widths[c] + 2, '-');
     }
     std::cout << "\n";
 
