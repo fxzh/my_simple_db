@@ -1,12 +1,12 @@
-已发送消息: CREATE TABLE t_user (id int, score double);
+CREATE TABLE t_user (id int, score double);
 服务器回显: OK
-已发送消息: INSERT INTO t_user VALUES (1, 95.5);
+INSERT INTO t_user VALUES (1, 95.5);
 服务器回显: OK
-已发送消息: INSERT INTO t_user VALUES (2, 60 + 30.5);
+INSERT INTO t_user VALUES (2, 60 + 30.5);
 服务器回显: OK
-已发送消息: INSERT INTO t_user VALUES (3, 88.0);
+INSERT INTO t_user VALUES (3, 88.0);
 服务器回显: OK
-已发送消息: DELETE FROM t_user;
+DELETE FROM t_user;
 服务器回显: OK (删除 3 行)
-已发送消息: DROP TABLE t_user;
+DROP TABLE t_user;
 服务器回显: OK

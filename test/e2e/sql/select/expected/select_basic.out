@@ -1,43 +1,43 @@
-已发送消息: CREATE TABLE t_score (id int, score double);
+CREATE TABLE t_score (id int, score double);
 服务器回显: OK
-已发送消息: INSERT INTO t_score VALUES (1, 95.5);
+INSERT INTO t_score VALUES (1, 95.5);
 服务器回显: OK
-已发送消息: INSERT INTO t_score VALUES (2, 88.0);
+INSERT INTO t_score VALUES (2, 88.0);
 服务器回显: OK
-已发送消息: SELECT * FROM t_score;
+SELECT * FROM t_score;
  id | score
 ----+-------
  1  | 95.5
  2  | 88
 (2 行)
-已发送消息: SELECT id, score FROM t_score;
+SELECT id, score FROM t_score;
  id | score
 ----+-------
  1  | 95.5
  2  | 88
 (2 行)
-已发送消息: SELECT id AS user_id, score * 2 FROM t_score;
+SELECT id AS user_id, score * 2 FROM t_score;
  user_id | (score * 2)
 ---------+-------------
  1       | 191
  2       | 176
 (2 行)
-已发送消息: SELECT 1 + 2 * 3, 'hi', 7.5 FROM t_score;
+SELECT 1 + 2 * 3, 'hi', 7.5 FROM t_score;
  (1 + (2 * 3)) | 'hi' | 7.5
 ---------------+------+-----
  7             | hi   | 7.5
  7             | hi   | 7.5
 (2 行)
-已发送消息: SELECT nosuchcol FROM t_score;
+SELECT nosuchcol FROM t_score;
 服务器回显: ERROR: 列不存在: nosuchcol
-已发送消息: CREATE TABLE t_empty (id int);
+CREATE TABLE t_empty (id int);
 服务器回显: OK
-已发送消息: SELECT * FROM t_empty;
+SELECT * FROM t_empty;
  id
 (0 行)
-已发送消息: DROP TABLE t_empty;
+DROP TABLE t_empty;
 服务器回显: OK
-已发送消息: SELECT * FROM t_missing;
+SELECT * FROM t_missing;
 服务器回显: ERROR: 表不存在: t_missing
-已发送消息: DROP TABLE t_score;
+DROP TABLE t_score;
 服务器回显: OK

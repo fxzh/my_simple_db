@@ -27,7 +27,7 @@
 
 ## SQL 用例约定
 
-- `test_sql <case.sql> <expected.out>` 驱动 `client -c`，stdout 全文一致为唯一通过判据
+- `test_sql <case.sql> <expected.out>` 驱动 `client -a -c`，stdout 全文一致为唯一通过判据（`-a` 逐行回显原始 SQL）
 - 一个 .sql 文件对应一个 add_test；新增用例在 `CMakeLists.txt` 追加 add_test 并挂 fixture
 - 每个 .sql 自管库表生命周期：开头建表、结尾删表，只依赖 SRV_UP，不依赖其他用例的库表状态
 - 项目正在快速开发中，预期输出修改是常有的事

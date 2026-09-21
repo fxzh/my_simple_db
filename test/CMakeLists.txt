@@ -67,7 +67,7 @@ set_tests_properties(server_stop PROPERTIES FIXTURES_CLEANUP SRV_UP)
 add_test(NAME server_stop_not_running COMMAND test_serverctl --gtest_filter=Ctl.StopNotRunning)
 add_test(NAME server_status_not_running COMMAND test_serverctl --gtest_filter=Ctl.StatusNotRunning)
 
-# L2 SQL e2e: golden file 驱动, 以 client -c 的 stdout 全文 diff 为唯一通过判据
+# L2 SQL e2e: golden file 驱动, 以 client -a -c 的 stdout 全文 diff 为唯一通过判据
 add_executable(test_sql e2e/sql/test_sql.cpp)
 target_link_libraries(test_sql PRIVATE test_common)
 target_compile_definitions(test_sql PRIVATE

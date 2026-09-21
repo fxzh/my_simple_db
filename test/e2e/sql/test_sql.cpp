@@ -1,5 +1,5 @@
 // test_sql.cpp: L2 SQL golden file 驱动, 用法: test_sql <case.sql> <expected.out>
-// 以 client -c 的 stdout 与期望文件全文一致为唯一通过判据;
+// 以 client -a -c 的 stdout 与期望文件全文一致为唯一通过判据;
 // 失败时输出行级 diff、client stderr 与服务端日志摘录
 // 退出码: 0 一致 / 1 不一致或超时 / 2 用法与文件读取错误
 #include <algorithm>
@@ -104,7 +104,7 @@ int main(int argc, char* argv[])
     }
 
     const std::string client = (std::filesystem::path(kBinDir) / "client").string();
-    const std::vector<std::string> argv_list = {client, "-h", "127.0.0.1", "-p",
+    const std::vector<std::string> argv_list = {client, "-a", "-h", "127.0.0.1", "-p",
                                                 std::to_string(kTestPort), "-c", sql_text};
     tcommon::ProcessResult r;
     std::string error;
