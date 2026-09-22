@@ -68,6 +68,19 @@ PageHeader* header(char* page)
     return reinterpret_cast<PageHeader*>(page);
 }
 
+// 文件头页 next_rowid 读写: 字段存于页头之后
+uint64_t file_next_rowid(const char* page)
+{
+    uint64_t v = 0;
+    std::memcpy(&v, page + PAGE_HEADER_SIZE, sizeof(v));
+    return v;
+}
+
+void set_file_next_rowid(char* page, uint64_t v)
+{
+    std::memcpy(page + PAGE_HEADER_SIZE, &v, sizeof(v));
+}
+
 const PageHeader* header(const char* page)
 {
     return reinterpret_cast<const PageHeader*>(page);

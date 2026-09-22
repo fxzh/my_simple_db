@@ -35,8 +35,14 @@ constexpr uint32_t SLOT_SIZE = 4;
 constexpr uint16_t MAX_RECORD_LEN = 4096 - PAGE_HEADER_SIZE - SLOT_SIZE;
 
 // 页魔数
-constexpr uint32_t MAGIC_FILE_HEADER = 0x54444146;  // "FADT"
-constexpr uint32_t MAGIC_HEAP = 0x50414548;         // "HEAP"
+constexpr uint32_t MAGIC_FILE_HEADER = 0x54444146;     // "FADT"
+constexpr uint32_t MAGIC_HEAP = 0x50414548;            // "HEAP"
+constexpr uint32_t MAGIC_BTREE_LEAF = 0x464C5442;      // "BTLF"
+constexpr uint32_t MAGIC_BTREE_INTERNAL = 0x4E495442;  // "BTIN"
+
+// 文件头页扩展字段: next_rowid(u64)存于页头之后, 写后须重算页校验和
+uint64_t file_next_rowid(const char* page);
+void set_file_next_rowid(char* page, uint64_t v);
 
 // 初始化空闲页
 void init_page(char* page, uint32_t magic, PageType type);

@@ -3,9 +3,9 @@
 结构体字段按"不做版本与迁移"约定，只存放当前里程碑实际用到的；目录(表名/列定义)逻辑在 catalog 库。
 
 # 文件
-types.h         公共类型：PageId(结构体 table_id:u64+page_no:u32)、ColType、Value(variant, monostate 即 NULL)、TableMeta、Row
+types.h         公共类型：PageId(结构体 table_id:u64+page_no:u32)、RowId(u64 行标识)、ColType、Value(variant, monostate 即 NULL)、TableMeta、Row
 page.h/.cpp     页头 24B(magic/type/slot_count/free_begin/free_end/next_page/checksum)+槽(off,len)
-                槽从页尾向 free_begin 生长；页尾 CRC32 校验，数据页损坏按尾部截断重建空页
+                槽从页尾向 free_begin 生长；文件头页页头后存 next_rowid 计数器；页尾 CRC32 校验，数据页损坏按尾部截断重建空页
 codec.h/.cpp    记录[长度 u16][NULL 位图][列数据]序列化
 file_manager    每表一个 t_<table_id>.dat，pread/pwrite 页级 IO，fsync/flush，fd 按需打开缓存
                 使用 POSIX 文件 IO(open/pread/pwrite/fsync)，标准 C++ 无跨平台替代
@@ -19,6 +19,6 @@ engine.h/.cpp   Engine 文件引擎：open(重置缓冲池与尾页跟踪)/flush
 
 # 要点/限制
 - 公开原语须持锁调用，锁在 catalog，本库内部不加锁
-- M1 无索引/无主键，scan 全表扫，insert_row 返回 RowRef(页,槽)；重启后数据仍在(appended 截断容忍)
+- M1 无索引/无主键，scan 全表扫，insert_row 返回分配的 rowid；重启后数据仍在(appended 截断容忍)
 - 记录 ≤4068B，NULL 经记录头位图存储(NULL 列不占字节, NOT NULL 列拒绝 NULL)，表最多约 4000B/行；跨页记录不支持(将来 M3 树内处理)
 - 超长 char(n)/varchar(n) 由 insert_row 按声明长度拒绝；未带长度的 varchar 以记录上限为界

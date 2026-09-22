@@ -88,9 +88,9 @@ uint32_t Engine::link_header_to_first_data_page(uint64_t table_id)
     return new_no;
 }
 
-// 插行(须持锁): 校验编码后追加
-RowRef Engine::insert_row(uint64_t table_id, const std::vector<ColumnSpec>& cols,
-                          const std::vector<Value>& values)
+// 插行(须持锁): 校验编码后追加并分配 rowid
+RowId Engine::insert_row(uint64_t table_id, const std::vector<ColumnSpec>& cols,
+                         const std::vector<Value>& values)
 {
     if (cols.size() != values.size()) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "值的数量与列数不符");
@@ -108,6 +108,15 @@ RowRef Engine::insert_row(uint64_t table_id, const std::vector<ColumnSpec>& cols
     if (rec.size() > MAX_RECORD_LEN) {
         DB_RAISE(db::ErrCode::RecordTooLong, LogModule::STORAGE, "记录超长");
     }
+
+    // 文件头页计数器自增分配 rowid
+    const PageId pid0 = PageId{table_id, 0};
+    char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);
+    const RowId rid = file_next_rowid(h) + 1;
+    set_file_next_rowid(h, rid);
+    header(h)->checksum = page_checksum(h);
+    pool_.mark_dirty(h);
+    pool_.unpin(h);
 
     // 尾页可能只在内存中(尚未落盘), 用 tail_pages_ 记住最高页号
     uint32_t tail = 0;
@@ -128,7 +137,7 @@ RowRef Engine::insert_row(uint64_t table_id, const std::vector<ColumnSpec>& cols
             pool_.mark_dirty(pg);
             pool_.unpin(pg);
             tail_pages_[table_id] = tail;
-            return RowRef{pid, slot};
+            return rid;
         }
         // 页满: 扩展一个新页并把尾页链上去
         // 新页号取磁盘页数与当前尾页+1 的较大值, 避免与仅存内存中的页冲突
@@ -206,31 +215,12 @@ size_t Engine::delete_row(const RowRef& ref)
     return 1;
 }
 
-// 清空指定表全部行(须持锁): 沿页链逐页重置为空页
+// 清空指定表全部行(须持锁): 统计存活行数后删除并重建表文件
 size_t Engine::delete_all_rows(uint64_t table_id)
 {
-    size_t n = 0;
-    const PageId pid0 = PageId{table_id, 0};
-    char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);
-    uint32_t pno = header(h)->next_page;
-    pool_.unpin(h);
-    while (pno != 0) {
-        const PageId pid = PageId{table_id, pno};
-        char* pg = pool_.read(pid, MAGIC_HEAP, files_);
-        PageHeader* ph = header(pg);
-        for (uint16_t i = 0; i < ph->slot_count; ++i) {
-            if (!slot_tombstone(pg, i)) {
-                ++n;
-            }
-        }
-        ph->slot_count = 0;
-        ph->free_begin = PAGE_HEADER_SIZE;
-        ph->free_end = PAGE_SIZE;
-        ph->checksum = page_checksum(pg);
-        pool_.mark_dirty(pg);
-        pno = ph->next_page;
-        pool_.unpin(pg);
-    }
+    const size_t n = row_count(table_id);
+    remove_table_file(table_id);
+    init_table_file(table_id);
     return n;
 }
 

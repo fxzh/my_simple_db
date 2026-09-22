@@ -60,9 +60,9 @@ public:
     void init_table_file(uint64_t tid);
     // 删表文件并清缓冲与尾页跟踪
     void remove_table_file(uint64_t tid);
-    // 插行: 校验编码后追加, 用户插行与元数据表引导共用
-    RowRef insert_row(uint64_t tid, const std::vector<ColumnSpec>& cols,
-                      const std::vector<Value>& values);
+    // 插行: 校验编码后追加并分配 rowid, 用户插行与元数据表引导共用
+    RowId insert_row(uint64_t tid, const std::vector<ColumnSpec>& cols,
+                     const std::vector<Value>& values);
     // 读取指定表全部存活行: 沿页链解码, 行损坏当场报错
     std::vector<std::vector<Value>> read_rows(uint64_t tid,
                                               const std::vector<ColumnSpec>& cols);

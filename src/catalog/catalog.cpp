@@ -298,7 +298,7 @@ void Catalog::drop_table(const std::string& name)
     engine_.remove_table_file(tid);
 }
 
-st::RowRef Catalog::insert(const std::string& table, const std::vector<st::Value>& values)
+st::RowId Catalog::insert(const std::string& table, const std::vector<st::Value>& values)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     const st::TableMeta meta = find_table_meta(table);

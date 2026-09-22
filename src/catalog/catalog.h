@@ -41,7 +41,7 @@ public:
     uint64_t create_table(const std::string& name, const std::vector<st::ColumnSpec>& cols);
     // 删表, 保留段表拒绝删除
     void drop_table(const std::string& name);
-    st::RowRef insert(const std::string& table, const std::vector<st::Value>& values);
+    st::RowId insert(const std::string& table, const std::vector<st::Value>& values);
     // 删除单行(按扫描得到的物理位置), 无效/已删引用返回 0
     size_t delete_by_ref(const st::RowRef& ref);
     // 删除表中全部行, 返回删除行数

@@ -20,7 +20,7 @@ struct PageId {
 constexpr PageId INVALID_PAGE{};
 
 // 页类型
-enum class PageType : uint8_t { FileHeader = 1, Heap = 2 };
+enum class PageType : uint8_t { FileHeader = 1, Heap = 2, BTreeLeaf = 3, BTreeInternal = 4 };
 
 // 列类型
 enum class ColType : uint8_t {
@@ -50,6 +50,9 @@ struct TableMeta {
 // 行值: 与 parser 的字面量对应, monostate 表示 NULL
 using Value = std::variant<std::monostate, int64_t, double, std::string>;
 
+// 行标识: 表内单调递增, 由文件头页计数器分配
+using RowId = uint64_t;
+
 // 行物理位置: (页, 槽)
 struct RowRef {
     PageId page = INVALID_PAGE;
@@ -58,6 +61,7 @@ struct RowRef {
 
 // 扫描出来的一行
 struct Row {
+    RowId rid = 0;  // 行标识, 堆表扫描不填充
     RowRef ref;
     std::vector<Value> values;
 };
