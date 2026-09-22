@@ -22,7 +22,7 @@
 #include "common/err.h"
 #include "config.h"
 #include "log/log.h"
-#include "storage.h"
+#include "catalog.h"
 #include "session.h"
 
 using enum LogModule;
@@ -137,7 +137,7 @@ int main(int argc, char* argv[])
     }
 
     // 打开数据目录(存储引擎), 所有客户端线程共享这一个实例
-    st::Database db(data_dir);
+    ct::Catalog db(data_dir);
     try {
         db.open();
     } catch (const db::DbError& e) {

@@ -320,7 +320,7 @@ struct ExecResult {
     std::vector<std::vector<st::Value>> rows;    // 结果集行值(monostate 即 NULL)
 };
 
-ExecResult execute(st::Database& db, const SQLStatement& stmt);
+ExecResult execute(ct::Catalog& db, const SQLStatement& stmt);
 ```
 
 投影求值结果为 bool 时报 `ValueMismatch`（SELECT 输出不含布尔列，待将来函数/聚合扩展时再定）；NULL 可输出。

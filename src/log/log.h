@@ -57,6 +57,7 @@ enum class LogModule {
     NETWORK,    // 网络模块
     SYSTEM,     // 系统模块
     STORAGE,    // 存储模块
+    CATALOG,    // 目录模块
     GENERAL     // 通用模块
 };
 

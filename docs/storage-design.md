@@ -21,26 +21,28 @@
 
 ```
 server(每客户端一线程)
-   │  sql::parse → AST  →  (未来: 执行器把 AST 转成 storage 调用)
+   │  sql::parse → AST  →  executor(把 AST 转成 catalog 门面调用)
+   ▼
+src/catalog(静态库 catalog)
+   └── catalog.h/.cpp  目录门面(Catalog): 元数据表逻辑 + 名字型门面 + 全局锁
    ▼
 src/storage(静态库 storage)
-   ├── storage.h       对外唯一入口(Database), 只依赖 types.h
+   ├── engine.h/.cpp   文件引擎入口(Engine, 原语须持锁), 只依赖 types.h
    ├── types.h         ColType/Value/Schema/TableMeta/RowId
    ├── codec.h/.cpp    行序列化/反序列化
    ├── page.h          页头与槽(Slot)内存布局
    ├── file_manager    每表一个文件的读写原语(pread/pwrite)
    ├── buffer_pool     页缓存, LRU/Clock 淘汰
-   ├── 元数据表       db_table/db_column: 目录唯一事实来源, 查找实时扫描
    ├── btree           B+ 树(叶/内节点, 查找/插入/分裂)
    ├── wal             追加式日志, 检查点
    └── recovery        启动时崩溃恢复
 ```
 
-依赖关系：`storage` 不依赖 `parser`。storage 用自己的 `Schema`/`Value` 类型（types.h），执行器将来负责把 AST 的 `ColumnDef` 转换过来；只有 `ColumnDef{name, type字符串}` 与 `Value{int64/double/string}` 两处需要转换，转换逻辑放执行器。
+依赖关系：executor → catalog → storage 单向；`catalog` 与 `storage` 均不依赖 `parser`。storage 用自己的 `Schema`/`Value` 类型（types.h），执行器负责把 AST 的 `ColumnDef` 转换过来；只有 `ColumnDef{name, type字符串}` 与 `Value{int64/double/string}` 两处需要转换，转换逻辑放执行器。
 
 > 格式演化约定：不做版本与迁移，各结构体字段只放当前里程碑实际用到的；后续里程碑需要新字段时直接增删改，不保留旧格式。
 
-对外接口 (storage.h)：
+对外接口 (catalog.h, 名字型门面; engine.h 提供须持锁的按 table_id 原语)：
 
 ```cpp
 namespace st {
@@ -152,7 +154,8 @@ rowid（§8 详述）：表内自增 int64，是聚簇索引键。叶子节点�
 
 ## 6. 目录（元数据表）
 
-目录不是独立文件, 而是两张保留段元数据表, schema 硬编码引导, 不存于自身:
+目录不是独立文件, 而是两张保留段元数据表, schema 硬编码引导, 不存于自身;
+目录逻辑位于 src/catalog(ct::Catalog), 存储引擎只提供须持锁的按 table_id 原语:
 
 - db_table(table_id, table_name): 每表一行
 - db_column(table_id, col_name, ordinal, type, length, not_null): 每列一行
@@ -161,7 +164,7 @@ rowid（§8 详述）：表内自增 int64，是聚簇索引键。叶子节点�
 
 - 元数据行是目录唯一事实来源, 无内存缓存, 查找(表名→id、列定义)实时全扫两表
 - DDL: create_table 先建数据文件再写元数据行; drop_table 删元数据行并删数据文件
-- initdb 经 Database::create 引导两表(含自描述行); open 以两表文件存在为准, 缺失即报错拒绝启动
+- initdb 经 ct::Catalog::create 引导两表(含自描述行); open 以两表文件存在为准, 缺失即报错拒绝启动
 
 ## 7. 缓冲池 Buffer Pool
 

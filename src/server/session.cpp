@@ -15,7 +15,7 @@
 #include "sql_parser.h"
 #include "ast.hh"
 #include "executor.h"
-#include "storage.h"
+#include "catalog.h"
 #include "session.h"
 
 using enum LogModule;
@@ -53,7 +53,7 @@ const char* tag_log_name(proto::CommandTag tag)
 
 // 处理单个客户端的函数
 void handle_client(int client_socket, int client_id, const std::string& client_ip,
-                   st::Database* db)
+                   ct::Catalog* db)
 {
     std::string connect_msg = "客户端 ID:" + std::to_string(client_id) + " 已连接 (" + client_ip + ")";
     LOG(INFO, NETWORK, "%s", connect_msg.c_str());
@@ -163,7 +163,7 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
 }
 
 // 受理一个新连接: 拒超限/建线程/入表
-void spawn_client(int new_socket, const struct sockaddr_in& address, st::Database* db)
+void spawn_client(int new_socket, const struct sockaddr_in& address, ct::Catalog* db)
 {
     // 检查是否达到最大客户端数
     {

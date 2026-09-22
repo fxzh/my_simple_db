@@ -1,4 +1,4 @@
-// executor.cpp: 执行层实现: AST 转 storage 调用
+// executor.cpp: 执行层实现: AST 转 catalog 调用
 #include "executor.h"
 
 #include <cmath>
@@ -12,7 +12,7 @@
 #include "codec.h"
 #include "common/err.h"
 #include "log/log.h"
-#include "storage.h"
+#include "catalog.h"
 
 namespace exec {
 
@@ -205,7 +205,7 @@ ExecResult tag_result(proto::CommandTag tag, uint64_t count)
 // (select 可查元数据, create 由存储层按表已存在拒绝)
 void check_reserved_table(const std::string& name)
 {
-    if (name == st::kTableMetaName || name == st::kColumnMetaName) {
+    if (name == ct::kTableMetaName || name == ct::kColumnMetaName) {
         DB_RAISE(db::ErrCode::ProtectedTable, LogModule::EXECUTOR, "保留表名禁止使用: {}", name);
     }
 }
@@ -220,7 +220,7 @@ struct ProjCol {
 };
 
 // SELECT 执行: 编译投影(列定位/stars 展开/输出列名)后全表扫描逐行物化
-ExecResult exec_select(st::Database& db, const SelectStmt& ss)
+ExecResult exec_select(ct::Catalog& db, const SelectStmt& ss)
 {
     const st::TableMeta meta = db.table_meta(ss.table_name());
 
@@ -272,7 +272,7 @@ ExecResult exec_select(st::Database& db, const SelectStmt& ss)
 
 }  // namespace
 
-ExecResult execute(st::Database& db, const SQLStatement& stmt)
+ExecResult execute(ct::Catalog& db, const SQLStatement& stmt)
 {
     switch (stmt.kind()) {
     case StmtKind::CreateTable: {

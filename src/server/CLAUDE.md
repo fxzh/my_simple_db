@@ -14,7 +14,7 @@
 # 请求处理
 1. 按帧收整条请求(proto)：[4B 长度][Query][SQL 原文]；长度为 0/超 MAX_REQUEST_PAYLOAD(10240) 或类型非 Query 即断连
 2. "quit"/"exit" → 记日志并断开；其余交给 sql::parse(msg_str, err, stmt)
-3. 解析合法 → 非空语句交给 exec::execute(共享的 st::Database, *stmt)执行，按 ExecResult 分流：
+3. 解析合法 → 非空语句交给 exec::execute(共享的 ct::Catalog, *stmt)执行，按 ExecResult 分流：
    非结果集语句回 Ok 帧命令标签，
    select 回 ResultSet 帧(结果集，client 渲染，EXECUTOR 日志记返回行数)，空语句回 Empty 标签帧(client 无输出)；
    解析失败回 Error 帧(文案)；执行/存储错误以 DB_RAISE 抛 DbError，handle_client 统一 catch 转 Error 帧
@@ -22,7 +22,7 @@
 
 # 要点
 - 全局状态：clients 表(shared_ptr<ClientInfo>+mutex)、client_counter、server_running
-- 存储引擎：一个 st::Database 实例(数据目录来自 -D 参数)在 main 中 open/close，
+- 目录层：一个 ct::Catalog 实例(数据目录来自 -D 参数)在 main 中 open/close，
   主循环前 open、退出前 close；目录未初始化(元数据表文件缺失)时拒绝启动；
   所有客户端线程共享它，内部 mutex 串行化
 - 日志：simple.log 位于数据目录内，配置加载完成后初始化日志路径

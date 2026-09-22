@@ -7,7 +7,7 @@
 
 #include "log/log.h"
 #include "server/config.h"
-#include "storage.h"
+#include "catalog.h"
 
 namespace {
 
@@ -126,7 +126,7 @@ int main(int argc, char* argv[])
     }
     // 生成两张元数据表(自描述行), 兜 std::exception(目录不可写时 Logger 构造亦抛异常)
     try {
-        st::Database db(dir);
+        ct::Catalog db(dir);
         db.create();
     } catch (const std::exception& e) {
         const bool log_kept = rollback();

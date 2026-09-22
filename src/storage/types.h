@@ -19,16 +19,6 @@ struct PageId {
 };
 constexpr PageId INVALID_PAGE{};
 
-// table_id 保留段: 1~20000 留给系统元数据对象, 用户对象从 20001 起分配
-constexpr uint64_t kReservedMaxTableId = 20000;
-constexpr uint64_t kFirstUserTableId = 20001;
-
-// 元数据表(保留段固定 id): db_table 记表名, db_column 记列定义, 引导期 schema 硬编码
-constexpr uint64_t kTableMetaId = 1;
-constexpr uint64_t kColumnMetaId = 2;
-constexpr const char* kTableMetaName = "db_table";
-constexpr const char* kColumnMetaName = "db_column";
-
 // 页类型
 enum class PageType : uint8_t { FileHeader = 1, Heap = 2 };
 

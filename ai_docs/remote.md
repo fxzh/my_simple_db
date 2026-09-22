@@ -8,7 +8,7 @@ ip 192.168.31.231
 # 远程同步
 代码路径 /home/hz/test
 /home/hz/updatewin.sh 用于增量同步windows代码
-/home/hz/recopywin.sh 用于删除一切后全量同步windows代码
+/home/hz/recopywin.sh 用于删除一切后全量同步windows代码（改动包含删除文件时，建议使用此脚本）
 /home/hz/win 为windows挂载的共享目录，实际指向当前代码仓库
 
 # 远程编译要求
@@ -20,4 +20,4 @@ ip 192.168.31.231
 ./serverctl stop 关闭数据库
 
 # 其他
-环境为测试环境，无需保护测试前已存在的初始化的数据目录，也无需保护测试前已运行的server程序
+环境为测试环境，无需保护测试前已存在的初始化的数据目录、已运行的server程序

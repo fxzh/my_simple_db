@@ -1,4 +1,4 @@
-// executor.h: 执行层入口: 把 parser 的 AST 转成 storage 调用, 返回结构化执行结果
+// executor.h: 执行层入口: 把 parser 的 AST 转成 catalog 调用, 返回结构化执行结果
 #ifndef EXECUTOR_H
 #define EXECUTOR_H
 
@@ -9,8 +9,8 @@
 #include "proto/proto.h"
 #include "storage/types.h"
 
-namespace st {
-class Database;  // 存储引擎门面, 完整定义见 storage.h
+namespace ct {
+class Catalog;  // 目录层门面, 完整定义见 catalog.h
 }
 
 class SQLStatement;  // AST 语句基类, 完整定义见 ast.hh
@@ -29,7 +29,7 @@ struct ExecResult {
 // 执行一条已解析的语句:
 // 建表/删表/插行/删行回命令标签与影响行数(insert 恒 1, delete 为实际删除数), 查询回结果集;
 // 执行错误当场经 log.h 记录后以 std::exception 抛出, 由调用方回客户端 "ERROR: <原因>"
-ExecResult execute(st::Database& db, const SQLStatement& stmt);
+ExecResult execute(ct::Catalog& db, const SQLStatement& stmt);
 
 }  // namespace exec
 

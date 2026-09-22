@@ -20,7 +20,7 @@ add_test(NAME common_selftest COMMAND test_common_selftest)
 
 # L0 模块冒烟: storage 页删除整理/增删扫/重开持久化, TempDir 隔离数据目录
 add_executable(test_storage storage/test_storage.cpp)
-target_link_libraries(test_storage PRIVATE storage test_common GTest::gtest_main)
+target_link_libraries(test_storage PRIVATE catalog storage test_common GTest::gtest_main)
 
 add_test(NAME storage_smoke COMMAND test_storage)
 

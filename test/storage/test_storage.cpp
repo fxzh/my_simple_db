@@ -11,10 +11,11 @@
 #include "common/err.h"
 #include "common/temp_dir.hpp"
 #include "log/log.h"
+#include "catalog.h"
 #include "page.h"
-#include "storage.h"
 
 using namespace st;
+using namespace ct;
 
 TEST(HeapPage, DeleteCompact)
 {
@@ -80,7 +81,7 @@ struct StorageDb : ::testing::Test {
 TEST_F(StorageDb, ReopenLifecycle)
 {
     {
-        Database db(dir.path);
+        Catalog db(dir.path);
         db.create();
         db.open();
 
@@ -109,7 +110,7 @@ TEST_F(StorageDb, ReopenLifecycle)
     }
 
     {
-        Database db(dir.path);
+        Catalog db(dir.path);
         db.open();
         EXPECT_EQ(db.row_count("t"), size_t{402});
 
@@ -186,7 +187,7 @@ TEST_F(StorageDb, ReopenLifecycle)
     }
 
     {
-        Database db(dir.path);
+        Catalog db(dir.path);
         db.open();
         EXPECT_THROW(db.row_count("t"), std::runtime_error);
         EXPECT_EQ(db.row_count("t2"), size_t{0});
@@ -197,7 +198,7 @@ TEST_F(StorageDb, ReopenLifecycle)
 // 目录未初始化时 open 报 CatalogMissing
 TEST_F(StorageDb, OpenWithoutCreateFails)
 {
-    Database db(dir.path);
+    Catalog db(dir.path);
     try {
         db.open();
         FAIL() << "未初始化目录 open 应报错";
@@ -210,10 +211,10 @@ TEST_F(StorageDb, OpenWithoutCreateFails)
 TEST_F(StorageDb, CreateTwiceFails)
 {
     {
-        Database db(dir.path);
+        Catalog db(dir.path);
         db.create();
     }
-    Database db(dir.path);
+    Catalog db(dir.path);
     try {
         db.create();
         FAIL() << "重复 create 应报错";
