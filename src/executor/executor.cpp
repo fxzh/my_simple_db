@@ -18,17 +18,36 @@ namespace exec {
 
 namespace {
 
-// AST 列定义转存储层列规格; 类型名非法时当场记录并抛出
+// 语法层类型枚举映射到存储层列类型
+st::ColType map_col_type(DataType type)
+{
+    switch (type) {
+    case DataType::Int: return st::ColType::Int;
+    case DataType::BigInt: return st::ColType::BigInt;
+    case DataType::Float: return st::ColType::Float;
+    case DataType::Double: return st::ColType::Double;
+    case DataType::Char: return st::ColType::Char;
+    case DataType::VarChar: return st::ColType::VarChar;
+    }
+    DB_RAISE(db::ErrCode::InvalidType, LogModule::EXECUTOR, "未映射的列类型: {}", static_cast<int>(type));
+}
+
+// AST 列定义转存储层列规格; 显式长度非法时当场记录并抛出
 void convert_columns(const std::vector<ColumnDef>& defs, std::vector<st::ColumnSpec>& cols)
 {
     cols.reserve(defs.size());
     for (const ColumnDef& def : defs) {
-        st::ColType type;
+        // 显式长度取值 1..65535; 未声明时 char 缺省 1, varchar 缺省 0(动态), 其余为 0
         uint16_t len = 0;
-        if (!st::parse_column_type(def.type, &type, &len)) {
-            DB_RAISE(db::ErrCode::InvalidType, LogModule::EXECUTOR, "不支持的类型: {}", def.type);
+        if (def.length) {
+            if (*def.length <= 0 || *def.length > UINT16_MAX) {
+                DB_RAISE(db::ErrCode::InvalidType, LogModule::EXECUTOR, "长度非法: {}", *def.length);
+            }
+            len = static_cast<uint16_t>(*def.length);
+        } else if (def.type == DataType::Char) {
+            len = 1;
         }
-        cols.emplace_back(st::ColumnSpec{def.name, type, len});
+        cols.emplace_back(st::ColumnSpec{def.name, map_col_type(def.type), len});
     }
 }
 

@@ -17,5 +17,5 @@ executor.cpp    语句分发 create/drop/insert/delete/select → catalog；drop
 CMakeLists.txt  链接 sql_parser/catalog/storage(PUBLIC), log/common(PRIVATE)
 
 # 注意
-- 无自有状态，全部数据经 ct::Catalog 访问；CREATE 的列类型名经 storage 的 parse_column_type 校验
+- 无自有状态，全部数据经 ct::Catalog 访问；CREATE 的列类型枚举映射与长度校验在本层完成
 - select 无 where/排序/distinct(M-S1 仅投影)，delete 无条件删除，随里程碑扩展

@@ -6,6 +6,7 @@
 #define PARSER_AST_HH
 
 #include <cstddef>
+#include <cstdint>
 #include <format>
 #include <iostream>
 #include <memory>
@@ -14,11 +15,41 @@
 #include <utility>
 #include <vector>
 
-// 列定义: 列名 + 类型
+// 列类型名(语法层枚举, 由执行层映射到存储层 st::ColType)
+enum class DataType : uint8_t {
+    Int, BigInt, Float, Double, Char, VarChar,
+};
+
+// 类型说明: 类型名 + 声明长度(未声明为 nullopt)
+struct TypeInfo {
+    DataType type;
+    std::optional<long long> length;
+};
+
+// 列定义: 列名 + 类型说明
 struct ColumnDef {
     std::string name;
-    std::string type;
+    DataType type;
+    std::optional<long long> length;  // char/varchar 的声明长度, 未声明为 nullopt
 };
+
+// 类型名转文本, 带 (长度) 后缀: 供打印与日志使用
+inline std::string type_to_string(DataType type, std::optional<long long> length)
+{
+    const char* name = nullptr;
+    switch (type) {
+    case DataType::Int: name = "int"; break;
+    case DataType::BigInt: name = "bigint"; break;
+    case DataType::Float: name = "float"; break;
+    case DataType::Double: name = "double"; break;
+    case DataType::Char: name = "char"; break;
+    case DataType::VarChar: name = "varchar"; break;
+    }
+    if (!length) {
+        return name;
+    }
+    return std::format("{}({})", name, *length);
+}
 
 // ==================== 表达式 AST ====================
 
@@ -170,7 +201,8 @@ public:
     {
         os << std::string(static_cast<std::size_t>(indent), ' ') << "CreateTable: " << table << std::endl;
         for (const auto& col : columns) {
-            os << std::string(static_cast<std::size_t>(indent + 4), ' ') << col.name << " " << col.type << std::endl;
+            os << std::string(static_cast<std::size_t>(indent + 4), ' ') << col.name << " "
+               << type_to_string(col.type, col.length) << std::endl;
         }
     }
 

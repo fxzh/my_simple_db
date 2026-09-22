@@ -73,7 +73,7 @@
 %type <std::unique_ptr<SQLStatement>> statement create_statement drop_statement insert_statement delete_statement create_table_statement drop_table_statement select_statement
 %type <std::vector<ColumnDef>> column_definitions
 %type <ColumnDef> column_definition
-%type <std::string> type_specifier
+%type <TypeInfo> type_specifier
 %type <std::vector<std::unique_ptr<Expr>>> value_list
 %type <std::unique_ptr<Expr>> value expression
 %type <std::vector<SelectItem>> select_list select_items
@@ -127,7 +127,7 @@ column_definitions:
 
 column_definition:
         IDENTIFIER type_specifier {
-            $$ = ColumnDef{ std::move($1), std::move($2) };
+            $$ = ColumnDef{ std::move($1), $2.type, $2.length };
         }
     ;
 
@@ -205,14 +205,14 @@ value:
     ;
 
 type_specifier:
-        INT    { $$ = std::string("int"); }
-    |   BIGINT { $$ = std::string("bigint"); }
-    |   FLOAT  { $$ = std::string("float"); }
-    |   CHAR   { $$ = std::string("char"); }
-    |   DOUBLE { $$ = std::string("double"); }
-    |   VARCHAR { $$ = std::string("varchar"); }
-    |   CHAR '(' INTEGER ')'    { $$ = "char(" + std::to_string($3) + ")"; }
-    |   VARCHAR '(' INTEGER ')' { $$ = "varchar(" + std::to_string($3) + ")"; }
+        INT    { $$ = TypeInfo{ DataType::Int, std::nullopt }; }
+    |   BIGINT { $$ = TypeInfo{ DataType::BigInt, std::nullopt }; }
+    |   FLOAT  { $$ = TypeInfo{ DataType::Float, std::nullopt }; }
+    |   CHAR   { $$ = TypeInfo{ DataType::Char, std::nullopt }; }
+    |   DOUBLE { $$ = TypeInfo{ DataType::Double, std::nullopt }; }
+    |   VARCHAR { $$ = TypeInfo{ DataType::VarChar, std::nullopt }; }
+    |   CHAR '(' INTEGER ')'    { $$ = TypeInfo{ DataType::Char, $3 }; }
+    |   VARCHAR '(' INTEGER ')' { $$ = TypeInfo{ DataType::VarChar, $3 }; }
     ;
 
 expression:

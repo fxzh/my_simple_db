@@ -1,8 +1,7 @@
-// codec.h: 记录(行)的序列化/反序列化与列类型解析
+// codec.h: 记录(行)的序列化/反序列化
 #ifndef STORAGE_CODEC_H
 #define STORAGE_CODEC_H
 
-#include <string_view>
 #include <vector>
 #include "types.h"
 
@@ -19,10 +18,6 @@ bool decode_row(const std::vector<ColumnSpec>& cols,
                                 const uint8_t* data,
                                 size_t len,
                                 std::vector<Value>& out);
-
-// 解析类型名: int/bigint/float/double/char(n)/varchar(n), 未知类型返回 false
-// char 缺省长度 1; varchar 缺省 0(动态); len 仅在 char/varchar 时输出
-bool parse_column_type(std::string_view type_str, ColType* type, uint16_t* len);
 
 }  // namespace st
 #endif

@@ -6,7 +6,7 @@
 types.h         公共类型：PageId(结构体 table_id:u64+page_no:u32)、ColType、Value(variant, monostate 即 NULL)、TableMeta、Row
 page.h/.cpp     页头 24B(magic/type/slot_count/free_begin/free_end/next_page/checksum)+槽(off,len)
                 槽从页尾向 free_begin 生长；页尾 CRC32 校验，数据页损坏按尾部截断重建空页
-codec.h/.cpp    记录[长度 u16][NULL 位图][列数据]序列化；类型名解析 int/bigint/float/double/char(n)/varchar(n)
+codec.h/.cpp    记录[长度 u16][NULL 位图][列数据]序列化
 file_manager    每表一个 t_<table_id>.dat，pread/pwrite 页级 IO，fsync/flush，fd 按需打开缓存
                 使用 POSIX 文件 IO(open/pread/pwrite/fsync)，标准 C++ 无跨平台替代
 buffer_pool     定长帧缓存(默认 128)：Clock 淘汰 + pin 计数 + dirty 页写回；并发由上层锁保证
