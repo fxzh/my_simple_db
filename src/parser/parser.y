@@ -57,7 +57,7 @@
 %token TOK_ERROR
 %token CREATE TABLE DROP INSERT INTO VALUES DELETE FROM
 %token INT BIGINT FLOAT CHAR VARCHAR DOUBLE
-%token SELECT AS
+%token SELECT AS NULL_T
 
 %token <long long> INTEGER
 %token <double> FLOAT_NUM
@@ -219,6 +219,7 @@ expression:
         INTEGER                     { $$ = std::make_unique<IntExpr>($1); }
     |   FLOAT_NUM                   { $$ = std::make_unique<FloatExpr>($1); }
     |   STRING                      { $$ = std::make_unique<StringExpr>(std::move($1)); }
+    |   NULL_T                      { $$ = std::make_unique<NullExpr>(); }
     |   IDENTIFIER                  { $$ = std::make_unique<IdentifierExpr>(std::move($1)); }
     |   expression '+' expression   { $$ = std::make_unique<BinaryOpExpr>('+', std::move($1), std::move($3)); }
     |   expression '-' expression   { $$ = std::make_unique<BinaryOpExpr>('-', std::move($1), std::move($3)); }

@@ -164,6 +164,8 @@ EvalValue eval_expr(const Expr& expr, const ColMap* cols, const st::Row* row)
     }
     case ExprKind::String:
         return EvalValue{static_cast<const StringExpr&>(expr).value};
+    case ExprKind::Null:
+        return EvalValue{};
     case ExprKind::Identifier: {
         const auto& id = static_cast<const IdentifierExpr&>(expr);
         if (cols == nullptr) {

@@ -94,6 +94,11 @@ add_test(NAME sql_dml_delete COMMAND test_sql
     ${SQL_CASES_DIR}/dml/expected/delete.out)
 set_tests_properties(sql_dml_delete PROPERTIES FIXTURES_REQUIRED SRV_UP)
 
+add_test(NAME sql_dml_insert_null COMMAND test_sql
+    ${SQL_CASES_DIR}/dml/cases/insert_null.sql
+    ${SQL_CASES_DIR}/dml/expected/insert_null.out)
+set_tests_properties(sql_dml_insert_null PROPERTIES FIXTURES_REQUIRED SRV_UP)
+
 add_test(NAME sql_select_basic COMMAND test_sql
     ${SQL_CASES_DIR}/select/cases/select_basic.sql
     ${SQL_CASES_DIR}/select/expected/select_basic.out)

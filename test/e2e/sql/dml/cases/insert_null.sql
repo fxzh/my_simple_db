@@ -1,0 +1,9 @@
+CREATE TABLE t_nullable (id int, name varchar, score double);
+INSERT INTO t_nullable VALUES (1, 'alice', 90.5);
+INSERT INTO t_nullable VALUES (NULL, NULL, NULL);
+INSERT INTO t_nullable VALUES (2, 'bob', NULL);
+INSERT INTO t_nullable VALUES (NULL, 'carol', 75.0);
+SELECT * FROM t_nullable;
+INSERT INTO t_nullable VALUES (NULL + 1, 'dave', 60.0);
+SELECT * FROM t_nullable;
+DROP TABLE t_nullable;

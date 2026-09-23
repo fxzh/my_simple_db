@@ -1,0 +1,30 @@
+CREATE TABLE t_nullable (id int, name varchar, score double);
+CREATE
+INSERT INTO t_nullable VALUES (1, 'alice', 90.5);
+INSERT 1
+INSERT INTO t_nullable VALUES (NULL, NULL, NULL);
+INSERT 1
+INSERT INTO t_nullable VALUES (2, 'bob', NULL);
+INSERT 1
+INSERT INTO t_nullable VALUES (NULL, 'carol', 75.0);
+INSERT 1
+SELECT * FROM t_nullable;
+ id   | name  | score
+------+-------+-------
+ 1    | alice | 90.5
+ NULL | NULL  | NULL
+ 2    | bob   | NULL
+ NULL | carol | 75
+(4 行)
+INSERT INTO t_nullable VALUES (NULL + 1, 'dave', 60.0);
+ERROR: 算术运算操作数不是数值
+SELECT * FROM t_nullable;
+ id   | name  | score
+------+-------+-------
+ 1    | alice | 90.5
+ NULL | NULL  | NULL
+ 2    | bob   | NULL
+ NULL | carol | 75
+(4 行)
+DROP TABLE t_nullable;
+DROP

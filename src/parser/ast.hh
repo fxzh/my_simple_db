@@ -55,7 +55,7 @@ inline std::string type_to_string(DataType type, std::optional<long long> length
 
 // 表达式种类, 供执行层等上层按类型分派
 enum class ExprKind {
-    Int, Float, String, Identifier, BinaryOp, UnaryOp,
+    Int, Float, String, Identifier, BinaryOp, UnaryOp, Null,
 };
 
 // 表达式基类
@@ -97,6 +97,15 @@ struct StringExpr : Expr {
         os << std::string(static_cast<std::size_t>(indent), ' ') << "String: " << value << std::endl;
     }
     ExprKind kind() const override { return ExprKind::String; }
+};
+
+// NULL 字面量
+struct NullExpr : Expr {
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "Null" << std::endl;
+    }
+    ExprKind kind() const override { return ExprKind::Null; }
 };
 
 // 表达式中的标识符
@@ -152,6 +161,8 @@ inline std::string expr_to_string(const Expr& e)
         return std::format("{}", static_cast<const FloatExpr&>(e).value);
     case ExprKind::String:
         return "'" + static_cast<const StringExpr&>(e).value + "'";
+    case ExprKind::Null:
+        return "NULL";
     case ExprKind::Identifier:
         return static_cast<const IdentifierExpr&>(e).name;
     case ExprKind::BinaryOp: {
