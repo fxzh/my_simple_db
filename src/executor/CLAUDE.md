@@ -10,7 +10,8 @@ executor.cpp    语句分发 create/drop/insert/delete/select → catalog；drop
                 (db_table/db_column)，select 可查元数据，create 由存储层按表已存在拒绝；
                 表达式求值：EvalValue 为 null/bool/int64/double/string 的 variant，
                 常量上下文(insert VALUES, 标识符引用禁止)与行上下文(select)共用同一求值，
-                算术类型驱动提升(int/int 向零截断)，溢出/除零/INT64_MIN 取反当场报错，
+                算术 NULL 传播(任一操作数为 NULL 结果为 NULL，短路于除零/溢出)，非 NULL 操作数须为数值，
+                类型驱动提升(int/int 向零截断)，溢出/除零/INT64_MIN 取反当场报错，
                 bool 不可作为存储或输出值；
                 select 编译投影(列定位表/star 展开/输出列名按 别名>列名>表达式文本)后全表扫描逐行物化；
                 delete 为全表删除，回删除行数

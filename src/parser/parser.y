@@ -87,8 +87,9 @@ input: /* empty */
     |   input line
     ;
 
-line: statement ';' {
-        // 语法校验: 语句树构建成功即合法; 只交出首个语句的 AST
+line: statement ';'
+        {
+            // 语法校验: 语句树构建成功即合法; 只交出首个语句的 AST
             if (!result) {
                 result = std::move($1);
             }
@@ -110,23 +111,27 @@ create_statement:
     ;
 
 create_table_statement:
-        CREATE TABLE IDENTIFIER '(' column_definitions ')' {
+        CREATE TABLE IDENTIFIER '(' column_definitions ')'
+        {
             $$ = std::make_unique<CreateTableStmt>(std::move($3), std::move($5));
         }
     ;
 
 column_definitions:
-        column_definitions ',' column_definition {
+        column_definitions ',' column_definition
+        {
             $1.push_back(std::move($3));
             $$ = std::move($1);
         }
-    |   column_definition {
+    |   column_definition
+        {
             $$ = std::vector<ColumnDef>{ std::move($1) };
         }
     ;
 
 column_definition:
-        IDENTIFIER type_specifier {
+        IDENTIFIER type_specifier
+        {
             $$ = ColumnDef{ std::move($1), $2.type, $2.length };
         }
     ;
@@ -137,28 +142,32 @@ drop_statement:
     ;
 
 drop_table_statement:
-        DROP TABLE IDENTIFIER {
+        DROP TABLE IDENTIFIER
+        {
             $$ = std::make_unique<DropTableStmt>(std::move($3));
         }
     ;
 
 // delete from 表名
 delete_statement:
-        DELETE FROM IDENTIFIER {
+        DELETE FROM IDENTIFIER
+        {
             $$ = std::make_unique<DeleteStmt>(std::move($3));
         }
     ;
 
 // select 投影列表 FROM 表名(基础闭环: WHERE/ORDER BY/LIMIT 随后续里程碑接入)
 select_statement:
-        SELECT select_list FROM IDENTIFIER {
+        SELECT select_list FROM IDENTIFIER
+        {
             $$ = std::make_unique<SelectStmt>(std::move($4), false, std::move($2), nullptr,
                                              std::vector<OrderItem>{}, std::nullopt, std::nullopt);
         }
     ;
 
 select_list:
-        '*' {
+        '*'
+        {
             $$ = std::vector<SelectItem>();
             $$.push_back(SelectItem{ nullptr, "", true });
         }
@@ -167,7 +176,8 @@ select_list:
 
 select_items:
         select_items ',' select_item { $1.push_back(std::move($3)); $$ = std::move($1); }
-    |   select_item {
+    |   select_item
+        {
             $$ = std::vector<SelectItem>();
             $$.push_back(std::move($1));
         }
@@ -184,17 +194,20 @@ alias_opt:
 
 // insert into ... values (...)
 insert_statement:
-        INSERT INTO IDENTIFIER VALUES '(' value_list ')' {
+        INSERT INTO IDENTIFIER VALUES '(' value_list ')'
+        {
             $$ = std::make_unique<InsertStmt>(std::move($3), std::move($6));
         }
     ;
 
 value_list:
-        value_list ',' value {
+        value_list ',' value
+        {
             $1.push_back(std::move($3));
             $$ = std::move($1);
         }
-    |   value {
+    |   value
+        {
             $$ = std::vector<std::unique_ptr<Expr>>();
             $$.push_back(std::move($1));
         }

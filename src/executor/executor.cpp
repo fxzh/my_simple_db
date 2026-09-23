@@ -76,10 +76,19 @@ bool is_number(const EvalValue& v)
     return std::holds_alternative<int64_t>(v) || std::holds_alternative<double>(v);
 }
 
-// 一元数值运算: '+' 原值返回, '-' 取反
+// 值是否 NULL(monostate)
+bool is_null(const EvalValue& v)
+{
+    return std::holds_alternative<std::monostate>(v);
+}
+
+// 一元数值运算: NULL 传播, '+' 原值返回, '-' 取反
 EvalValue eval_unary(char op, const Expr& operand, const ColMap* cols, const st::Row* row)
 {
     const EvalValue v = eval_expr(operand, cols, row);
+    if (is_null(v)) {
+        return v;  // NULL 传播
+    }
     if (!is_number(v)) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXECUTOR, "一元运算操作数不是数值");
     }
@@ -96,13 +105,16 @@ EvalValue eval_unary(char op, const Expr& operand, const ColMap* cols, const st:
     return EvalValue{-i};
 }
 
-// 双目算术: 类型驱动提升(int/int 向零截断), 溢出/除零当场报错
+// 双目算术: 任一操作数为 NULL 结果 NULL, 非 NULL 操作数须数值; 类型驱动提升(int/int 向零截断), 溢出/除零当场报错
 EvalValue eval_binary(char op, const Expr& le, const Expr& re, const ColMap* cols, const st::Row* row)
 {
     const EvalValue lv = eval_expr(le, cols, row);
     const EvalValue rv = eval_expr(re, cols, row);
-    if (!is_number(lv) || !is_number(rv)) {
+    if ((!is_null(lv) && !is_number(lv)) || (!is_null(rv) && !is_number(rv))) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXECUTOR, "算术运算操作数不是数值");
+    }
+    if (is_null(lv) || is_null(rv)) {
+        return EvalValue{};  // NULL 传播, 短路于除零/溢出检查
     }
     if (std::holds_alternative<double>(lv) || std::holds_alternative<double>(rv)) {
         double out = 0.0;

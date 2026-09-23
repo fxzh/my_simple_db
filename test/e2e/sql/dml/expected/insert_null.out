@@ -17,7 +17,24 @@ SELECT * FROM t_nullable;
  NULL | carol | 75
 (4 行)
 INSERT INTO t_nullable VALUES (NULL + 1, 'dave', 60.0);
+INSERT 1
+INSERT INTO t_nullable VALUES (NULL / 0, 'eve', 55.5);
+INSERT 1
+INSERT INTO t_nullable VALUES (-NULL, 'frank', 50.0);
+INSERT 1
+INSERT INTO t_nullable VALUES ('abc' + NULL, 'gina', 45.0);
 ERROR: 算术运算操作数不是数值
+SELECT id + 1 FROM t_nullable;
+ (id + 1)
+----------
+ 2
+ NULL
+ 3
+ NULL
+ NULL
+ NULL
+ NULL
+(7 行)
 SELECT * FROM t_nullable;
  id   | name  | score
 ------+-------+-------
@@ -25,6 +42,9 @@ SELECT * FROM t_nullable;
  NULL | NULL  | NULL
  2    | bob   | NULL
  NULL | carol | 75
-(4 行)
+ NULL | dave  | 60
+ NULL | eve   | 55.5
+ NULL | frank | 50
+(7 行)
 DROP TABLE t_nullable;
 DROP
