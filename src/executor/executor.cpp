@@ -199,6 +199,11 @@ EvalValue eval_expr(const Expr& expr, const ColMap* cols, const st::Row* row)
         const auto& e = static_cast<const UnaryOpExpr&>(expr);
         return eval_unary(e.op, *e.operand, cols, row);
     }
+    case ExprKind::Compare:
+    case ExprKind::Logic:
+    case ExprKind::Not:
+    case ExprKind::IsNull:
+        DB_RAISE(db::ErrCode::NotImplemented, LogModule::EXECUTOR, "比较与逻辑表达式暂不支持");
     }
     // 不可达: 全部表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "executor: 未知表达式节点");
@@ -255,6 +260,9 @@ struct ProjCol {
 // SELECT 执行: 编译投影(列定位/stars 展开/输出列名)后全表扫描逐行物化
 ExecResult exec_select(ct::Catalog& db, const SelectStmt& ss)
 {
+    if (ss.where_expr() != nullptr) {
+        DB_RAISE(db::ErrCode::NotImplemented, LogModule::EXECUTOR, "WHERE 暂不支持");
+    }
     const st::TableMeta meta = db.table_meta(ss.table_name());
 
     // 编译期: 列定位表与投影展开
@@ -335,6 +343,9 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt)
     case StmtKind::Delete: {
         const auto& ds = static_cast<const DeleteStmt&>(stmt);
         check_reserved_table(ds.table_name());
+        if (ds.where_expr() != nullptr) {
+            DB_RAISE(db::ErrCode::NotImplemented, LogModule::EXECUTOR, "WHERE 暂不支持");
+        }
         const uint64_t n = db.delete_all(ds.table_name());
         return tag_result(proto::CommandTag::Delete, n);
     }

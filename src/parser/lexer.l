@@ -46,6 +46,11 @@ WS       [ \t\r]
 "select"   { return yy::parser::token::SELECT; }
 "as"       { return yy::parser::token::AS; }
 "null"     { return yy::parser::token::NULL_T; }
+"where"    { return yy::parser::token::WHERE; }
+"and"      { return yy::parser::token::AND; }
+"or"       { return yy::parser::token::OR; }
+"not"      { return yy::parser::token::NOT; }
+"is"       { return yy::parser::token::IS; }
 
 {DIGIT}+"."{DIGIT}*|"."{DIGIT}+ {
     yylval->build<double>(std::stod(yytext));
@@ -68,7 +73,11 @@ WS       [ \t\r]
     return yy::parser::token::IDENTIFIER;
 }
 
-"+"|"-"|"*"|"/"|"("|")"|","|";" {
+"<="       { return yy::parser::token::LE; }
+">="       { return yy::parser::token::GE; }
+"=="|"="   { return yy::parser::token::EQ; }
+"<>"|"!="  { return yy::parser::token::NE; }
+"+"|"-"|"*"|"/"|"("|")"|","|";"|"<"|">" {
     return yytext[0];
 }
 

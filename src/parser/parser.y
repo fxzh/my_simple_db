@@ -57,14 +57,23 @@
 %token TOK_ERROR
 %token CREATE TABLE DROP INSERT INTO VALUES DELETE FROM
 %token INT BIGINT FLOAT CHAR VARCHAR DOUBLE
-%token SELECT AS NULL_T
+%token SELECT AS NULL_T WHERE AND OR NOT IS
+%token EQ NE LE GE
 
 %token <long long> INTEGER
 %token <double> FLOAT_NUM
 %token <std::string> IDENTIFIER
 %token <std::string> STRING
 
-// 运算符优先级
+// 预期移进/归约冲突数, 实际超出即报错
+%expect 0
+
+// 运算符优先级: OR < AND < NOT < IS(非结合) < 比较(非结合) < 加减 < 乘除
+%left OR
+%left AND
+%left NOT
+%nonassoc IS
+%nonassoc EQ NE '<' LE '>' GE
 %left '+' '-'
 %left '*' '/'
 %right UMINUS
@@ -75,7 +84,8 @@
 %type <ColumnDef> column_definition
 %type <TypeInfo> type_specifier
 %type <std::vector<std::unique_ptr<Expr>>> value_list
-%type <std::unique_ptr<Expr>> value expression
+%type <std::unique_ptr<Expr>> value expression where_opt
+%type <bool> null_not_opt
 %type <std::vector<SelectItem>> select_list select_items
 %type <SelectItem> select_item
 %type <std::string> alias_opt
@@ -148,21 +158,27 @@ drop_table_statement:
         }
     ;
 
-// delete from 表名
+// delete from 表名 [where 条件]
 delete_statement:
-        DELETE FROM IDENTIFIER
+        DELETE FROM IDENTIFIER where_opt
         {
-            $$ = std::make_unique<DeleteStmt>(std::move($3));
+            $$ = std::make_unique<DeleteStmt>(std::move($3), std::move($4));
         }
     ;
 
-// select 投影列表 FROM 表名(基础闭环: WHERE/ORDER BY/LIMIT 随后续里程碑接入)
+// select 投影列表 FROM 表名 [where 条件](基础闭环: ORDER BY/LIMIT 随后续里程碑接入)
 select_statement:
-        SELECT select_list FROM IDENTIFIER
+        SELECT select_list FROM IDENTIFIER where_opt
         {
-            $$ = std::make_unique<SelectStmt>(std::move($4), false, std::move($2), nullptr,
+            $$ = std::make_unique<SelectStmt>(std::move($4), false, std::move($2), std::move($5),
                                              std::vector<OrderItem>{}, std::nullopt, std::nullopt);
         }
+    ;
+
+// 可选 where 子句: 空时语义值为空指针
+where_opt:
+        /* empty */ { $$ = nullptr; }
+    |   WHERE expression { $$ = std::move($2); }
     ;
 
 select_list:
@@ -241,6 +257,45 @@ expression:
     |   '(' expression ')'          { $$ = std::move($2); }
     |   '-' expression %prec UMINUS { $$ = std::make_unique<UnaryOpExpr>('-', std::move($2)); }
     |   '+' expression %prec UMINUS { $$ = std::make_unique<UnaryOpExpr>('+', std::move($2)); }
+    |   expression EQ expression
+        {
+            $$ = std::make_unique<CompareExpr>(CmpOp::Eq, std::move($1), std::move($3));
+        }
+    |   expression NE expression
+        {
+            $$ = std::make_unique<CompareExpr>(CmpOp::Ne, std::move($1), std::move($3));
+        }
+    |   expression '<' expression
+        {
+            $$ = std::make_unique<CompareExpr>(CmpOp::Lt, std::move($1), std::move($3));
+        }
+    |   expression LE expression
+        {
+            $$ = std::make_unique<CompareExpr>(CmpOp::Le, std::move($1), std::move($3));
+        }
+    |   expression '>' expression
+        {
+            $$ = std::make_unique<CompareExpr>(CmpOp::Gt, std::move($1), std::move($3));
+        }
+    |   expression GE expression
+        {
+            $$ = std::make_unique<CompareExpr>(CmpOp::Ge, std::move($1), std::move($3));
+        }
+    |   expression AND expression
+        {
+            $$ = std::make_unique<LogicExpr>(LogicOp::And, std::move($1), std::move($3));
+        }
+    |   expression OR expression
+        {
+            $$ = std::make_unique<LogicExpr>(LogicOp::Or, std::move($1), std::move($3));
+        }
+    |   NOT expression { $$ = std::make_unique<NotExpr>(std::move($2)); }
+    |   expression IS null_not_opt NULL_T { $$ = std::make_unique<IsNullExpr>(std::move($1), $3); }
+    ;
+
+null_not_opt:
+        /* empty */ { $$ = false; }
+    |   NOT { $$ = true; }
     ;
 
 %%

@@ -56,6 +56,7 @@ inline std::string type_to_string(DataType type, std::optional<long long> length
 // 表达式种类, 供执行层等上层按类型分派
 enum class ExprKind {
     Int, Float, String, Identifier, BinaryOp, UnaryOp, Null,
+    Compare, Logic, Not, IsNull,
 };
 
 // 表达式基类
@@ -151,6 +152,91 @@ struct UnaryOpExpr : Expr {
     ExprKind kind() const override { return ExprKind::UnaryOp; }
 };
 
+// 比较运算种类
+enum class CmpOp : uint8_t { Eq, Ne, Lt, Le, Gt, Ge };
+
+// 逻辑运算种类
+enum class LogicOp : uint8_t { And, Or };
+
+// 比较运算符转文本: 供打印与反生成使用
+inline std::string cmp_to_string(CmpOp op)
+{
+    switch (op) {
+    case CmpOp::Eq: return "=";
+    case CmpOp::Ne: return "<>";
+    case CmpOp::Lt: return "<";
+    case CmpOp::Le: return "<=";
+    case CmpOp::Gt: return ">";
+    case CmpOp::Ge: return ">=";
+    }
+    return "";
+}
+
+// 比较运算节点: = <> < <= > >=
+struct CompareExpr : Expr {
+    CmpOp op;
+    std::unique_ptr<Expr> left;
+    std::unique_ptr<Expr> right;
+    CompareExpr(CmpOp op_, std::unique_ptr<Expr> left_, std::unique_ptr<Expr> right_)
+        : op(op_), left(std::move(left_)), right(std::move(right_)) {}
+
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "Compare: "
+           << cmp_to_string(op) << std::endl;
+        left->print(os, indent + 4);
+        right->print(os, indent + 4);
+    }
+    ExprKind kind() const override { return ExprKind::Compare; }
+};
+
+// 逻辑运算节点: AND / OR
+struct LogicExpr : Expr {
+    LogicOp op;
+    std::unique_ptr<Expr> left;
+    std::unique_ptr<Expr> right;
+    LogicExpr(LogicOp op_, std::unique_ptr<Expr> left_, std::unique_ptr<Expr> right_)
+        : op(op_), left(std::move(left_)), right(std::move(right_)) {}
+
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "Logic: "
+           << (op == LogicOp::And ? "AND" : "OR") << std::endl;
+        left->print(os, indent + 4);
+        right->print(os, indent + 4);
+    }
+    ExprKind kind() const override { return ExprKind::Logic; }
+};
+
+// 逻辑非节点
+struct NotExpr : Expr {
+    std::unique_ptr<Expr> operand;
+    explicit NotExpr(std::unique_ptr<Expr> operand_) : operand(std::move(operand_)) {}
+
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "Not" << std::endl;
+        operand->print(os, indent + 4);
+    }
+    ExprKind kind() const override { return ExprKind::Not; }
+};
+
+// IS [NOT] NULL 判空节点
+struct IsNullExpr : Expr {
+    std::unique_ptr<Expr> operand;
+    bool negate;   // true 表示 IS NOT NULL
+    IsNullExpr(std::unique_ptr<Expr> operand_, bool negate_)
+        : operand(std::move(operand_)), negate(negate_) {}
+
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "IsNull" << (negate ? " not" : "")
+           << std::endl;
+        operand->print(os, indent + 4);
+    }
+    ExprKind kind() const override { return ExprKind::IsNull; }
+};
+
 // 表达式反生成 SQL 文本: 供输出列命名与日志使用
 inline std::string expr_to_string(const Expr& e)
 {
@@ -172,6 +258,22 @@ inline std::string expr_to_string(const Expr& e)
     case ExprKind::UnaryOp: {
         const auto& u = static_cast<const UnaryOpExpr&>(e);
         return "(" + std::string(1, u.op) + expr_to_string(*u.operand) + ")";
+    }
+    case ExprKind::Compare: {
+        const auto& c = static_cast<const CompareExpr&>(e);
+        return "(" + expr_to_string(*c.left) + " " + cmp_to_string(c.op) + " "
+               + expr_to_string(*c.right) + ")";
+    }
+    case ExprKind::Logic: {
+        const auto& l = static_cast<const LogicExpr&>(e);
+        return "(" + expr_to_string(*l.left) + (l.op == LogicOp::And ? " AND " : " OR ")
+               + expr_to_string(*l.right) + ")";
+    }
+    case ExprKind::Not:
+        return "(NOT " + expr_to_string(*static_cast<const NotExpr&>(e).operand) + ")";
+    case ExprKind::IsNull: {
+        const auto& i = static_cast<const IsNullExpr&>(e);
+        return "(" + expr_to_string(*i.operand) + (i.negate ? " IS NOT NULL" : " IS NULL") + ")";
     }
     }
     return "";
@@ -258,17 +360,23 @@ public:
     StmtKind kind() const override { return StmtKind::Insert; }
 };
 
-// DELETE FROM 表名
+// DELETE FROM 表名 [WHERE 条件]
 class DeleteStmt : public SQLStatement {
     std::string table;
+    std::unique_ptr<Expr> where_;   // 无 WHERE 时为空
 public:
-    explicit DeleteStmt(std::string name) : table(std::move(name)) {}
+    DeleteStmt(std::string name, std::unique_ptr<Expr> where)
+        : table(std::move(name)), where_(std::move(where)) {}
 
     const std::string& table_name() const { return table; }
+    const Expr* where_expr() const { return where_.get(); }
 
     void print(std::ostream& os, int indent) const override
     {
         os << std::string(static_cast<std::size_t>(indent), ' ') << "DeleteFrom: " << table << std::endl;
+        if (where_) {
+            where_->print(os, indent + 4);
+        }
     }
 
     StmtKind kind() const override { return StmtKind::Delete; }
@@ -320,6 +428,9 @@ public:
             } else {
                 item.expr->print(os, indent + 4);
             }
+        }
+        if (where_) {
+            where_->print(os, indent + 4);
         }
     }
 

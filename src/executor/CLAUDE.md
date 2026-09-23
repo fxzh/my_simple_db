@@ -14,9 +14,10 @@ executor.cpp    语句分发 create/drop/insert/delete/select → catalog；drop
                 类型驱动提升(int/int 向零截断)，溢出/除零/INT64_MIN 取反当场报错，
                 bool 不可作为存储或输出值；
                 select 编译投影(列定位表/star 展开/输出列名按 别名>列名>表达式文本)后全表扫描逐行物化；
-                delete 为全表删除，回删除行数
+                delete 为全表删除，回删除行数；select/delete 带 WHERE 或求值遇比较/逻辑节点
+                报 NotImplemented 暂不支持
 CMakeLists.txt  链接 sql_parser/catalog/storage(PUBLIC), log/common(PRIVATE)
 
 # 注意
 - 无自有状态，全部数据经 ct::Catalog 访问；CREATE 的列类型枚举映射与长度校验在本层完成
-- select 无 where/排序/distinct(M-S1 仅投影)，delete 无条件删除，随里程碑扩展
+- select/delete 的 WHERE 与比较/逻辑求值随 M-S2 接入，当前报 NotImplemented；select 无排序/distinct，随里程碑扩展
