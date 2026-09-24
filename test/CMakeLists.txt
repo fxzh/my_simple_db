@@ -67,12 +67,14 @@ set_tests_properties(server_stop PROPERTIES FIXTURES_CLEANUP SRV_UP)
 add_test(NAME server_stop_not_running COMMAND test_serverctl --gtest_filter=Ctl.StopNotRunning)
 add_test(NAME server_status_not_running COMMAND test_serverctl --gtest_filter=Ctl.StatusNotRunning)
 
-# L2 SQL e2e: golden file 驱动, 以 client -a -c 的 stdout 全文 diff 为唯一通过判据
+# L2 SQL : 以 client -a -c 的 stdout 全文 diff 为唯一通过判据;
+# 实际输出与 diff 落盘至 e2e_out/<功能目录>_<stem>.{actual,diff}
 add_executable(test_sql e2e/sql/test_sql.cpp)
 target_link_libraries(test_sql PRIVATE test_common)
 target_compile_definitions(test_sql PRIVATE
     MSDB_BIN_DIR="${PROJECT_BINARY_DIR}/bin"
     MSDB_STATE_DIR="${CMAKE_CURRENT_BINARY_DIR}/e2e_state"
+    MSDB_OUT_DIR="${CMAKE_CURRENT_BINARY_DIR}/e2e_out"
 )
 
 # SQL 用例各自管库表生命周期(开头建表, 结尾删表), 仅依赖 SRV_UP, 相互独立;
