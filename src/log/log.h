@@ -52,6 +52,7 @@ constexpr std::string_view levelToString(LogLevel level)
 enum class LogModule {
     SYNTAX,     // 语法模块
     PARSER,     // 解析模块
+    ANALYZER,   // 绑定模块
     PLANNER,    // 计划模块
     EXECUTOR,   // 执行模块
     NETWORK,    // 网络模块

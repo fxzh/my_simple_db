@@ -13,7 +13,7 @@ namespace exec {
 
 namespace {
 
-EvalValue eval_expr(const Expr& expr, const RowCtx* ctx, const st::Row* row);
+EvalValue eval_expr(const Expr& expr, const ana::Schema* ctx, const st::Row* row);
 
 // 数值转 double(整型提升)
 double to_double(const EvalValue& v)
@@ -46,7 +46,7 @@ std::string_view rtrim_space(std::string_view s)
 }
 
 // 一元数值运算: NULL 传播, '+' 原值返回, '-' 取反
-EvalValue eval_unary(char op, const Expr& operand, const RowCtx* ctx, const st::Row* row)
+EvalValue eval_unary(char op, const Expr& operand, const ana::Schema* ctx, const st::Row* row)
 {
     const EvalValue v = eval_expr(operand, ctx, row);
     if (is_null(v)) {
@@ -69,7 +69,7 @@ EvalValue eval_unary(char op, const Expr& operand, const RowCtx* ctx, const st::
 }
 
 // 双目算术: 任一操作数为 NULL 结果 NULL, 非 NULL 操作数须数值; 类型驱动提升(int/int 向零截断), 溢出/除零当场报错
-EvalValue eval_binary(char op, const Expr& le, const Expr& re, const RowCtx* ctx, const st::Row* row)
+EvalValue eval_binary(char op, const Expr& le, const Expr& re, const ana::Schema* ctx, const st::Row* row)
 {
     const EvalValue lv = eval_expr(le, ctx, row);
     const EvalValue rv = eval_expr(re, ctx, row);
@@ -133,7 +133,7 @@ int cmp_str(const StrVal& l, const StrVal& r)
 }
 
 // 比较: 任一侧 NULL 即 NULL; 数值提升为 double 比较, 字符串按 PAD SPACE 语义, 跨类当场报错
-EvalValue eval_compare(CmpOp op, const Expr& le, const Expr& re, const RowCtx* ctx,
+EvalValue eval_compare(CmpOp op, const Expr& le, const Expr& re, const ana::Schema* ctx,
                        const st::Row* row)
 {
     const EvalValue lv = eval_expr(le, ctx, row);
@@ -168,7 +168,7 @@ EvalValue eval_compare(CmpOp op, const Expr& le, const Expr& re, const RowCtx* c
 }
 
 // AND/OR: 三值逻辑, AND 有 false 即 false / OR 有 true 即 true, 其余 NULL 传播; 非 NULL 操作数须为 bool
-EvalValue eval_logic(LogicOp op, const Expr& le, const Expr& re, const RowCtx* ctx,
+EvalValue eval_logic(LogicOp op, const Expr& le, const Expr& re, const ana::Schema* ctx,
                      const st::Row* row)
 {
     const EvalValue lv = eval_expr(le, ctx, row);
@@ -197,7 +197,7 @@ EvalValue eval_logic(LogicOp op, const Expr& le, const Expr& re, const RowCtx* c
 }
 
 // NOT: 三值逻辑, NULL 传播, 非 NULL 操作数须为 bool
-EvalValue eval_not(const Expr& operand, const RowCtx* ctx, const st::Row* row)
+EvalValue eval_not(const Expr& operand, const ana::Schema* ctx, const st::Row* row)
 {
     const EvalValue v = eval_expr(operand, ctx, row);
     if (is_null(v)) {
@@ -211,14 +211,14 @@ EvalValue eval_not(const Expr& operand, const RowCtx* ctx, const st::Row* row)
 }
 
 // IS [NOT] NULL: 对任意类型操作数判空
-EvalValue eval_is_null(const IsNullExpr& e, const RowCtx* ctx, const st::Row* row)
+EvalValue eval_is_null(const IsNullExpr& e, const ana::Schema* ctx, const st::Row* row)
 {
     const EvalValue v = eval_expr(*e.operand, ctx, row);
     return EvalValue{e.negate ? !is_null(v) : is_null(v)};
 }
 
 // 统一求值入口: ctx/row 同时为空表示常量上下文(标识符不可用)
-EvalValue eval_expr(const Expr& expr, const RowCtx* ctx, const st::Row* row)
+EvalValue eval_expr(const Expr& expr, const ana::Schema* ctx, const st::Row* row)
 {
     switch (expr.kind()) {
     case ExprKind::Int:
@@ -293,7 +293,7 @@ EvalValue eval_const(const Expr& e)
 }
 
 // 行上下文求值(SELECT 投影与 WHERE 过滤)
-EvalValue eval_row(const Expr& e, const RowCtx& ctx, const st::Row& row)
+EvalValue eval_row(const Expr& e, const ana::Schema& ctx, const st::Row& row)
 {
     return eval_expr(e, &ctx, &row);
 }
@@ -317,7 +317,7 @@ st::Value to_st_value(const EvalValue& v)
 }
 
 // WHERE 条件判定: 结果须为 bool, NULL(UNKNOWN) 视为不满足
-bool where_match(const Expr& where, const RowCtx& ctx, const st::Row& row)
+bool where_match(const Expr& where, const ana::Schema& ctx, const st::Row& row)
 {
     const EvalValue v = eval_expr(where, &ctx, &row);
     if (is_null(v)) {

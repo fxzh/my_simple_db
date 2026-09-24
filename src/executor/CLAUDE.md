@@ -1,17 +1,14 @@
 # 执行层(executor 静态库，server 链接)
-把 parser 产出的 AST 转成 catalog 门面调用，返回结构化执行结果(命令标签或结果集)；
+语句先经 analyzer 绑定成 BoundStmt，再转成 catalog 门面调用，返回结构化执行结果(命令标签或结果集)；
 错误经 DB_RAISE 记日志后当场抛异常，由调用方回客户端 "ERROR: <原因>"
 
 # 文件
 executor.h      唯一入口 exec::execute(db, stmt) + ExecResult：is_result_set=false 带命令标签
                 (proto::CommandTag + count)，
                 true 带结果集(col_names + rows, Value 的 monostate 即 NULL)
-executor.cpp    语句分发 create/drop/insert/delete/select → catalog；drop/insert/delete 拦截保留表名
-                (db_table/db_column)，select 可查元数据，create 由存储层按表已存在拒绝；
-                INSERT VALUES 经常量求值器取值；
-                WHERE(select/delete)编译期做标识符存在性校验(空表也报未知列)，逐行求值过滤，
-                NULL 即 UNKNOWN 不满足；select 编译投影(列定位表/star 展开/输出列名按
-                别名>列名>表达式文本)后全表扫描逐行物化；delete 无 WHERE 全表删除，
+executor.cpp    execute() 两段式：ana::analyze 绑定后按 BoundKind 分发；create/drop/insert 直调
+                catalog(insert VALUES 经常量求值器取值)，select 按绑定投影全表扫描逐行物化
+                (WHERE 逐行求值过滤，NULL 即 UNKNOWN 不满足)，delete 无 WHERE 全表删除，
                 带 WHERE 扫描收集行引用后逐个物理删除，回实际删除行数
 expr_eval.h/.cpp 表达式求值器：EvalValue 为 null/bool/int64/double/StrVal(文本+char 列来源) 的 variant，
                 常量上下文(insert VALUES, 标识符引用禁止)与行上下文(select 投影/WHERE)共用同一求值，
@@ -19,9 +16,9 @@ expr_eval.h/.cpp 表达式求值器：EvalValue 为 null/bool/int64/double/StrVa
                 类型驱动提升(int/int 向零截断)，溢出/除零/INT64_MIN 取反当场报错；
                 比较/逻辑三值逻辑(NULL 即 UNKNOWN)：比较数值提升 double、字符串 PAD SPACE
                 (char 定长列来源一侧去尾随空格)、跨类报错；逻辑/NOT 非 bool 操作数报错；
-                bool 不可作为存储或输出值
-CMakeLists.txt  链接 sql_parser/catalog/storage(PUBLIC), log/common(PRIVATE)
+                bool 不可作为存储或输出值；行上下文类型为绑定层 ana::Schema(analyzer/bound.h)
+CMakeLists.txt  链接 analyzer/sql_parser/catalog/storage(PUBLIC), log/common(PRIVATE)
 
 # 注意
-- 无自有状态，全部数据经 ct::Catalog 访问；CREATE 的列类型枚举映射与长度校验在本层完成
+- 无自有状态，全部数据经 ct::Catalog 访问；列类型映射/长度校验/保留表拦截/WHERE 列校验在 analyzer 层完成
 - select 无排序/distinct，随里程碑扩展；int64 与 double 混合比较经 double 存在精度损失(已知接受)
