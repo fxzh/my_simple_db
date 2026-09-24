@@ -1,6 +1,7 @@
 # 执行层静态库(executor): 把 parser 的 AST 转成 storage 调用, server 链接它
 add_library(executor STATIC
     executor.cpp
+    expr_eval.cpp
 )
 
 target_include_directories(executor PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

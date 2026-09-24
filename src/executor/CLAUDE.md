@@ -8,17 +8,18 @@ executor.h      唯一入口 exec::execute(db, stmt) + ExecResult：is_result_se
                 true 带结果集(col_names + rows, Value 的 monostate 即 NULL)
 executor.cpp    语句分发 create/drop/insert/delete/select → catalog；drop/insert/delete 拦截保留表名
                 (db_table/db_column)，select 可查元数据，create 由存储层按表已存在拒绝；
-                表达式求值：EvalValue 为 null/bool/int64/double/StrVal(文本+char 列来源) 的 variant，
+                INSERT VALUES 经常量求值器取值；
+                WHERE(select/delete)编译期做标识符存在性校验(空表也报未知列)，逐行求值过滤，
+                NULL 即 UNKNOWN 不满足；select 编译投影(列定位表/star 展开/输出列名按
+                别名>列名>表达式文本)后全表扫描逐行物化；delete 无 WHERE 全表删除，
+                带 WHERE 扫描收集行引用后逐个物理删除，回实际删除行数
+expr_eval.h/.cpp 表达式求值器：EvalValue 为 null/bool/int64/double/StrVal(文本+char 列来源) 的 variant，
                 常量上下文(insert VALUES, 标识符引用禁止)与行上下文(select 投影/WHERE)共用同一求值，
                 算术 NULL 传播(任一操作数为 NULL 结果为 NULL，短路于除零/溢出)，非 NULL 操作数须为数值，
                 类型驱动提升(int/int 向零截断)，溢出/除零/INT64_MIN 取反当场报错；
                 比较/逻辑三值逻辑(NULL 即 UNKNOWN)：比较数值提升 double、字符串 PAD SPACE
                 (char 定长列来源一侧去尾随空格)、跨类报错；逻辑/NOT 非 bool 操作数报错；
-                bool 不可作为存储或输出值；
-                WHERE(select/delete)编译期做标识符存在性校验(空表也报未知列)，逐行求值过滤，
-                NULL 即 UNKNOWN 不满足；select 编译投影(列定位表/star 展开/输出列名按
-                别名>列名>表达式文本)后全表扫描逐行物化；delete 无 WHERE 全表删除，
-                带 WHERE 扫描收集行引用后逐个物理删除，回实际删除行数
+                bool 不可作为存储或输出值
 CMakeLists.txt  链接 sql_parser/catalog/storage(PUBLIC), log/common(PRIVATE)
 
 # 注意
