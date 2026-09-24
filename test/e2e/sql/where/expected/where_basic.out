@@ -1,0 +1,57 @@
+CREATE TABLE t_w (id int, name varchar(8), score double);
+CREATE
+INSERT INTO t_w VALUES (1, 'alice', 95.5);
+INSERT 1
+INSERT INTO t_w VALUES (2, 'bob', 60.0);
+INSERT 1
+INSERT INTO t_w VALUES (3, 'carol', 78.5);
+INSERT 1
+INSERT INTO t_w VALUES (4, 'dave', 40.0);
+INSERT 1
+SELECT id, name FROM t_w WHERE score >= 78.5;
+ id | name
+----+-------
+ 1  | alice
+ 3  | carol
+(2 行)
+SELECT id FROM t_w WHERE score > 60 AND id < 3;
+ id
+----
+ 1
+(1 行)
+SELECT id FROM t_w WHERE id = 1 OR id = 4;
+ id
+----
+ 1
+ 4
+(2 行)
+SELECT * FROM t_w WHERE NOT (score >= 60);
+ id | name | score
+----+------+-------
+ 4  | dave | 40
+(1 行)
+SELECT id FROM t_w WHERE name = 'bob';
+ id
+----
+ 2
+(1 行)
+SELECT id FROM t_w WHERE name <> 'bob' AND score >= 78.5;
+ id
+----
+ 1
+ 3
+(2 行)
+SELECT id FROM t_w WHERE score * 2 > 150;
+ id
+----
+ 1
+ 3
+(2 行)
+SELECT id FROM t_w WHERE name = 5;
+ERROR: 比较运算两侧须同为数值或字符串
+SELECT id FROM t_w WHERE 1;
+ERROR: WHERE 条件不是布尔表达式
+SELECT id FROM t_w WHERE 1 AND 1;
+ERROR: 逻辑运算操作数不是布尔值
+DROP TABLE t_w;
+DROP

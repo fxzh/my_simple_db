@@ -1,0 +1,48 @@
+CREATE TABLE t_n (id int, v int);
+CREATE
+INSERT INTO t_n VALUES (1, 10);
+INSERT 1
+INSERT INTO t_n VALUES (2, NULL);
+INSERT 1
+INSERT INTO t_n VALUES (3, 30);
+INSERT 1
+SELECT id FROM t_n WHERE v > 5;
+ id
+----
+ 1
+ 3
+(2 行)
+SELECT id FROM t_n WHERE NOT (v > 5);
+ id
+(0 行)
+SELECT id FROM t_n WHERE v > 5 OR v IS NULL;
+ id
+----
+ 1
+ 2
+ 3
+(3 行)
+SELECT id FROM t_n WHERE v IS NULL;
+ id
+----
+ 2
+(1 行)
+SELECT id FROM t_n WHERE v IS NOT NULL;
+ id
+----
+ 1
+ 3
+(2 行)
+SELECT id FROM t_n WHERE v = NULL;
+ id
+(0 行)
+SELECT id FROM t_n WHERE NULL AND id = 1;
+ id
+(0 行)
+SELECT id FROM t_n WHERE NULL OR id = 1;
+ id
+----
+ 1
+(1 行)
+DROP TABLE t_n;
+DROP

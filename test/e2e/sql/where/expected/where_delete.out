@@ -1,0 +1,33 @@
+CREATE TABLE t_d (id int, v int);
+CREATE
+INSERT INTO t_d VALUES (1, 10);
+INSERT 1
+INSERT INTO t_d VALUES (2, 20);
+INSERT 1
+INSERT INTO t_d VALUES (3, 30);
+INSERT 1
+INSERT INTO t_d VALUES (4, 40);
+INSERT 1
+DELETE FROM t_d WHERE v >= 30;
+DELETE 2
+SELECT * FROM t_d;
+ id | v
+----+----
+ 1  | 10
+ 2  | 20
+(2 行)
+DELETE FROM t_d WHERE v > 100;
+DELETE 0
+SELECT * FROM t_d;
+ id | v
+----+----
+ 1  | 10
+ 2  | 20
+(2 行)
+DELETE FROM t_d WHERE v = 10 OR v = 20;
+DELETE 2
+SELECT * FROM t_d;
+ id | v
+(0 行)
+DROP TABLE t_d;
+DROP

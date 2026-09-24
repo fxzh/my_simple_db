@@ -1,0 +1,40 @@
+CREATE TABLE t_c (id int, c char(5), v varchar(10));
+CREATE
+INSERT INTO t_c VALUES (1, 'ab', 'ab');
+INSERT 1
+INSERT INTO t_c VALUES (2, 'abcde', 'ab ');
+INSERT 1
+INSERT INTO t_c VALUES (3, NULL, NULL);
+INSERT 1
+SELECT id FROM t_c WHERE c = 'ab';
+ id
+----
+ 1
+(1 行)
+SELECT id FROM t_c WHERE c = 'ab ';
+ id
+(0 行)
+SELECT id FROM t_c WHERE v = 'ab';
+ id
+----
+ 1
+(1 行)
+SELECT id FROM t_c WHERE v = 'ab ';
+ id
+----
+ 2
+(1 行)
+SELECT id FROM t_c WHERE c = v;
+ id
+----
+ 1
+(1 行)
+SELECT id FROM t_c WHERE c IS NULL OR v IS NOT NULL;
+ id
+----
+ 1
+ 2
+ 3
+(3 行)
+DROP TABLE t_c;
+DROP

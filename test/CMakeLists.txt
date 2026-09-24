@@ -116,6 +116,31 @@ add_test(NAME sql_types COMMAND test_sql
     ${SQL_CASES_DIR}/types/expected/types.out)
 set_tests_properties(sql_types PROPERTIES FIXTURES_REQUIRED SRV_UP)
 
+add_test(NAME sql_where_basic COMMAND test_sql
+    ${SQL_CASES_DIR}/where/cases/where_basic.sql
+    ${SQL_CASES_DIR}/where/expected/where_basic.out)
+set_tests_properties(sql_where_basic PROPERTIES FIXTURES_REQUIRED SRV_UP)
+
+add_test(NAME sql_where_null COMMAND test_sql
+    ${SQL_CASES_DIR}/where/cases/where_null.sql
+    ${SQL_CASES_DIR}/where/expected/where_null.out)
+set_tests_properties(sql_where_null PROPERTIES FIXTURES_REQUIRED SRV_UP)
+
+add_test(NAME sql_where_char COMMAND test_sql
+    ${SQL_CASES_DIR}/where/cases/where_char.sql
+    ${SQL_CASES_DIR}/where/expected/where_char.out)
+set_tests_properties(sql_where_char PROPERTIES FIXTURES_REQUIRED SRV_UP)
+
+add_test(NAME sql_where_delete COMMAND test_sql
+    ${SQL_CASES_DIR}/where/cases/where_delete.sql
+    ${SQL_CASES_DIR}/where/expected/where_delete.out)
+set_tests_properties(sql_where_delete PROPERTIES FIXTURES_REQUIRED SRV_UP)
+
+add_test(NAME sql_where_empty COMMAND test_sql
+    ${SQL_CASES_DIR}/where/cases/where_empty.sql
+    ${SQL_CASES_DIR}/where/expected/where_empty.out)
+set_tests_properties(sql_where_empty PROPERTIES FIXTURES_REQUIRED SRV_UP)
+
 add_test(NAME sql_reserved COMMAND test_sql
     ${SQL_CASES_DIR}/reserved/cases/reserved.sql
     ${SQL_CASES_DIR}/reserved/expected/reserved.out)

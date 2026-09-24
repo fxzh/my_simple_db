@@ -1,0 +1,11 @@
+CREATE TABLE t_c (id int, c char(5), v varchar(10));
+INSERT INTO t_c VALUES (1, 'ab', 'ab');
+INSERT INTO t_c VALUES (2, 'abcde', 'ab ');
+INSERT INTO t_c VALUES (3, NULL, NULL);
+SELECT id FROM t_c WHERE c = 'ab';
+SELECT id FROM t_c WHERE c = 'ab ';
+SELECT id FROM t_c WHERE v = 'ab';
+SELECT id FROM t_c WHERE v = 'ab ';
+SELECT id FROM t_c WHERE c = v;
+SELECT id FROM t_c WHERE c IS NULL OR v IS NOT NULL;
+DROP TABLE t_c;

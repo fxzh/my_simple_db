@@ -1,0 +1,18 @@
+CREATE TABLE t_e (id int, v int);
+CREATE
+SELECT * FROM t_e WHERE nosuch = 1;
+ERROR: 列不存在: nosuch
+DELETE FROM t_e WHERE nosuch = 1;
+ERROR: 列不存在: nosuch
+SELECT * FROM t_e WHERE id > 0 OR v IS NULL;
+ id | v
+(0 行)
+INSERT INTO t_e VALUES (1, NULL);
+INSERT 1
+SELECT id FROM t_e WHERE v IS NULL;
+ id
+----
+ 1
+(1 行)
+DROP TABLE t_e;
+DROP

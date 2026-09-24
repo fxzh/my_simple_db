@@ -1,0 +1,7 @@
+CREATE TABLE t_e (id int, v int);
+SELECT * FROM t_e WHERE nosuch = 1;
+DELETE FROM t_e WHERE nosuch = 1;
+SELECT * FROM t_e WHERE id > 0 OR v IS NULL;
+INSERT INTO t_e VALUES (1, NULL);
+SELECT id FROM t_e WHERE v IS NULL;
+DROP TABLE t_e;
