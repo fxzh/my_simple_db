@@ -29,10 +29,10 @@ EvalValue eval_const(const Expr& e);
 // 行上下文求值(SELECT 投影与 WHERE 过滤)
 EvalValue eval_row(const Expr& e, const ana::Schema& ctx, const st::Row& row);
 
-// 求值结果转存储/输出值: bool 不允许作为结果值, 其余原样(monostate 即 NULL)
+// 求值结果转存储/输出值: bool 不可达(语义层已拒, 此处 Internal 防御), 其余原样(monostate 即 NULL)
 st::Value to_st_value(const EvalValue& v);
 
-// WHERE 条件判定: 结果须为 bool, NULL(UNKNOWN) 视为不满足
+// WHERE 条件判定: NULL(UNKNOWN) 视为不满足, bool 由语义层保证
 bool where_match(const Expr& where, const ana::Schema& ctx, const st::Row& row);
 
 }  // namespace exec

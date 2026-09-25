@@ -1,0 +1,39 @@
+CREATE TABLE t_ss (i int, s char(4), f double);
+CREATE
+SELECT i + s FROM t_ss;
+ERROR: 算术运算操作数不是数值
+SELECT -s FROM t_ss;
+ERROR: 一元运算操作数不是数值
+SELECT i FROM t_ss WHERE i + s;
+ERROR: 算术运算操作数不是数值
+SELECT i FROM t_ss WHERE 1;
+ERROR: WHERE 条件不是布尔表达式
+SELECT i FROM t_ss WHERE s AND i > 0;
+ERROR: 逻辑运算操作数不是布尔值
+SELECT i FROM t_ss WHERE NOT i;
+ERROR: 逻辑运算操作数不是布尔值
+SELECT i FROM t_ss WHERE i > s;
+ERROR: 比较运算两侧须同为数值或字符串
+SELECT i > 1 FROM t_ss;
+ERROR: 布尔值不可作为存储或输出值
+SELECT i FROM t_ss WHERE nosuch_ss;
+ERROR: 列不存在: nosuch_ss
+INSERT INTO t_ss VALUES (1, 'ab', 1.5);
+INSERT 1
+SELECT i + 1 FROM t_ss;
+ (i + 1)
+---------
+ 2
+(1 行)
+SELECT i FROM t_ss WHERE i > 0;
+ i
+---
+ 1
+(1 行)
+SELECT -i FROM t_ss WHERE NOT (i > 10);
+ (-i)
+------
+ -1
+(1 行)
+DROP TABLE t_ss;
+DROP

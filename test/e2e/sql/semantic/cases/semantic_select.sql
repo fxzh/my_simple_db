@@ -1,0 +1,15 @@
+CREATE TABLE t_ss (i int, s char(4), f double);
+SELECT i + s FROM t_ss;
+SELECT -s FROM t_ss;
+SELECT i FROM t_ss WHERE i + s;
+SELECT i FROM t_ss WHERE 1;
+SELECT i FROM t_ss WHERE s AND i > 0;
+SELECT i FROM t_ss WHERE NOT i;
+SELECT i FROM t_ss WHERE i > s;
+SELECT i > 1 FROM t_ss;
+SELECT i FROM t_ss WHERE nosuch_ss;
+INSERT INTO t_ss VALUES (1, 'ab', 1.5);
+SELECT i + 1 FROM t_ss;
+SELECT i FROM t_ss WHERE i > 0;
+SELECT -i FROM t_ss WHERE NOT (i > 10);
+DROP TABLE t_ss;

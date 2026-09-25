@@ -24,12 +24,6 @@ double to_double(const EvalValue& v)
     return static_cast<double>(std::get<int64_t>(v));
 }
 
-// 值是否数值(int64/double)
-bool is_number(const EvalValue& v)
-{
-    return std::holds_alternative<int64_t>(v) || std::holds_alternative<double>(v);
-}
-
 // 值是否 NULL(monostate)
 bool is_null(const EvalValue& v)
 {
@@ -52,9 +46,6 @@ EvalValue eval_unary(char op, const Expr& operand, const ana::Schema* ctx, const
     if (is_null(v)) {
         return v;  // NULL 传播
     }
-    if (!is_number(v)) {
-        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXECUTOR, "一元运算操作数不是数值");
-    }
     if (op == '+') {
         return v;
     }
@@ -68,14 +59,12 @@ EvalValue eval_unary(char op, const Expr& operand, const ana::Schema* ctx, const
     return EvalValue{-i};
 }
 
-// 双目算术: 任一操作数为 NULL 结果 NULL, 非 NULL 操作数须数值; 类型驱动提升(int/int 向零截断), 溢出/除零当场报错
+// 双目算术: 任一操作数为 NULL 结果 NULL, 类型驱动提升(int/int 向零截断), 溢出/除零当场报错;
+// 操作数数值性由语义层保证
 EvalValue eval_binary(char op, const Expr& le, const Expr& re, const ana::Schema* ctx, const st::Row* row)
 {
     const EvalValue lv = eval_expr(le, ctx, row);
     const EvalValue rv = eval_expr(re, ctx, row);
-    if ((!is_null(lv) && !is_number(lv)) || (!is_null(rv) && !is_number(rv))) {
-        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXECUTOR, "算术运算操作数不是数值");
-    }
     if (is_null(lv) || is_null(rv)) {
         return EvalValue{};  // NULL 传播, 短路于除零/溢出检查
     }
@@ -132,7 +121,8 @@ int cmp_str(const StrVal& l, const StrVal& r)
     return lv.compare(rv);
 }
 
-// 比较: 任一侧 NULL 即 NULL; 数值提升为 double 比较, 字符串按 PAD SPACE 语义, 跨类当场报错
+// 比较: 任一侧 NULL 即 NULL; 数值提升为 double 比较, 字符串按 PAD SPACE 语义;
+// 两侧同类由语义层保证
 EvalValue eval_compare(CmpOp op, const Expr& le, const Expr& re, const ana::Schema* ctx,
                        const st::Row* row)
 {
@@ -141,20 +131,13 @@ EvalValue eval_compare(CmpOp op, const Expr& le, const Expr& re, const ana::Sche
     if (is_null(lv) || is_null(rv)) {
         return EvalValue{};  // NULL 传播, 求值结果即 UNKNOWN
     }
-    const StrVal* ls = std::get_if<StrVal>(&lv);
-    const StrVal* rs = std::get_if<StrVal>(&rv);
     int c = 0;
-    if (ls != nullptr || rs != nullptr) {
-        if (ls == nullptr || rs == nullptr) {
-            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXECUTOR, "比较运算两侧须同为数值或字符串");
-        }
-        c = cmp_str(*ls, *rs);
-    } else if (is_number(lv) && is_number(rv)) {
+    if (const StrVal* ls = std::get_if<StrVal>(&lv)) {
+        c = cmp_str(*ls, std::get<StrVal>(rv));
+    } else {
         const double l = to_double(lv);
         const double r = to_double(rv);
         c = l < r ? -1 : (l > r ? 1 : 0);
-    } else {
-        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXECUTOR, "比较运算两侧须同为数值或字符串");
     }
     switch (op) {
     case CmpOp::Eq: return EvalValue{c == 0};
@@ -167,7 +150,8 @@ EvalValue eval_compare(CmpOp op, const Expr& le, const Expr& re, const ana::Sche
     DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "executor: 未知比较种类");
 }
 
-// AND/OR: 三值逻辑, AND 有 false 即 false / OR 有 true 即 true, 其余 NULL 传播; 非 NULL 操作数须为 bool
+// AND/OR: 三值逻辑, AND 有 false 即 false / OR 有 true 即 true, 其余 NULL 传播;
+// 操作数布尔性由语义层保证
 EvalValue eval_logic(LogicOp op, const Expr& le, const Expr& re, const ana::Schema* ctx,
                      const st::Row* row)
 {
@@ -175,9 +159,6 @@ EvalValue eval_logic(LogicOp op, const Expr& le, const Expr& re, const ana::Sche
     const EvalValue rv = eval_expr(re, ctx, row);
     const bool* lb = std::get_if<bool>(&lv);
     const bool* rb = std::get_if<bool>(&rv);
-    if ((lb == nullptr && !is_null(lv)) || (rb == nullptr && !is_null(rv))) {
-        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXECUTOR, "逻辑运算操作数不是布尔值");
-    }
     if (op == LogicOp::And) {
         if ((lb != nullptr && !*lb) || (rb != nullptr && !*rb)) {
             return EvalValue{false};  // 有 false 即 false
@@ -196,18 +177,14 @@ EvalValue eval_logic(LogicOp op, const Expr& le, const Expr& re, const ana::Sche
     return EvalValue{false};
 }
 
-// NOT: 三值逻辑, NULL 传播, 非 NULL 操作数须为 bool
+// NOT: 三值逻辑, NULL 传播; 操作数布尔性由语义层保证
 EvalValue eval_not(const Expr& operand, const ana::Schema* ctx, const st::Row* row)
 {
     const EvalValue v = eval_expr(operand, ctx, row);
     if (is_null(v)) {
         return v;
     }
-    const bool* b = std::get_if<bool>(&v);
-    if (b == nullptr) {
-        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXECUTOR, "逻辑运算操作数不是布尔值");
-    }
-    return EvalValue{!*b};
+    return EvalValue{!std::get<bool>(v)};
 }
 
 // IS [NOT] NULL: 对任意类型操作数判空
@@ -237,12 +214,12 @@ EvalValue eval_expr(const Expr& expr, const ana::Schema* ctx, const st::Row* row
     case ExprKind::Identifier: {
         const auto& id = static_cast<const IdentifierExpr&>(expr);
         if (ctx == nullptr) {
-            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXECUTOR, "常量上下文不允许引用列: {}",
+            DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "常量上下文不允许引用列: {}",
                      id.name);
         }
         const auto it = ctx->cols.find(id.name);
         if (it == ctx->cols.end()) {
-            DB_RAISE(db::ErrCode::UnknownColumn, LogModule::EXECUTOR, "列不存在: {}", id.name);
+            DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "列不存在: {}", id.name);
         }
         const st::Value& raw = row->values[it->second];
         const bool from_char = ctx->char_col[it->second];
@@ -298,11 +275,11 @@ EvalValue eval_row(const Expr& e, const ana::Schema& ctx, const st::Row& row)
     return eval_expr(e, &ctx, &row);
 }
 
-// 求值结果转存储/输出值: bool 不允许作为结果值, 其余原样(monostate 即 NULL)
+// 求值结果转存储/输出值: bool 不可达(语义层已拒, 此处 Internal 防御), 其余原样(monostate 即 NULL)
 st::Value to_st_value(const EvalValue& v)
 {
     if (std::holds_alternative<bool>(v)) {
-        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXECUTOR, "布尔值不可作为存储或输出值");
+        DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "布尔值不可作为存储或输出值");
     }
     return std::visit(
         [](const auto& val) -> st::Value {
@@ -316,18 +293,14 @@ st::Value to_st_value(const EvalValue& v)
         v);
 }
 
-// WHERE 条件判定: 结果须为 bool, NULL(UNKNOWN) 视为不满足
+// WHERE 条件判定: NULL(UNKNOWN) 视为不满足, bool 由语义层保证
 bool where_match(const Expr& where, const ana::Schema& ctx, const st::Row& row)
 {
     const EvalValue v = eval_expr(where, &ctx, &row);
     if (is_null(v)) {
         return false;
     }
-    const bool* b = std::get_if<bool>(&v);
-    if (b == nullptr) {
-        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXECUTOR, "WHERE 条件不是布尔表达式");
-    }
-    return *b;
+    return std::get<bool>(v);
 }
 
 }  // namespace exec

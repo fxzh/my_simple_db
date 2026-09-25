@@ -145,3 +145,13 @@ add_test(NAME sql_reserved COMMAND test_sql
     ${SQL_CASES_DIR}/reserved/cases/reserved.sql
     ${SQL_CASES_DIR}/reserved/expected/reserved.out)
 set_tests_properties(sql_reserved PROPERTIES FIXTURES_REQUIRED SRV_UP)
+
+add_test(NAME sql_semantic_insert COMMAND test_sql
+    ${SQL_CASES_DIR}/semantic/cases/semantic_insert.sql
+    ${SQL_CASES_DIR}/semantic/expected/semantic_insert.out)
+set_tests_properties(sql_semantic_insert PROPERTIES FIXTURES_REQUIRED SRV_UP)
+
+add_test(NAME sql_semantic_select COMMAND test_sql
+    ${SQL_CASES_DIR}/semantic/cases/semantic_select.sql
+    ${SQL_CASES_DIR}/semantic/expected/semantic_select.out)
+set_tests_properties(sql_semantic_select PROPERTIES FIXTURES_REQUIRED SRV_UP)

@@ -1,0 +1,18 @@
+CREATE TABLE t_si (a int, b bigint, c double, f float, s char(3), v varchar(5));
+INSERT INTO t_si VALUES ('x', 1, 1.0, 1.0, 'a', 'a');
+INSERT INTO t_si VALUES (1.5, 1, 1.0, 1.0, 'a', 'a');
+INSERT INTO t_si VALUES (2147483648, 1, 1.0, 1.0, 'a', 'a');
+INSERT INTO t_si VALUES (1, 'x', 1.0, 1.0, 'a', 'a');
+INSERT INTO t_si VALUES (1, 1, 'x', 1.0, 'a', 'a');
+INSERT INTO t_si VALUES (1, 1, 1.0, 'x', 'a', 'a');
+INSERT INTO t_si VALUES (1, 1, 1, 1.0, 'a', 'a');
+INSERT INTO t_si VALUES (1, 1, 1.0, 1.0, 'abcd', 'a');
+INSERT INTO t_si VALUES (1, 1, 1.0, 1.0, 'a', 'abcdef');
+INSERT INTO t_si VALUES (1, 2);
+INSERT INTO t_si VALUES (1 > 2, 1, 1.0, 1.0, 'a', 'a');
+INSERT INTO t_si VALUES (NULL, 1, 1.0, 1.0, 'a', 'a');
+INSERT INTO t_si VALUES (a, 1, 1.0, 1.0, 'a', 'a');
+INSERT INTO nosuch_si VALUES (1);
+INSERT INTO t_si VALUES (1, 2, 3.0, 4.0, 'ab', 'abcde');
+SELECT * FROM t_si;
+DROP TABLE t_si;

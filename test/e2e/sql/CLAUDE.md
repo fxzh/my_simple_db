@@ -20,3 +20,6 @@ sql 用例按功能分目录
 
 # reserved
 保留表拦截
+
+# semantic
+编译期语义检查

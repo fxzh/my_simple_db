@@ -88,19 +88,10 @@ uint32_t Engine::link_header_to_first_data_page(uint64_t table_id)
     return new_no;
 }
 
-// 插行(须持锁): 校验编码后追加并分配 rowid
+// 插行(须持锁): 值合法性由调用方保证, 编码后追加并分配 rowid
 RowId Engine::insert_row(uint64_t table_id, const std::vector<ColumnSpec>& cols,
                          const std::vector<Value>& values)
 {
-    if (cols.size() != values.size()) {
-        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "值的数量与列数不符");
-    }
-    for (size_t i = 0; i < values.size(); ++i) {
-        if (cols[i].not_null && std::holds_alternative<std::monostate>(values[i])) {
-            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "NOT NULL 列不允许 NULL: {}",
-                     cols[i].name);
-        }
-    }
     std::vector<uint8_t> rec;
     if (!encode_row(cols, values, rec)) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "值与列类型不匹配");

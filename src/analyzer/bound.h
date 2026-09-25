@@ -11,11 +11,12 @@
 
 namespace ana {
 
-// 行结构(名字解析结果): 列名定位表 + char 定长列标记, 每条语句绑定一次
+// 行结构(名字解析结果): 列名定位表 + 列静态类型 + char 定长列标记, 每条语句绑定一次
 using ColMap = std::unordered_map<std::string, size_t>;
 struct Schema {
-    ColMap cols;                 // 列名 → 行内下标
-    std::vector<bool> char_col;  // char 定长列标记, 与行内下标对应
+    ColMap cols;                         // 列名 → 行内下标
+    std::vector<st::ColType> col_types;  // 列静态类型, 与行内下标对应
+    std::vector<bool> char_col;          // char 定长列标记, 与行内下标对应
 };
 
 // 投影输出列: star 展开的原始列直接取行值, 其余按表达式逐行求值
