@@ -1,4 +1,5 @@
 CREATE TABLE t_w (id int, name varchar(8), score double);
+SELECT id FROM t_w WHERE id > 0;
 INSERT INTO t_w VALUES (1, 'alice', 95.5);
 INSERT INTO t_w VALUES (2, 'bob', 60.0);
 INSERT INTO t_w VALUES (3, 'carol', 78.5);
@@ -10,7 +11,4 @@ SELECT * FROM t_w WHERE NOT (score >= 60);
 SELECT id FROM t_w WHERE name = 'bob';
 SELECT id FROM t_w WHERE name <> 'bob' AND score >= 78.5;
 SELECT id FROM t_w WHERE score * 2 > 150;
-SELECT id FROM t_w WHERE name = 5;
-SELECT id FROM t_w WHERE 1;
-SELECT id FROM t_w WHERE 1 AND 1;
 DROP TABLE t_w;

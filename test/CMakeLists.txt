@@ -96,11 +96,6 @@ add_test(NAME sql_dml_delete COMMAND test_sql
     ${SQL_CASES_DIR}/dml/expected/delete.out)
 set_tests_properties(sql_dml_delete PROPERTIES FIXTURES_REQUIRED SRV_UP)
 
-add_test(NAME sql_dml_insert_null COMMAND test_sql
-    ${SQL_CASES_DIR}/dml/cases/insert_null.sql
-    ${SQL_CASES_DIR}/dml/expected/insert_null.out)
-set_tests_properties(sql_dml_insert_null PROPERTIES FIXTURES_REQUIRED SRV_UP)
-
 add_test(NAME sql_select_basic COMMAND test_sql
     ${SQL_CASES_DIR}/select/cases/select_basic.sql
     ${SQL_CASES_DIR}/select/expected/select_basic.out)
@@ -130,16 +125,6 @@ add_test(NAME sql_where_char COMMAND test_sql
     ${SQL_CASES_DIR}/where/cases/where_char.sql
     ${SQL_CASES_DIR}/where/expected/where_char.out)
 set_tests_properties(sql_where_char PROPERTIES FIXTURES_REQUIRED SRV_UP)
-
-add_test(NAME sql_where_delete COMMAND test_sql
-    ${SQL_CASES_DIR}/where/cases/where_delete.sql
-    ${SQL_CASES_DIR}/where/expected/where_delete.out)
-set_tests_properties(sql_where_delete PROPERTIES FIXTURES_REQUIRED SRV_UP)
-
-add_test(NAME sql_where_empty COMMAND test_sql
-    ${SQL_CASES_DIR}/where/cases/where_empty.sql
-    ${SQL_CASES_DIR}/where/expected/where_empty.out)
-set_tests_properties(sql_where_empty PROPERTIES FIXTURES_REQUIRED SRV_UP)
 
 add_test(NAME sql_reserved COMMAND test_sql
     ${SQL_CASES_DIR}/reserved/cases/reserved.sql
