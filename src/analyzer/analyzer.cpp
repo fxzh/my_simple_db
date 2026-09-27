@@ -3,10 +3,13 @@
 
 #include <cmath>
 #include <cstdint>
+#include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "ast.hh"
+#include "bound_expr.h"
 #include "catalog.h"
 #include "common/err.h"
 #include "log/log.h"
@@ -48,10 +51,18 @@ void convert_columns(const std::vector<ColumnDef>& defs, std::vector<st::ColumnS
     }
 }
 
+// 行结构(名字解析结果): 列名定位表 + 列静态类型 + char 定长列标记, 绑定表达式树时使用
+using ColMap = std::unordered_map<std::string, size_t>;
+struct Schema {
+    ColMap cols;                         // 列名 → 行内下标
+    std::vector<st::ColType> col_types;  // 列静态类型, 与行内下标对应
+    std::vector<bool> char_col;          // char 定长列标记, 与行内下标对应
+};
+
 // 表达式静态类型: 推导规则与求值器行为逐点对齐, 绑定层放过的表达式执行层不因类型报错
 enum class ExprType : uint8_t { Null, Int, Double, String, Bool };
 
-ExprType infer_type(const Expr& expr, const Schema* schema);
+std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, ExprType& type);
 
 // 数值类(Int/Double)判定
 bool is_num_type(ExprType t)
@@ -73,28 +84,22 @@ ExprType col_expr_type(st::ColType type)
     DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未映射的列类型");
 }
 
-// 算术操作数推导: 两侧须数值或 NULL, 任一 Double 结果 Double 否则 Int
-ExprType infer_arith(const Expr& le, const Expr& re, const Schema* schema)
-{
-    const ExprType lt = infer_type(le, schema);
-    const ExprType rt = infer_type(re, schema);
-    if ((!is_num_type(lt) && lt != ExprType::Null) || (!is_num_type(rt) && rt != ExprType::Null)) {
-        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "算术运算操作数不是数值");
-    }
-    if (lt == ExprType::Double || rt == ExprType::Double) {
-        return ExprType::Double;
-    }
-    return ExprType::Int;
-}
-
-// 表达式类型推导: 逐节点推导并当场报错; schema 为空表示常量上下文(禁止引用列)
-ExprType infer_type(const Expr& expr, const Schema* schema)
+// 绑定表达式: 递归建树并推导类型, 名字解析当场完成; schema 为空表示常量上下文(禁止引用列)
+std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, ExprType& type)
 {
     switch (expr.kind()) {
-    case ExprKind::Int: return ExprType::Int;
-    case ExprKind::Float: return ExprType::Double;
-    case ExprKind::String: return ExprType::String;
-    case ExprKind::Null: return ExprType::Null;
+    case ExprKind::Int:
+        type = ExprType::Int;
+        return std::make_unique<BoundConst>(static_cast<const IntExpr&>(expr).value);
+    case ExprKind::Float:
+        type = ExprType::Double;
+        return std::make_unique<BoundConst>(static_cast<const FloatExpr&>(expr).value);
+    case ExprKind::String:
+        type = ExprType::String;
+        return std::make_unique<BoundConst>(static_cast<const StringExpr&>(expr).value);
+    case ExprKind::Null:
+        type = ExprType::Null;
+        return std::make_unique<BoundConst>(std::monostate{});
     case ExprKind::Identifier: {
         const auto& id = static_cast<const IdentifierExpr&>(expr);
         if (schema == nullptr) {
@@ -105,51 +110,84 @@ ExprType infer_type(const Expr& expr, const Schema* schema)
         if (it == schema->cols.end()) {
             DB_RAISE(db::ErrCode::UnknownColumn, LogModule::ANALYZER, "列不存在: {}", id.name);
         }
-        return col_expr_type(schema->col_types[it->second]);
+        type = col_expr_type(schema->col_types[it->second]);
+        return std::make_unique<BoundColRef>(it->second, schema->char_col[it->second]);
     }
     case ExprKind::BinaryOp: {
         const auto& e = static_cast<const BinaryOpExpr&>(expr);
-        return infer_arith(*e.left, *e.right, schema);
+        ExprType lt;
+        ExprType rt;
+        std::unique_ptr<BoundExpr> l = bind_expr(*e.left, schema, lt);
+        std::unique_ptr<BoundExpr> r = bind_expr(*e.right, schema, rt);
+        if ((!is_num_type(lt) && lt != ExprType::Null)
+            || (!is_num_type(rt) && rt != ExprType::Null)) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "算术运算操作数不是数值");
+        }
+        if (lt == ExprType::Double || rt == ExprType::Double) {
+            type = ExprType::Double;
+        } else {
+            type = ExprType::Int;
+        }
+        return std::make_unique<BoundArith>(e.op, std::move(l), std::move(r));
     }
     case ExprKind::UnaryOp: {
-        const ExprType t = infer_type(*static_cast<const UnaryOpExpr&>(expr).operand, schema);
+        const auto& e = static_cast<const UnaryOpExpr&>(expr);
+        ExprType t;
+        std::unique_ptr<BoundExpr> operand = bind_expr(*e.operand, schema, t);
         if (!is_num_type(t) && t != ExprType::Null) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "一元运算操作数不是数值");
         }
-        return t;
+        type = t;
+        if (e.op == '+') {
+            return operand;  // 一元正号原值返回, 绑定期折为操作数本身
+        }
+        return std::make_unique<BoundNeg>(std::move(operand));
     }
     case ExprKind::Compare: {
         const auto& e = static_cast<const CompareExpr&>(expr);
-        const ExprType lt = infer_type(*e.left, schema);
-        const ExprType rt = infer_type(*e.right, schema);
+        ExprType lt;
+        ExprType rt;
+        std::unique_ptr<BoundExpr> l = bind_expr(*e.left, schema, lt);
+        std::unique_ptr<BoundExpr> r = bind_expr(*e.right, schema, rt);
         const bool same_num = is_num_type(lt) && is_num_type(rt);
         const bool same_str = lt == ExprType::String && rt == ExprType::String;
         if (lt != ExprType::Null && rt != ExprType::Null && !same_num && !same_str) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
                      "比较运算两侧须同为数值或字符串");
         }
-        return ExprType::Bool;
+        type = ExprType::Bool;
+        return std::make_unique<BoundCmp>(e.op, std::move(l), std::move(r));
     }
     case ExprKind::Logic: {
         const auto& e = static_cast<const LogicExpr&>(expr);
-        const ExprType lt = infer_type(*e.left, schema);
-        const ExprType rt = infer_type(*e.right, schema);
+        ExprType lt;
+        ExprType rt;
+        std::unique_ptr<BoundExpr> l = bind_expr(*e.left, schema, lt);
+        std::unique_ptr<BoundExpr> r = bind_expr(*e.right, schema, rt);
         if ((lt != ExprType::Bool && lt != ExprType::Null)
             || (rt != ExprType::Bool && rt != ExprType::Null)) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "逻辑运算操作数不是布尔值");
         }
-        return ExprType::Bool;
+        type = ExprType::Bool;
+        return std::make_unique<BoundLogic>(e.op, std::move(l), std::move(r));
     }
     case ExprKind::Not: {
-        const ExprType t = infer_type(*static_cast<const NotExpr&>(expr).operand, schema);
+        const auto& e = static_cast<const NotExpr&>(expr);
+        ExprType t;
+        std::unique_ptr<BoundExpr> operand = bind_expr(*e.operand, schema, t);
         if (t != ExprType::Bool && t != ExprType::Null) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "逻辑运算操作数不是布尔值");
         }
-        return ExprType::Bool;
+        type = ExprType::Bool;
+        return std::make_unique<BoundNot>(std::move(operand));
     }
-    case ExprKind::IsNull:
-        infer_type(*static_cast<const IsNullExpr&>(expr).operand, schema);
-        return ExprType::Bool;
+    case ExprKind::IsNull: {
+        const auto& e = static_cast<const IsNullExpr&>(expr);
+        ExprType t;
+        std::unique_ptr<BoundExpr> operand = bind_expr(*e.operand, schema, t);
+        type = ExprType::Bool;
+        return std::make_unique<BoundIsNull>(std::move(operand), e.negate);
+    }
     }
     // 不可达: 全部表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知表达式节点");
@@ -188,13 +226,15 @@ bool may_be_null(const Expr& expr)
     DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知表达式节点");
 }
 
-// WHERE 条件类型检查: 须为布尔(NULL 视为 UNKNOWN 放行)
-void check_where(const Expr& where, const Schema& schema)
+// WHERE 条件绑定: 须为布尔(NULL 视为 UNKNOWN 放行), 返回绑定谓词树
+std::unique_ptr<BoundExpr> bind_where(const Expr& where, const Schema& schema)
 {
-    const ExprType t = infer_type(where, &schema);
+    ExprType t;
+    std::unique_ptr<BoundExpr> pred = bind_expr(where, &schema, t);
     if (t != ExprType::Bool && t != ExprType::Null) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "WHERE 条件不是布尔表达式");
     }
+    return pred;
 }
 
 // 值类型与列规格匹配: NULL 值放行(NOT NULL 已在前置检查拦截), 字面量范围/长度随类型一并校验
@@ -243,13 +283,17 @@ void check_value_type(const Expr& expr, ExprType t, const st::ColumnSpec& col)
     }
 }
 
-// INSERT 值检查: 推导/布尔/个数/NOT NULL/类型匹配, 检查顺序与原执行链一致, 文案不变
-void check_insert_values(const std::vector<const Expr*>& values, const st::TableMeta& meta)
+// INSERT 值绑定: 推导/布尔/个数/NOT NULL/类型匹配, 检查顺序与原执行链一致, 文案不变
+std::vector<std::unique_ptr<BoundExpr>> bind_insert_values(
+    const std::vector<std::unique_ptr<Expr>>& values, const st::TableMeta& meta)
 {
+    std::vector<std::unique_ptr<BoundExpr>> bound;
     std::vector<ExprType> types;
     types.reserve(values.size());
-    for (const Expr* v : values) {
-        types.push_back(infer_type(*v, nullptr));  // 常量上下文: 禁止引用列
+    for (const auto& v : values) {
+        ExprType t;
+        bound.push_back(bind_expr(*v, nullptr, t));  // 常量上下文: 禁止引用列
+        types.push_back(t);
     }
     for (size_t i = 0; i < values.size(); ++i) {
         if (types[i] == ExprType::Bool && !may_be_null(*values[i])) {
@@ -269,6 +313,7 @@ void check_insert_values(const std::vector<const Expr*>& values, const st::Table
     for (size_t i = 0; i < values.size(); ++i) {
         check_value_type(*values[i], types[i], meta.cols[i]);
     }
+    return bound;
 }
 
 // 保留表名拦截: 元数据表禁止 drop/insert/delete
@@ -306,7 +351,8 @@ std::vector<ProjCol> build_projs(const SelectStmt& ss, const st::TableMeta& meta
             }
             continue;
         }
-        const ExprType t = infer_type(*item.expr, &schema);
+        ExprType t;
+        std::unique_ptr<BoundExpr> e = bind_expr(*item.expr, &schema, t);
         if (t == ExprType::Bool && !may_be_null(*item.expr)) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "布尔值不可作为存储或输出值");
         }
@@ -318,7 +364,7 @@ std::vector<ProjCol> build_projs(const SelectStmt& ss, const st::TableMeta& meta
         } else {
             name = expr_to_string(*item.expr);
         }
-        projs.push_back(ProjCol{item.expr.get(), std::move(name), 0});
+        projs.push_back(ProjCol{std::move(e), std::move(name), 0});
     }
     return projs;
 }
@@ -348,11 +394,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt)
         const st::TableMeta meta = db.table_meta(is.table_name());
         auto b = std::make_unique<BoundInsert>();
         b->table = is.table_name();
-        b->values.reserve(is.values().size());
-        for (const auto& v : is.values()) {
-            b->values.push_back(v.get());
-        }
-        check_insert_values(b->values, meta);
+        b->values = bind_insert_values(is.values(), meta);
         return b;
     }
     case StmtKind::Delete: {
@@ -360,10 +402,9 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt)
         check_reserved_table(ds.table_name());
         auto b = std::make_unique<BoundDelete>();
         b->table = ds.table_name();
-        b->where = ds.where_expr();
-        if (b->where != nullptr) {
-            b->schema = build_schema(db.table_meta(ds.table_name()));
-            check_where(*b->where, b->schema);
+        if (ds.where_expr() != nullptr) {
+            const Schema schema = build_schema(db.table_meta(ds.table_name()));
+            b->where = bind_where(*ds.where_expr(), schema);
         }
         return b;
     }
@@ -372,12 +413,11 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt)
         const st::TableMeta meta = db.table_meta(ss.table_name());
         auto b = std::make_unique<BoundSelect>();
         b->table = ss.table_name();
-        b->schema = build_schema(meta);
-        b->where = ss.where_expr();
-        if (b->where != nullptr) {
-            check_where(*b->where, b->schema);
+        const Schema schema = build_schema(meta);
+        if (ss.where_expr() != nullptr) {
+            b->where = bind_where(*ss.where_expr(), schema);
         }
-        b->projs = build_projs(ss, meta, b->schema);
+        b->projs = build_projs(ss, meta, schema);
         return b;
     }
     }

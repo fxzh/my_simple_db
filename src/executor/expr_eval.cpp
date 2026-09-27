@@ -1,4 +1,4 @@
-// expr_eval.cpp: 表达式求值器实现
+// expr_eval.cpp: 绑定表达式求值器实现
 #include "expr_eval.h"
 
 #include <cmath>
@@ -13,7 +13,7 @@ namespace exec {
 
 namespace {
 
-EvalValue eval_expr(const Expr& expr, const ana::Schema* ctx, const st::Row* row);
+EvalValue eval_bound(const ana::BoundExpr& expr, const st::Row* row);
 
 // 数值转 double(整型提升)
 double to_double(const EvalValue& v)
@@ -39,15 +39,12 @@ std::string_view rtrim_space(std::string_view s)
     return s;
 }
 
-// 一元数值运算: NULL 传播, '+' 原值返回, '-' 取反
-EvalValue eval_unary(char op, const Expr& operand, const ana::Schema* ctx, const st::Row* row)
+// 一元负号: NULL 传播, 取反
+EvalValue eval_neg(const ana::BoundExpr& operand, const st::Row* row)
 {
-    const EvalValue v = eval_expr(operand, ctx, row);
+    const EvalValue v = eval_bound(operand, row);
     if (is_null(v)) {
         return v;  // NULL 传播
-    }
-    if (op == '+') {
-        return v;
     }
     if (const auto* d = std::get_if<double>(&v)) {
         return EvalValue{-*d};  // 有限值取反仍有限
@@ -61,10 +58,11 @@ EvalValue eval_unary(char op, const Expr& operand, const ana::Schema* ctx, const
 
 // 双目算术: 任一操作数为 NULL 结果 NULL, 类型驱动提升(int/int 向零截断), 溢出/除零当场报错;
 // 操作数数值性由语义层保证
-EvalValue eval_binary(char op, const Expr& le, const Expr& re, const ana::Schema* ctx, const st::Row* row)
+EvalValue eval_binary(char op, const ana::BoundExpr& le, const ana::BoundExpr& re,
+                      const st::Row* row)
 {
-    const EvalValue lv = eval_expr(le, ctx, row);
-    const EvalValue rv = eval_expr(re, ctx, row);
+    const EvalValue lv = eval_bound(le, row);
+    const EvalValue rv = eval_bound(re, row);
     if (is_null(lv) || is_null(rv)) {
         return EvalValue{};  // NULL 传播, 短路于除零/溢出检查
     }
@@ -123,11 +121,11 @@ int cmp_str(const StrVal& l, const StrVal& r)
 
 // 比较: 任一侧 NULL 即 NULL; 数值提升为 double 比较, 字符串按 PAD SPACE 语义;
 // 两侧同类由语义层保证
-EvalValue eval_compare(CmpOp op, const Expr& le, const Expr& re, const ana::Schema* ctx,
+EvalValue eval_compare(CmpOp op, const ana::BoundExpr& le, const ana::BoundExpr& re,
                        const st::Row* row)
 {
-    const EvalValue lv = eval_expr(le, ctx, row);
-    const EvalValue rv = eval_expr(re, ctx, row);
+    const EvalValue lv = eval_bound(le, row);
+    const EvalValue rv = eval_bound(re, row);
     if (is_null(lv) || is_null(rv)) {
         return EvalValue{};  // NULL 传播, 求值结果即 UNKNOWN
     }
@@ -152,11 +150,11 @@ EvalValue eval_compare(CmpOp op, const Expr& le, const Expr& re, const ana::Sche
 
 // AND/OR: 三值逻辑, AND 有 false 即 false / OR 有 true 即 true, 其余 NULL 传播;
 // 操作数布尔性由语义层保证
-EvalValue eval_logic(LogicOp op, const Expr& le, const Expr& re, const ana::Schema* ctx,
+EvalValue eval_logic(LogicOp op, const ana::BoundExpr& le, const ana::BoundExpr& re,
                      const st::Row* row)
 {
-    const EvalValue lv = eval_expr(le, ctx, row);
-    const EvalValue rv = eval_expr(re, ctx, row);
+    const EvalValue lv = eval_bound(le, row);
+    const EvalValue rv = eval_bound(re, row);
     const bool* lb = std::get_if<bool>(&lv);
     const bool* rb = std::get_if<bool>(&rv);
     if (op == LogicOp::And) {
@@ -178,9 +176,9 @@ EvalValue eval_logic(LogicOp op, const Expr& le, const Expr& re, const ana::Sche
 }
 
 // NOT: 三值逻辑, NULL 传播; 操作数布尔性由语义层保证
-EvalValue eval_not(const Expr& operand, const ana::Schema* ctx, const st::Row* row)
+EvalValue eval_not(const ana::BoundExpr& operand, const st::Row* row)
 {
-    const EvalValue v = eval_expr(operand, ctx, row);
+    const EvalValue v = eval_bound(operand, row);
     if (is_null(v)) {
         return v;
     }
@@ -188,43 +186,40 @@ EvalValue eval_not(const Expr& operand, const ana::Schema* ctx, const st::Row* r
 }
 
 // IS [NOT] NULL: 对任意类型操作数判空
-EvalValue eval_is_null(const IsNullExpr& e, const ana::Schema* ctx, const st::Row* row)
+EvalValue eval_is_null(const ana::BoundIsNull& e, const st::Row* row)
 {
-    const EvalValue v = eval_expr(*e.operand, ctx, row);
+    const EvalValue v = eval_bound(*e.operand, row);
     return EvalValue{e.negate ? !is_null(v) : is_null(v)};
 }
 
-// 统一求值入口: ctx/row 同时为空表示常量上下文(标识符不可用)
-EvalValue eval_expr(const Expr& expr, const ana::Schema* ctx, const st::Row* row)
+// 统一求值入口: row 为空表示常量上下文(绑定树不含列引用)
+EvalValue eval_bound(const ana::BoundExpr& expr, const st::Row* row)
 {
     switch (expr.kind()) {
-    case ExprKind::Int:
-        return EvalValue{static_cast<const IntExpr&>(expr).value};
-    case ExprKind::Float: {
-        const double d = static_cast<const FloatExpr&>(expr).value;
-        if (!std::isfinite(d)) {
+    case ana::BoundExprKind::Const: {
+        const auto& v = static_cast<const ana::BoundConst&>(expr).value;
+        if (const auto* d = std::get_if<double>(&v); d != nullptr && !std::isfinite(*d)) {
             DB_RAISE(db::ErrCode::ArithError, LogModule::EXECUTOR, "浮点字面量超出可表示范围");
         }
-        return EvalValue{d};
-    }
-    case ExprKind::String:
-        return EvalValue{StrVal{static_cast<const StringExpr&>(expr).value, false}};
-    case ExprKind::Null:
-        return EvalValue{};
-    case ExprKind::Identifier: {
-        const auto& id = static_cast<const IdentifierExpr&>(expr);
-        if (ctx == nullptr) {
-            DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "常量上下文不允许引用列: {}",
-                     id.name);
-        }
-        const auto it = ctx->cols.find(id.name);
-        if (it == ctx->cols.end()) {
-            DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "列不存在: {}", id.name);
-        }
-        const st::Value& raw = row->values[it->second];
-        const bool from_char = ctx->char_col[it->second];
         return std::visit(
-            [from_char](const auto& val) -> EvalValue {
+            [](const auto& val) -> EvalValue {
+                using T = std::decay_t<decltype(val)>;
+                if constexpr (std::is_same_v<T, std::string>) {
+                    return EvalValue{StrVal{val, false}};
+                } else {
+                    return val;
+                }
+            },
+            v);
+    }
+    case ana::BoundExprKind::ColRef: {
+        const auto& ref = static_cast<const ana::BoundColRef&>(expr);
+        if (row == nullptr) {
+            DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "常量上下文不允许引用列");
+        }
+        const st::Value& raw = row->values[ref.col_idx];
+        return std::visit(
+            [from_char = ref.from_char](const auto& val) -> EvalValue {
                 using T = std::decay_t<decltype(val)>;
                 if constexpr (std::is_same_v<T, std::string>) {
                     return EvalValue{StrVal{val, from_char}};
@@ -234,45 +229,41 @@ EvalValue eval_expr(const Expr& expr, const ana::Schema* ctx, const st::Row* row
             },
             raw);
     }
-    case ExprKind::BinaryOp: {
-        const auto& e = static_cast<const BinaryOpExpr&>(expr);
-        return eval_binary(e.op, *e.left, *e.right, ctx, row);
+    case ana::BoundExprKind::Arith: {
+        const auto& e = static_cast<const ana::BoundArith&>(expr);
+        return eval_binary(e.op, *e.left, *e.right, row);
     }
-    case ExprKind::UnaryOp: {
-        const auto& e = static_cast<const UnaryOpExpr&>(expr);
-        return eval_unary(e.op, *e.operand, ctx, row);
+    case ana::BoundExprKind::Neg:
+        return eval_neg(*static_cast<const ana::BoundNeg&>(expr).operand, row);
+    case ana::BoundExprKind::Cmp: {
+        const auto& e = static_cast<const ana::BoundCmp&>(expr);
+        return eval_compare(e.op, *e.left, *e.right, row);
     }
-    case ExprKind::Compare: {
-        const auto& e = static_cast<const CompareExpr&>(expr);
-        return eval_compare(e.op, *e.left, *e.right, ctx, row);
+    case ana::BoundExprKind::Logic: {
+        const auto& e = static_cast<const ana::BoundLogic&>(expr);
+        return eval_logic(e.op, *e.left, *e.right, row);
     }
-    case ExprKind::Logic: {
-        const auto& e = static_cast<const LogicExpr&>(expr);
-        return eval_logic(e.op, *e.left, *e.right, ctx, row);
+    case ana::BoundExprKind::Not:
+        return eval_not(*static_cast<const ana::BoundNot&>(expr).operand, row);
+    case ana::BoundExprKind::IsNull:
+        return eval_is_null(static_cast<const ana::BoundIsNull&>(expr), row);
     }
-    case ExprKind::Not: {
-        const auto& e = static_cast<const NotExpr&>(expr);
-        return eval_not(*e.operand, ctx, row);
-    }
-    case ExprKind::IsNull:
-        return eval_is_null(static_cast<const IsNullExpr&>(expr), ctx, row);
-    }
-    // 不可达: 全部表达式种类已在上方穷尽
-    DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "executor: 未知表达式节点");
+    // 不可达: 全部绑定表达式种类已在上方穷尽
+    DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "executor: 未知绑定表达式节点");
 }
 
 }  // namespace
 
-// 常量上下文求值(INSERT VALUES 等无行上下文的场景)
-EvalValue eval_const(const Expr& e)
+// 常量上下文求值(INSERT VALUES 等无行上下文的场景, 树中不含列引用)
+EvalValue eval_const(const ana::BoundExpr& e)
 {
-    return eval_expr(e, nullptr, nullptr);
+    return eval_bound(e, nullptr);
 }
 
 // 行上下文求值(SELECT 投影与 WHERE 过滤)
-EvalValue eval_row(const Expr& e, const ana::Schema& ctx, const st::Row& row)
+EvalValue eval_row(const ana::BoundExpr& e, const st::Row& row)
 {
-    return eval_expr(e, &ctx, &row);
+    return eval_bound(e, &row);
 }
 
 // 求值结果转存储/输出值: bool 不可达(语义层已拒, 此处 Internal 防御), 其余原样(monostate 即 NULL)
@@ -294,9 +285,9 @@ st::Value to_st_value(const EvalValue& v)
 }
 
 // WHERE 条件判定: NULL(UNKNOWN) 视为不满足, bool 由语义层保证
-bool where_match(const Expr& where, const ana::Schema& ctx, const st::Row& row)
+bool where_match(const ana::BoundExpr& where, const st::Row& row)
 {
-    const EvalValue v = eval_expr(where, &ctx, &row);
+    const EvalValue v = eval_bound(where, &row);
     if (is_null(v)) {
         return false;
     }

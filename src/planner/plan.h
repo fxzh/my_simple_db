@@ -6,7 +6,6 @@
 #include <string>
 #include <vector>
 
-#include "ast.hh"
 #include "bound.h"
 #include "storage/types.h"
 
@@ -17,7 +16,7 @@ enum class PlanKind {
     SeqScan, Filter, Project, Insert, Delete, CreateTable, DropTable,
 };
 
-// 计划节点基类: 表达式指针指向 AST 原节点, 生命周期由 execute() 调用期持有的语句保证
+// 计划节点基类: 表达式为绑定树, 由计划节点持有
 struct PlanNode {
     virtual ~PlanNode() = default;
     virtual PlanKind kind() const = 0;
@@ -32,8 +31,7 @@ struct SeqScanPlan : PlanNode {
 // 过滤: 逐行求值谓词, 不满足的行不向父节点输出
 struct FilterPlan : PlanNode {
     std::unique_ptr<PlanNode> child;
-    const Expr* pred = nullptr;  // 谓词
-    ana::Schema schema;          // 谓词求值用行结构
+    std::unique_ptr<ana::BoundExpr> pred;  // 绑定谓词
     PlanKind kind() const override { return PlanKind::Filter; }
 };
 
@@ -41,14 +39,13 @@ struct FilterPlan : PlanNode {
 struct ProjectPlan : PlanNode {
     std::unique_ptr<PlanNode> child;
     std::vector<ana::ProjCol> projs;
-    ana::Schema schema;          // 投影求值用行结构
     PlanKind kind() const override { return PlanKind::Project; }
 };
 
-// 插入: 值表达式留待执行期常量上下文求值
+// 插入: 值为常量上下文绑定树, 留待执行期求值
 struct InsertPlan : PlanNode {
     std::string table;
-    std::vector<const Expr*> values;
+    std::vector<std::unique_ptr<ana::BoundExpr>> values;
     PlanKind kind() const override { return PlanKind::Insert; }
 };
 

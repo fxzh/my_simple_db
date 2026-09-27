@@ -54,13 +54,13 @@ ExecResult run_select(ct::Catalog& db, const pl::ProjectPlan& pp)
     std::unique_ptr<st::Scanner> scanner = db.scan(scan.table);
     st::Row row;
     while (scanner->next(&row)) {
-        if (filter != nullptr && !where_match(*filter->pred, filter->schema, row)) {
+        if (filter != nullptr && !where_match(*filter->pred, row)) {
             continue;
         }
         std::vector<st::Value> out;
         out.reserve(pp.projs.size());
         for (const ana::ProjCol& p : pp.projs) {
-            out.push_back(p.expr != nullptr ? to_st_value(eval_row(*p.expr, pp.schema, row))
+            out.push_back(p.expr != nullptr ? to_st_value(eval_row(*p.expr, row))
                                             : row.values[p.col_idx]);
         }
         result.rows.push_back(std::move(out));
@@ -84,7 +84,7 @@ uint64_t run_delete_where(ct::Catalog& db, const pl::DeletePlan& dp)
     std::unique_ptr<st::Scanner> scanner = db.scan(scan.table);
     st::Row row;
     while (scanner->next(&row)) {
-        if (where_match(*filter.pred, filter.schema, row)) {
+        if (where_match(*filter.pred, row)) {
             refs.push_back(row.ref);
         }
     }
@@ -118,7 +118,7 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt)
         const auto& p = static_cast<const pl::InsertPlan&>(*plan);
         std::vector<st::Value> values;
         values.reserve(p.values.size());
-        for (const Expr* v : p.values) {
+        for (const auto& v : p.values) {
             values.push_back(to_st_value(eval_const(*v)));
         }
         db.insert(p.table, values);

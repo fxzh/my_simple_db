@@ -17,7 +17,7 @@ namespace ana {
 // 表存在性/值类型/长度/范围/NOT NULL/个数/常量性检查(insert)、表达式类型推导与
 // WHERE 布尔校验(select/delete 带 WHERE)、投影展开与投影类型检查(select);
 // 绑定错误当场经 DB_RAISE 记日志后抛出;
-// 产物中的表达式指针指向 stmt 原节点, 生命周期由调用方保证
+// 产物持有绑定表达式树(名字已解析为行内下标), 绑定后不依赖 stmt
 std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt);
 
 }  // namespace ana

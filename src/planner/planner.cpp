@@ -20,15 +20,13 @@ std::unique_ptr<PlanNode> build_select(ana::BoundSelect& bs)
     std::unique_ptr<PlanNode> input = std::move(scan);
     if (bs.where != nullptr) {
         auto filter = std::make_unique<FilterPlan>();
-        filter->pred = bs.where;
-        filter->schema = bs.schema;
+        filter->pred = std::move(bs.where);
         filter->child = std::move(input);
         input = std::move(filter);
     }
 
     auto project = std::make_unique<ProjectPlan>();
     project->projs = std::move(bs.projs);
-    project->schema = std::move(bs.schema);
     project->child = std::move(input);
     return project;
 }
@@ -66,8 +64,7 @@ std::unique_ptr<PlanNode> build(ana::BoundStmt& bound)
             auto scan = std::make_unique<SeqScanPlan>();
             scan->table = bs.table;
             auto filter = std::make_unique<FilterPlan>();
-            filter->pred = bs.where;
-            filter->schema = std::move(bs.schema);
+            filter->pred = std::move(bs.where);
             filter->child = std::move(scan);
             p->child = std::move(filter);
         }
