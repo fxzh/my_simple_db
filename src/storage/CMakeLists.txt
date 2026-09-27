@@ -1,5 +1,5 @@
-# 存储引擎静态库(storage): M1 堆页追加 + 全表扫描, 规划 B+ 树聚簇索引
-# 目录逻辑在 catalog 库, 本库只含页/文件/缓冲池/堆; 报错/告警依赖 log 库, catalog 与测试链接它
+# 存储引擎静态库(storage): M1 堆页追加 + 全表扫描, 含 B+ 树模块(已实现未接入 engine)
+# 目录逻辑在 catalog 库, 本库只含页/文件/缓冲池/堆/B+树; 报错/告警依赖 log 库, catalog 与测试链接它
 
 add_library(storage STATIC
     engine.cpp
@@ -7,6 +7,7 @@ add_library(storage STATIC
     buffer_pool.cpp
     codec.cpp
     page.cpp
+    btree.cpp
 )
 
 target_include_directories(storage PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

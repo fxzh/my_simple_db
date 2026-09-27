@@ -19,7 +19,7 @@ test    测试用例
 读取 ai_docs/testcase.md
 
 # 构建与依赖
-CMake + flex/bison + readline；顶层强制要求 Boost.Stacktrace
+代码使用CMake构建，依赖于 flex/bison + readline + Boost.Stacktrace
 
 # 远程连接
 当用户明确要求连接远端虚拟机时，可读取 ai_docs/remote.md 并进行连接
