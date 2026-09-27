@@ -2,7 +2,7 @@
 // 以 client -a -c 的 stdout 与期望文件全文一致为唯一通过判据;
 // 失败时输出行级 diff、client stderr 与服务端日志摘录;
 // 每次运行将实际输出落盘, 不一致时另存 diff(仅 diff 内容本身):
-//   <kOutDir>/<功能目录>_<stem>.actual / .diff
+//   <kOutDir>/<功能目录>_<stem>.out / .diff
 // 退出码: 0 一致 / 1 不一致或超时 / 2 用法与文件读取错误
 #include <algorithm>
 #include <filesystem>
@@ -141,7 +141,7 @@ int main(int argc, char* argv[])
     std::error_code ec;
     std::filesystem::create_directories(kOutDir, ec);
     const std::string stem = artifact_stem(argv[1]);
-    const std::string actual_path = (std::filesystem::path(kOutDir) / (stem + ".actual")).string();
+    const std::string actual_path = (std::filesystem::path(kOutDir) / (stem + ".out")).string();
     const std::string diff_path = (std::filesystem::path(kOutDir) / (stem + ".diff")).string();
     if (!write_file(actual_path, r.out)) {
         std::cerr << "警告: 实际输出落盘失败: " << actual_path << std::endl;

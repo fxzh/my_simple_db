@@ -68,7 +68,7 @@ add_test(NAME server_stop_not_running COMMAND test_serverctl --gtest_filter=Ctl.
 add_test(NAME server_status_not_running COMMAND test_serverctl --gtest_filter=Ctl.StatusNotRunning)
 
 # L2 SQL : 以 client -a -c 的 stdout 全文 diff 为唯一通过判据;
-# 实际输出与 diff 落盘至 e2e_out/<功能目录>_<stem>.{actual,diff}
+# 实际输出与 diff 落盘至 e2e_out/<功能目录>_<stem>.{out,diff}
 add_executable(test_sql e2e/sql/test_sql.cpp)
 target_link_libraries(test_sql PRIVATE test_common)
 target_compile_definitions(test_sql PRIVATE
