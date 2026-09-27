@@ -89,6 +89,7 @@
 %type <std::vector<SelectItem>> select_list select_items
 %type <SelectItem> select_item
 %type <std::string> alias_opt
+%type <std::vector<std::string>> columns_opt column_name_list
 
 %%
 
@@ -208,11 +209,30 @@ alias_opt:
     |   AS IDENTIFIER { $$ = std::move($2); }
     ;
 
-// insert into ... values (...)
+// insert into 表名 [(列清单)] values (值列表)
 insert_statement:
-        INSERT INTO IDENTIFIER VALUES '(' value_list ')'
+        INSERT INTO IDENTIFIER columns_opt VALUES '(' value_list ')'
         {
-            $$ = std::make_unique<InsertStmt>(std::move($3), std::move($6));
+            $$ = std::make_unique<InsertStmt>(std::move($3), std::move($4), std::move($7));
+        }
+    ;
+
+// 可选列清单: 空表示按表全列插入
+columns_opt:
+        /* empty */ { $$ = std::vector<std::string>(); }
+    |   '(' column_name_list ')' { $$ = std::move($2); }
+    ;
+
+column_name_list:
+        column_name_list ',' IDENTIFIER
+        {
+            $1.push_back(std::move($3));
+            $$ = std::move($1);
+        }
+    |   IDENTIFIER
+        {
+            $$ = std::vector<std::string>();
+            $$.push_back(std::move($1));
         }
     ;
 

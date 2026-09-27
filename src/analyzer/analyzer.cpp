@@ -283,10 +283,39 @@ void check_value_type(const Expr& expr, ExprType t, const st::ColumnSpec& col)
     }
 }
 
-// INSERT 值绑定: 推导/布尔/个数/NOT NULL/类型匹配, 检查顺序与原执行链一致, 文案不变
+// INSERT 值绑定: 列清单定位/推导/布尔/个数/NOT NULL/类型匹配, 检查顺序与原执行链一致, 文案不变;
+// 产出与表列等宽的值序列, 未指定列补 NULL
 std::vector<std::unique_ptr<BoundExpr>> bind_insert_values(
-    const std::vector<std::unique_ptr<Expr>>& values, const st::TableMeta& meta)
+    const std::vector<std::string>& columns, const std::vector<std::unique_ptr<Expr>>& values,
+    const st::TableMeta& meta)
 {
+    // 值到列的定位: 空清单按表全列, 指定清单逐名解析并查重
+    std::vector<size_t> target;
+    std::vector<bool> specified(meta.cols.size(), false);
+    if (columns.empty()) {
+        target.resize(meta.cols.size());
+        for (size_t i = 0; i < meta.cols.size(); ++i) {
+            target[i] = i;
+            specified[i] = true;
+        }
+    } else {
+        ColMap cols;
+        for (size_t i = 0; i < meta.cols.size(); ++i) {
+            cols.emplace(meta.cols[i].name, i);
+        }
+        for (const std::string& name : columns) {
+            const auto it = cols.find(name);
+            if (it == cols.end()) {
+                DB_RAISE(db::ErrCode::UnknownColumn, LogModule::ANALYZER, "列不存在: {}", name);
+            }
+            if (specified[it->second]) {
+                DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
+                         "插入列清单中列重复: {}", name);
+            }
+            specified[it->second] = true;
+            target.push_back(it->second);
+        }
+    }
     std::vector<std::unique_ptr<BoundExpr>> bound;
     std::vector<ExprType> types;
     types.reserve(values.size());
@@ -301,19 +330,35 @@ std::vector<std::unique_ptr<BoundExpr>> bind_insert_values(
                      "布尔值不可作为存储或输出值");
         }
     }
-    if (values.size() != meta.cols.size()) {
+    if (values.size() != target.size()) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "值的数量与列数不符");
     }
     for (size_t i = 0; i < values.size(); ++i) {
-        if (meta.cols[i].not_null && may_be_null(*values[i])) {
+        if (meta.cols[target[i]].not_null && may_be_null(*values[i])) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
+                     "NOT NULL 列不允许 NULL: {}", meta.cols[target[i]].name);
+        }
+    }
+    for (size_t i = 0; i < meta.cols.size(); ++i) {
+        if (!specified[i] && meta.cols[i].not_null) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
                      "NOT NULL 列不允许 NULL: {}", meta.cols[i].name);
         }
     }
     for (size_t i = 0; i < values.size(); ++i) {
-        check_value_type(*values[i], types[i], meta.cols[i]);
+        check_value_type(*values[i], types[i], meta.cols[target[i]]);
     }
-    return bound;
+    // 归一化为全宽度: 值放到指定列, 其余列补 NULL 常量
+    std::vector<std::unique_ptr<BoundExpr>> row(meta.cols.size());
+    for (size_t i = 0; i < values.size(); ++i) {
+        row[target[i]] = std::move(bound[i]);
+    }
+    for (size_t i = 0; i < meta.cols.size(); ++i) {
+        if (!row[i]) {
+            row[i] = std::make_unique<BoundConst>(std::monostate{});
+        }
+    }
+    return row;
 }
 
 // 保留表名拦截: 元数据表禁止 drop/insert/delete
@@ -394,7 +439,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt)
         const st::TableMeta meta = db.table_meta(is.table_name());
         auto b = std::make_unique<BoundInsert>();
         b->table = is.table_name();
-        b->values = bind_insert_values(is.values(), meta);
+        b->values = bind_insert_values(is.columns(), is.values(), meta);
         return b;
     }
     case StmtKind::Delete: {

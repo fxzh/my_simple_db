@@ -38,3 +38,30 @@ SELECT * FROM t_si;
 (2 行)
 DROP TABLE t_si;
 DROP
+CREATE TABLE t_ic (a int, b double, s varchar);
+CREATE
+INSERT INTO t_ic (nosuch) VALUES (1);
+ERROR: 列不存在: nosuch
+INSERT INTO t_ic (a, a) VALUES (1, 2);
+ERROR: 插入列清单中列重复: a
+INSERT INTO t_ic (a, b) VALUES (1);
+ERROR: 值的数量与列数不符
+INSERT INTO t_ic (a, b) VALUES (1, 2, 3);
+ERROR: 值的数量与列数不符
+INSERT INTO t_ic (a) VALUES ('x');
+ERROR: 值与列类型不匹配
+INSERT INTO t_ic (b, a) VALUES ('x', 1);
+ERROR: 值与列类型不匹配
+INSERT INTO t_ic (b) VALUES (1 > 2);
+ERROR: 布尔值不可作为存储或输出值
+INSERT INTO t_ic (a) VALUES (b);
+ERROR: 常量上下文不允许引用列: b
+INSERT INTO t_ic (a, s) VALUES (NULL, 'ok');
+INSERT 1
+SELECT * FROM t_ic;
+ a    | b    | s
+------+------+----
+ NULL | NULL | ok
+(1 行)
+DROP TABLE t_ic;
+DROP

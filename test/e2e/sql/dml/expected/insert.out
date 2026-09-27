@@ -58,3 +58,32 @@ SELECT * FROM t_nullable;
 (7 行)
 DROP TABLE t_nullable;
 DROP
+CREATE TABLE t_cols (id int, name varchar, score double);
+CREATE
+INSERT INTO t_cols (id, name, score) VALUES (1, 'alice', 90.5);
+INSERT 1
+INSERT INTO t_cols (id) VALUES (2);
+INSERT 1
+INSERT INTO t_cols (name, score) VALUES ('bob', 60.5);
+INSERT 1
+INSERT INTO t_cols (score) VALUES (75.0);
+INSERT 1
+INSERT INTO t_cols (name) VALUES (NULL);
+INSERT 1
+INSERT INTO t_cols (score, id) VALUES (50.0, 3);
+INSERT 1
+INSERT INTO t_cols (id, score) VALUES (4, 10 + 5.5);
+INSERT 1
+SELECT * FROM t_cols;
+ id   | name  | score
+------+-------+-------
+ 1    | alice | 90.5
+ 2    | NULL  | NULL
+ NULL | bob   | 60.5
+ NULL | NULL  | 75
+ NULL | NULL  | NULL
+ 3    | NULL  | 50
+ 4    | NULL  | 15.5
+(7 行)
+DROP TABLE t_cols;
+DROP
