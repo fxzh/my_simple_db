@@ -54,34 +54,34 @@ public:
     void flush_all();
     // 落盘并关闭全部文件
     void close();
-    bool table_file_exists(uint64_t tid) const;
+    bool table_file_exists(uint64_t fid) const;
 
     // 建表文件并初始化落盘文件头页
-    void init_table_file(uint64_t tid);
+    void init_table_file(uint64_t fid);
     // 删表文件并清缓冲与尾页跟踪
-    void remove_table_file(uint64_t tid);
+    void remove_table_file(uint64_t fid);
     // 插行: 值合法性由调用方保证, 编码追加并分配 rowid, 用户插行与元数据表引导共用
-    RowId insert_row(uint64_t tid, const std::vector<ColumnSpec>& cols,
+    RowId insert_row(uint64_t fid, const std::vector<ColumnSpec>& cols,
                      const std::vector<Value>& values);
     // 读取指定表全部存活行: 沿页链解码, 行损坏当场报错
-    std::vector<std::vector<Value>> read_rows(uint64_t tid,
+    std::vector<std::vector<Value>> read_rows(uint64_t fid,
                                               const std::vector<ColumnSpec>& cols);
     // 删除单行(按物理位置), 无效/已删引用返回 0
     size_t delete_row(const RowRef& ref);
     // 清空指定表全部行, 返回删除行数
-    size_t delete_all_rows(uint64_t tid);
+    size_t delete_all_rows(uint64_t fid);
     // 存活行数统计
-    size_t row_count(uint64_t tid);
+    size_t row_count(uint64_t fid);
 
 private:
     friend class Scanner;
     // 建首个数据页(页号 1)并链到文件头页, 返回新页号
-    uint32_t link_header_to_first_data_page(uint64_t table_id);
+    uint32_t link_header_to_first_data_page(uint64_t file_id);
 
     std::string dir_;
     FileManager files_;
     BufferPool pool_;
-    std::unordered_map<uint64_t, uint32_t> tail_pages_;  // 表 -> 最高页号(含仅存内存的页)
+    std::unordered_map<uint64_t, uint32_t> tail_pages_;  // 文件 -> 最高页号(含仅存内存的页)
     bool open_ = false;
 };
 

@@ -44,18 +44,18 @@ void Engine::close()
     open_ = false;
 }
 
-bool Engine::table_file_exists(uint64_t tid) const
+bool Engine::table_file_exists(uint64_t fid) const
 {
-    return files_.table_file_exists(tid);
+    return files_.table_file_exists(fid);
 }
 
 // 物理建表(须持锁): 建数据文件并初始化落盘文件头页
-void Engine::init_table_file(uint64_t tid)
+void Engine::init_table_file(uint64_t fid)
 {
-    files_.create_table_file(tid);
+    files_.create_table_file(fid);
 
     // 初始化并落盘文件头页
-    const PageId pid0 = PageId{tid, 0};
+    const PageId pid0 = PageId{fid, 0};
     char* h = pool_.allocate(pid0, files_);
     init_page(h, MAGIC_FILE_HEADER, PageType::FileHeader);
     pool_.unpin(h);
@@ -63,20 +63,20 @@ void Engine::init_table_file(uint64_t tid)
 }
 
 // 物理删表(须持锁): 删数据文件并清缓冲与尾页跟踪
-void Engine::remove_table_file(uint64_t tid)
+void Engine::remove_table_file(uint64_t fid)
 {
-    files_.remove_table_file(tid);
-    pool_.drop_table(tid);
-    tail_pages_.erase(tid);
+    files_.remove_table_file(fid);
+    pool_.drop_table(fid);
+    tail_pages_.erase(fid);
 }
 
-uint32_t Engine::link_header_to_first_data_page(uint64_t table_id)
+uint32_t Engine::link_header_to_first_data_page(uint64_t file_id)
 {
     // 页号 0 是文件头页, 首个数据页固定为页号 1
-    const PageId pid0 = PageId{table_id, 0};
+    const PageId pid0 = PageId{file_id, 0};
     char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);
     const uint32_t new_no = 1;
-    char* np = pool_.allocate(PageId{table_id, new_no}, files_);
+    char* np = pool_.allocate(PageId{file_id, new_no}, files_);
     init_page(np, MAGIC_HEAP, PageType::Heap);
     pool_.unpin(np);
 
@@ -89,7 +89,7 @@ uint32_t Engine::link_header_to_first_data_page(uint64_t table_id)
 }
 
 // 插行(须持锁): 值合法性由调用方保证, 编码后追加并分配 rowid
-RowId Engine::insert_row(uint64_t table_id, const std::vector<ColumnSpec>& cols,
+RowId Engine::insert_row(uint64_t file_id, const std::vector<ColumnSpec>& cols,
                          const std::vector<Value>& values)
 {
     std::vector<uint8_t> rec;
@@ -101,7 +101,7 @@ RowId Engine::insert_row(uint64_t table_id, const std::vector<ColumnSpec>& cols,
     }
 
     // 文件头页计数器自增分配 rowid
-    const PageId pid0 = PageId{table_id, 0};
+    const PageId pid0 = PageId{file_id, 0};
     char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);
     const RowId rid = file_next_rowid(h) + 1;
     set_file_next_rowid(h, rid);
@@ -111,30 +111,30 @@ RowId Engine::insert_row(uint64_t table_id, const std::vector<ColumnSpec>& cols,
 
     // 尾页可能只在内存中(尚未落盘), 用 tail_pages_ 记住最高页号
     uint32_t tail = 0;
-    auto it = tail_pages_.find(table_id);
+    auto it = tail_pages_.find(file_id);
     if (it != tail_pages_.end()) {
         tail = it->second;
-    } else if (files_.page_count(table_id) == 1) {
-        tail = link_header_to_first_data_page(table_id);
+    } else if (files_.page_count(file_id) == 1) {
+        tail = link_header_to_first_data_page(file_id);
     } else {
-        tail = files_.page_count(table_id) - 1;
+        tail = files_.page_count(file_id) - 1;
     }
 
     for (;;) {
-        const PageId pid = PageId{table_id, tail};
+        const PageId pid = PageId{file_id, tail};
         char* pg = pool_.read(pid, MAGIC_HEAP, files_);
         uint16_t slot = 0;
         if (heap_append(pg, rec.data(), static_cast<uint16_t>(rec.size()), &slot)) {
             pool_.mark_dirty(pg);
             pool_.unpin(pg);
-            tail_pages_[table_id] = tail;
+            tail_pages_[file_id] = tail;
             return rid;
         }
         // 页满: 扩展一个新页并把尾页链上去
         // 新页号取磁盘页数与当前尾页+1 的较大值, 避免与仅存内存中的页冲突
         PageHeader* ph = header(pg);
-        const uint32_t new_no = std::max(files_.page_count(table_id), tail + 1);
-        char* np = pool_.allocate(PageId{table_id, new_no}, files_);
+        const uint32_t new_no = std::max(files_.page_count(file_id), tail + 1);
+        char* np = pool_.allocate(PageId{file_id, new_no}, files_);
         init_page(np, MAGIC_HEAP, PageType::Heap);
         pool_.unpin(np);
         ph->next_page = new_no;
@@ -146,16 +146,16 @@ RowId Engine::insert_row(uint64_t table_id, const std::vector<ColumnSpec>& cols,
 }
 
 // 读取指定表全部存活行(须持锁): 沿页链解码, 行损坏当场报错
-std::vector<std::vector<Value>> Engine::read_rows(uint64_t table_id,
+std::vector<std::vector<Value>> Engine::read_rows(uint64_t file_id,
                                                   const std::vector<ColumnSpec>& cols)
 {
     std::vector<std::vector<Value>> rows;
-    const PageId pid0 = PageId{table_id, 0};
+    const PageId pid0 = PageId{file_id, 0};
     char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);
     uint32_t pno = header(h)->next_page;
     pool_.unpin(h);
     while (pno != 0) {
-        const PageId pid = PageId{table_id, pno};
+        const PageId pid = PageId{file_id, pno};
         char* pg = pool_.read(pid, MAGIC_HEAP, files_);
         const PageHeader* ph = header(pg);
         for (uint16_t i = 0; i < ph->slot_count; ++i) {
@@ -181,13 +181,13 @@ size_t Engine::delete_row(const RowRef& ref)
     if (ref.page == INVALID_PAGE) {
         return 0;
     }
-    const uint64_t tid = ref.page.table_id;
+    const uint64_t fid = ref.page.file_id;
     const uint32_t no = ref.page.page_no;
     if (no == 0) {
         return 0;  // 指向文件头页
     }
-    uint32_t max_no = files_.page_count(tid) - 1;
-    auto tail = tail_pages_.find(tid);
+    uint32_t max_no = files_.page_count(fid) - 1;
+    auto tail = tail_pages_.find(fid);
     if (tail != tail_pages_.end() && tail->second > max_no) {
         max_no = tail->second;
     }
@@ -207,24 +207,24 @@ size_t Engine::delete_row(const RowRef& ref)
 }
 
 // 清空指定表全部行(须持锁): 统计存活行数后删除并重建表文件
-size_t Engine::delete_all_rows(uint64_t table_id)
+size_t Engine::delete_all_rows(uint64_t file_id)
 {
-    const size_t n = row_count(table_id);
-    remove_table_file(table_id);
-    init_table_file(table_id);
+    const size_t n = row_count(file_id);
+    remove_table_file(file_id);
+    init_table_file(file_id);
     return n;
 }
 
 // 存活行数统计(须持锁): 沿页链数非墓碑槽
-size_t Engine::row_count(uint64_t table_id)
+size_t Engine::row_count(uint64_t file_id)
 {
     size_t n = 0;
-    const PageId pid0 = PageId{table_id, 0};
+    const PageId pid0 = PageId{file_id, 0};
     char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);
     uint32_t pno = header(h)->next_page;
     pool_.unpin(h);
     while (pno != 0) {
-        const PageId pid = PageId{table_id, pno};
+        const PageId pid = PageId{file_id, pno};
         char* pg = pool_.read(pid, MAGIC_HEAP, files_);
         const PageHeader* ph = header(pg);
         for (uint16_t i = 0; i < ph->slot_count; ++i) {
@@ -243,7 +243,7 @@ size_t Engine::row_count(uint64_t table_id)
 Scanner::Scanner(Engine* engine, const TableMeta& meta)
         : engine_(engine), meta_(meta)
 {
-    const PageId pid0 = PageId{meta_.table_id, 0};
+    const PageId pid0 = PageId{meta_.file_id, 0};
     char* h = engine_->pool_.read(pid0, MAGIC_FILE_HEADER, engine_->files_);
     next_page_no_ = header(h)->next_page;
     engine_->pool_.unpin(h);
@@ -270,7 +270,7 @@ void Scanner::advance_page()
         done_ = true;
         return;
     }
-    cur_page_ = PageId{meta_.table_id, next_page_no_};
+    cur_page_ = PageId{meta_.file_id, next_page_no_};
     cur_data_ = engine_->pool_.read(cur_page_, MAGIC_HEAP, engine_->files_);
     slot_ = 0;
     next_page_no_ = header(cur_data_)->next_page;

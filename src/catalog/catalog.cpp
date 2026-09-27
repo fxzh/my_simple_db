@@ -18,7 +18,8 @@ constexpr uint16_t kMetaNameLen = 64;
 std::vector<st::ColumnSpec> table_meta_cols()
 {
     return {{"table_id", st::ColType::BigInt, 0, true},
-            {"table_name", st::ColType::VarChar, kMetaNameLen, true}};
+            {"table_name", st::ColType::VarChar, kMetaNameLen, true},
+            {"file_id", st::ColType::BigInt, 0, true}};
 }
 
 // db_column 列定义
@@ -128,11 +129,12 @@ st::TableMeta Catalog::table_meta(const std::string& name)
 uint64_t Catalog::create_table(const std::string& name, const std::vector<st::ColumnSpec>& cols)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    return create_table_impl(name, cols, alloc_table_id());
+    return create_table_impl(name, cols, alloc_table_id(), alloc_file_id());
 }
 
 uint64_t Catalog::create_table_impl(const std::string& name,
-                                    const std::vector<st::ColumnSpec>& cols, uint64_t tid)
+                                    const std::vector<st::ColumnSpec>& cols, uint64_t tid,
+                                    uint64_t fid)
 {
     if (name.empty()) {
         DB_RAISE(db::ErrCode::InvalidDdl, LogModule::CATALOG, "表名为空");
@@ -160,17 +162,18 @@ uint64_t Catalog::create_table_impl(const std::string& name,
     }
 
     // 先建数据文件, 再写元数据行, 保证元数据可见时数据文件必有效
-    engine_.init_table_file(tid);
-    write_meta_rows(tid, name, cols);
+    engine_.init_table_file(fid);
+    write_meta_rows(tid, fid, name, cols);
     return tid;
 }
 
 // 写入指定表的元数据行(须持锁): db_table 一行 + db_column 每列一行
-void Catalog::write_meta_rows(uint64_t tid, const std::string& name,
+void Catalog::write_meta_rows(uint64_t tid, uint64_t fid, const std::string& name,
                               const std::vector<st::ColumnSpec>& cols)
 {
     engine_.insert_row(kTableMetaId, table_meta_cols(),
-                       {st::Value{static_cast<int64_t>(tid)}, st::Value{name}});
+                       {st::Value{static_cast<int64_t>(tid)}, st::Value{name},
+                        st::Value{static_cast<int64_t>(fid)}});
     for (const std::vector<st::Value>& row : column_meta_rows(tid, cols)) {
         engine_.insert_row(kColumnMetaId, column_meta_cols(), row);
     }
@@ -180,8 +183,8 @@ void Catalog::bootstrap_meta_tables()
 {
     engine_.init_table_file(kTableMetaId);
     engine_.init_table_file(kColumnMetaId);
-    write_meta_rows(kTableMetaId, kTableMetaName, table_meta_cols());
-    write_meta_rows(kColumnMetaId, kColumnMetaName, column_meta_cols());
+    write_meta_rows(kTableMetaId, kTableMetaId, kTableMetaName, table_meta_cols());
+    write_meta_rows(kColumnMetaId, kColumnMetaId, kColumnMetaName, column_meta_cols());
 }
 
 // 删除指定表的元数据行(须持锁): 扫两张元数据表, 收集第 0 列等于 tid 的行引用后逐个物理删除
@@ -192,6 +195,7 @@ void Catalog::delete_meta_rows(uint64_t tid)
     for (const auto& [meta_tid, cols] : metas) {
         st::TableMeta meta;
         meta.table_id = meta_tid;
+        meta.file_id = meta_tid;
         meta.cols = cols;
         std::vector<st::RowRef> refs;
         st::Scanner scanner(&engine_, meta);
@@ -215,10 +219,12 @@ void Catalog::delete_meta_rows(uint64_t tid)
 st::TableMeta Catalog::find_table_meta(const std::string& name)
 {
     uint64_t tid = 0;
+    uint64_t fid = 0;
     bool found = false;
     for (const std::vector<st::Value>& row : engine_.read_rows(kTableMetaId, table_meta_cols())) {
         if (row_str(row, 1) == name) {
             tid = static_cast<uint64_t>(row_int(row, 0));
+            fid = static_cast<uint64_t>(row_int(row, 2));
             found = true;
             break;
         }
@@ -246,6 +252,7 @@ st::TableMeta Catalog::find_table_meta(const std::string& name)
 
     st::TableMeta meta;
     meta.table_id = tid;
+    meta.file_id = fid;
     meta.name = name;
     meta.cols.reserve(pairs.size());
     for (std::pair<int64_t, st::ColumnSpec>& p : pairs) {
@@ -265,18 +272,18 @@ bool Catalog::has_table_name(const std::string& name)
     return false;
 }
 
-// table_id 是否已存在(须持锁): 全扫 db_table 匹配
-bool Catalog::table_id_exists(uint64_t table_id)
+// file_id 是否已存在(须持锁): 全扫 db_table 匹配
+bool Catalog::file_id_exists(uint64_t file_id)
 {
     for (const std::vector<st::Value>& row : engine_.read_rows(kTableMetaId, table_meta_cols())) {
-        if (static_cast<uint64_t>(row_int(row, 0)) == table_id) {
+        if (static_cast<uint64_t>(row_int(row, 2)) == file_id) {
             return true;
         }
     }
     return false;
 }
 
-// 用户段分配(须持锁): max(当前最大表 id + 1, kFirstUserTableId)
+// 用户段 table_id 分配(须持锁): max(当前最大表 id + 1, kFirstUserTableId)
 uint64_t Catalog::alloc_table_id()
 {
     int64_t max_id = 0;
@@ -287,22 +294,33 @@ uint64_t Catalog::alloc_table_id()
             std::max(max_id + 1, static_cast<int64_t>(kFirstUserTableId)));
 }
 
+// 用户段 file_id 分配(须持锁): max(当前最大文件 id + 1, kFirstUserTableId)
+uint64_t Catalog::alloc_file_id()
+{
+    int64_t max_id = 0;
+    for (const std::vector<st::Value>& row : engine_.read_rows(kTableMetaId, table_meta_cols())) {
+        max_id = std::max(max_id, row_int(row, 2));
+    }
+    return static_cast<uint64_t>(
+            std::max(max_id + 1, static_cast<int64_t>(kFirstUserTableId)));
+}
+
 void Catalog::drop_table(const std::string& name)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    const uint64_t tid = find_table_meta(name).table_id;
-    if (tid <= kReservedMaxTableId) {
+    const st::TableMeta meta = find_table_meta(name);
+    if (meta.table_id <= kReservedMaxTableId) {
         DB_RAISE(db::ErrCode::ProtectedTable, LogModule::CATALOG, "保留表禁止删除: {}", name);
     }
-    delete_meta_rows(tid);
-    engine_.remove_table_file(tid);
+    delete_meta_rows(meta.table_id);
+    engine_.remove_table_file(meta.file_id);
 }
 
 st::RowId Catalog::insert(const std::string& table, const std::vector<st::Value>& values)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     const st::TableMeta meta = find_table_meta(table);
-    return engine_.insert_row(meta.table_id, meta.cols, values);
+    return engine_.insert_row(meta.file_id, meta.cols, values);
 }
 
 size_t Catalog::delete_by_ref(const st::RowRef& ref)
@@ -311,7 +329,7 @@ size_t Catalog::delete_by_ref(const st::RowRef& ref)
     if (ref.page == st::INVALID_PAGE) {
         return 0;
     }
-    if (!table_id_exists(ref.page.table_id)) {
+    if (!file_id_exists(ref.page.file_id)) {
         return 0;  // 表不存在
     }
     return engine_.delete_row(ref);
@@ -321,7 +339,7 @@ size_t Catalog::delete_all(const std::string& table)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     const st::TableMeta meta = find_table_meta(table);
-    return engine_.delete_all_rows(meta.table_id);
+    return engine_.delete_all_rows(meta.file_id);
 }
 
 std::unique_ptr<st::Scanner> Catalog::scan(const std::string& table)
@@ -333,7 +351,7 @@ size_t Catalog::row_count(const std::string& table)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     const st::TableMeta meta = find_table_meta(table);
-    return engine_.row_count(meta.table_id);
+    return engine_.row_count(meta.file_id);
 }
 
 }  // namespace ct

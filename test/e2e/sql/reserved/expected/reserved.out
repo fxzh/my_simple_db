@@ -24,17 +24,18 @@ SELECT * FROM t_reserved;
  7
 (1 行)
 SELECT * FROM db_table;
- table_id | table_name
-----------+------------
- 1        | db_table
- 2        | db_column
- 20001    | t_reserved
+ table_id | table_name | file_id
+----------+------------+---------
+ 1        | db_table   | 1
+ 2        | db_column  | 2
+ 20001    | t_reserved | 20001
 (3 行)
 SELECT * FROM db_column;
  table_id | col_name   | ordinal | type | length | not_null
 ----------+------------+---------+------+--------+----------
  1        | table_id   | 0       | 2    | 0      | 1
  1        | table_name | 1       | 4    | 64     | 1
+ 1        | file_id    | 2       | 2    | 0      | 1
  2        | table_id   | 0       | 2    | 0      | 1
  2        | col_name   | 1       | 4    | 64     | 1
  2        | ordinal    | 2       | 1    | 0      | 1
@@ -42,12 +43,12 @@ SELECT * FROM db_column;
  2        | length     | 4       | 1    | 0      | 1
  2        | not_null   | 5       | 1    | 0      | 1
  20001    | id         | 0       | 1    | 0      | 0
-(9 行)
+(10 行)
 DROP TABLE t_reserved;
 DROP
 SELECT * FROM db_table;
- table_id | table_name
-----------+------------
- 1        | db_table
- 2        | db_column
+ table_id | table_name | file_id
+----------+------------+---------
+ 1        | db_table   | 1
+ 2        | db_column  | 2
 (2 行)

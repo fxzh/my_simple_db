@@ -11,9 +11,9 @@ namespace st {
 
 constexpr uint32_t PAGE_SIZE = 4096;
 
-// 页位置: 表 id + 页号, table_id 0 为无效页
+// 页位置: 文件 id + 页号, file_id 0 为无效页
 struct PageId {
-    uint64_t table_id = 0;
+    uint64_t file_id = 0;
     uint32_t page_no = 0;
     bool operator==(const PageId&) const = default;
 };
@@ -43,6 +43,7 @@ struct ColumnSpec {
 // 表元数据(目录条目)
 struct TableMeta {
     uint64_t table_id = 0;
+    uint64_t file_id = 0;
     std::string name;
     std::vector<ColumnSpec> cols;
 };

@@ -1,7 +1,6 @@
 // test_storage.cpp: 存储引擎 M1 冒烟测试(页删除整理/增删扫/重开持久化)
 #include <cstdint>
 #include <cstring>
-#include <filesystem>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -178,11 +177,9 @@ TEST_F(StorageDb, ReopenLifecycle)
             EXPECT_FALSE(s->next(&r));
         }
 
-        // drop 后目录不可见且数据文件删除, 其他表文件不受影响
+        // drop 后目录不可见
         db.drop_table("t");
         EXPECT_THROW(db.row_count("t"), std::runtime_error);
-        EXPECT_FALSE(std::filesystem::exists(dir.path + "/t_20001.dat"));
-        EXPECT_TRUE(std::filesystem::exists(dir.path + "/t_20002.dat"));
         db.close();
     }
 

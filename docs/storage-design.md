@@ -42,7 +42,7 @@ src/storage(静态库 storage)
 
 > 格式演化约定：不做版本与迁移，各结构体字段只放当前里程碑实际用到的；后续里程碑需要新字段时直接增删改，不保留旧格式。
 
-对外接口 (catalog.h, 名字型门面; engine.h 提供须持锁的按 table_id 原语)：
+对外接口 (catalog.h, 名字型门面; engine.h 提供须持锁的按 file_id 原语)：
 
 ```cpp
 namespace st {
@@ -72,16 +72,16 @@ Scan*   scan(std::string_view table);
 data/
   t_1.dat/t_2.dat  元数据表文件(db_table/db_column), 见 §6
   wal.log         WAL 日志(所有表共享)
-  t_<table_id>.dat  每表一个数据文件, 全部由 4KB 页组成
+  t_<file_id>.dat  每表一个数据文件, 全部由 4KB 页组成
 ```
 
-页号编码（跨表全局）：
+页号编码（按文件定位）：
 
 ```
-page_id = struct { table_id:uint64, page_no:uint32 }
+page_id = struct { file_id:uint64, page_no:uint32 }
 ```
 
-page_no 从 0 开始；文件内物理偏移 = `page_no * PAGE_SIZE`。数据文件第 0 页为"文件头页"（magic、版本、table_id、下一个空闲页链表头），之后是数据页。
+page_no 从 0 开始；文件内物理偏移 = `page_no * PAGE_SIZE`。数据文件第 0 页为"文件头页"（magic、版本、file_id、下一个空闲页链表头），之后是数据页。
 
 **每表独立文件**的好处：DROP TABLE = 直接删文件；单表调试/导出方便；页分配只看本地文件长度。单文件设计（SQLite/InnoDB tablespace）留给将来可选。
 
@@ -155,9 +155,9 @@ rowid（§8 详述）：表内自增 int64，是聚簇索引键。叶子节点�
 ## 6. 目录（元数据表）
 
 目录不是独立文件, 而是两张保留段元数据表, schema 硬编码引导, 不存于自身;
-目录逻辑位于 src/catalog(ct::Catalog), 存储引擎只提供须持锁的按 table_id 原语:
+目录逻辑位于 src/catalog(ct::Catalog), 存储引擎只提供须持锁的按 file_id 原语:
 
-- db_table(table_id, table_name): 每表一行
+- db_table(table_id, table_name, file_id): 每表一行, file_id 独立分配并决定数据文件名
 - db_column(table_id, col_name, ordinal, type, length, not_null): 每列一行
 
 读写规则:
@@ -235,7 +235,7 @@ WHY: B+ 树原地改写页 + 缓冲池延迟写盘（性能），若不做日志
 体:
   OP_PAGE_PATCH   [offset uint32][len uint16][字节]   # 物理重做, 直接补页区域
   OP_CREATE_TABLE [name 长度前缀 + name][schema...]
-  OP_DROP_TABLE   [table_id uint64]
+  OP_DROP_TABLE   [file_id uint64]
   OP_CHECKPOINT   (仅出现在日志头部位置)
 ```
 

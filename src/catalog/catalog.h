@@ -12,7 +12,7 @@
 
 namespace ct {
 
-// table_id 保留段: 1~20000 留给系统元数据对象, 用户对象从 20001 起分配
+// id 保留段: 1~20000 留给系统元数据对象(table_id 与 file_id 共用), 用户对象从 20001 起分配
 constexpr uint64_t kReservedMaxTableId = 20000;
 constexpr uint64_t kFirstUserTableId = 20001;
 
@@ -54,11 +54,11 @@ public:
     st::TableMeta table_meta(const std::string& name);
 
 private:
-    // 建表公共路径(须持锁): 校验后按指定 id 建数据文件、写元数据行
+    // 建表公共路径(须持锁): 校验后按指定 table_id/file_id 建数据文件、写元数据行
     uint64_t create_table_impl(const std::string& name, const std::vector<st::ColumnSpec>& cols,
-                               uint64_t tid);
+                               uint64_t tid, uint64_t fid);
     // 写入指定表的元数据行(须持锁): db_table 一行, db_column 每列一行, 引导与建表共用
-    void write_meta_rows(uint64_t tid, const std::string& name,
+    void write_meta_rows(uint64_t tid, uint64_t fid, const std::string& name,
                          const std::vector<st::ColumnSpec>& cols);
     // 引导元数据表: 直接建数据文件并写入自描述行, 不经过元数据表查找
     void bootstrap_meta_tables();
@@ -69,10 +69,12 @@ private:
     st::TableMeta find_table_meta(const std::string& name);
     // 表名是否已存在(须持锁): 全扫 db_table 匹配
     bool has_table_name(const std::string& name);
-    // table_id 是否已存在(须持锁): 全扫 db_table 匹配
-    bool table_id_exists(uint64_t table_id);
-    // 用户段分配(须持锁): max(当前最大表 id + 1, kFirstUserTableId)
+    // file_id 是否已存在(须持锁): 全扫 db_table 匹配
+    bool file_id_exists(uint64_t file_id);
+    // 用户段 table_id 分配(须持锁): max(当前最大表 id + 1, kFirstUserTableId)
     uint64_t alloc_table_id();
+    // 用户段 file_id 分配(须持锁): max(当前最大文件 id + 1, kFirstUserTableId)
+    uint64_t alloc_file_id();
 
     std::string dir_;
     st::Engine engine_;   // 文件引擎, 原语经本类持锁调用
