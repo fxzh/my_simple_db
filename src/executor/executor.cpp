@@ -12,6 +12,7 @@
 #include "analyzer.h"
 #include "planner.h"
 #include "expr_eval.h"
+#include "operator.h"
 
 namespace exec {
 
@@ -28,7 +29,7 @@ ExecResult tag_result(proto::CommandTag tag, uint64_t count)
 
 // ==================== SELECT 执行 ====================
 
-// SELECT 执行: 按投影计划(Project[Filter[SeqScan]] 或 Project[SeqScan])全表扫描逐行物化
+// SELECT 执行: 拉取投影算子逐行物化
 ExecResult run_select(ct::Catalog& db, const pl::ProjectPlan& pp)
 {
     ExecResult result;
@@ -38,56 +39,28 @@ ExecResult run_select(ct::Catalog& db, const pl::ProjectPlan& pp)
         result.col_names.push_back(p.name);
     }
 
-    // 解构输入计划: 过滤节点可选, 其下必为扫描节点
-    const pl::PlanNode* input = pp.child.get();
-    const pl::FilterPlan* filter = nullptr;
-    if (input->kind() == pl::PlanKind::Filter) {
-        filter = &static_cast<const pl::FilterPlan&>(*input);
-        input = filter->child.get();
-    }
-    if (input->kind() != pl::PlanKind::SeqScan) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "executor: 投影计划的输入非扫描");
-    }
-    const auto& scan = static_cast<const pl::SeqScanPlan&>(*input);
-
-    // 物化期: 扫描一行求值一行, WHERE 不满足即跳过
-    std::unique_ptr<st::Scanner> scanner = db.scan(scan.table);
+    // 物化期: 逐行拉取算子树, 投影求值在投影算子内完成
+    std::unique_ptr<Operator> op = make_operator(db, pp);
+    op->open();
     st::Row row;
-    while (scanner->next(&row)) {
-        if (filter != nullptr && !where_match(*filter->pred, row)) {
-            continue;
-        }
-        std::vector<st::Value> out;
-        out.reserve(pp.projs.size());
-        for (const ana::ProjCol& p : pp.projs) {
-            out.push_back(p.expr != nullptr ? to_st_value(eval_row(*p.expr, row))
-                                            : row.values[p.col_idx]);
-        }
-        result.rows.push_back(std::move(out));
+    while (op->next(&row)) {
+        result.rows.push_back(std::move(row.values));
     }
+    op->close();
     return result;
 }
 
-// DELETE ... WHERE: 抽干过滤计划收集行引用, 再逐个物理删除, 返回实际删除行数
+// DELETE ... WHERE: 抽干删除子树算子收集行引用, 再逐个物理删除, 返回实际删除行数
 uint64_t run_delete_where(ct::Catalog& db, const pl::DeletePlan& dp)
 {
-    // 删除计划的子树形态: Filter(SeqScan)
-    if (dp.child->kind() != pl::PlanKind::Filter) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "executor: 删除计划的子节点非过滤");
-    }
-    const auto& filter = static_cast<const pl::FilterPlan&>(*dp.child);
-    if (filter.child->kind() != pl::PlanKind::SeqScan) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "executor: 过滤计划的子节点非扫描");
-    }
-    const auto& scan = static_cast<const pl::SeqScanPlan&>(*filter.child);
     std::vector<st::RowRef> refs;
-    std::unique_ptr<st::Scanner> scanner = db.scan(scan.table);
+    std::unique_ptr<Operator> op = make_operator(db, *dp.child);
+    op->open();
     st::Row row;
-    while (scanner->next(&row)) {
-        if (where_match(*filter.pred, row)) {
-            refs.push_back(row.ref);
-        }
+    while (op->next(&row)) {
+        refs.push_back(row.ref);
     }
+    op->close();
     uint64_t deleted = 0;
     for (const st::RowRef& ref : refs) {
         deleted += db.delete_by_ref(ref);

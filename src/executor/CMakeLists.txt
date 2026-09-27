@@ -2,6 +2,7 @@
 add_library(executor STATIC
     executor.cpp
     expr_eval.cpp
+    operator.cpp
 )
 
 target_include_directories(executor PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
