@@ -66,6 +66,8 @@ public:
     // 读取指定表全部存活行: 沿页链解码, 行损坏当场报错
     std::vector<std::vector<Value>> read_rows(uint64_t fid,
                                               const std::vector<ColumnSpec>& cols);
+    // 回表: 按行物理位置直读堆页取行, 墓碑/无效引用返回 false, 行损坏当场报错
+    bool read_row(const RowRef& ref, const std::vector<ColumnSpec>& cols, Row* out);
     // 删除单行(按物理位置), 无效/已删引用返回 0
     size_t delete_row(const RowRef& ref);
     // 清空指定表全部行, 返回删除行数

@@ -6,4 +6,4 @@
 - 表文件 t_<file_id>.dat，引擎原语与 PageId 均按 file_id 寻址，与逻辑 table_id 解耦
 - 公开原语须持锁调用(锁在 catalog)，本库内部不加锁
 - M1 持久性语义：追加写容忍尾部截断，损坏数据页按尾部截断重建空页，重启后已追加数据仍在；记录不跨页(单行约 4KB 上限，超长拒绝)
-- btree 模块已实现未接入 engine/catalog：树页统一用 MAGIC_BTREE_LEAF 魔数(type 字段区分叶/内节点，MAGIC_BTREE_INTERNAL 预留)，文件头页页头之后存根页号；接入时经 Engine 持锁调用
+- btree 模块为二级索引形态(单元格 = [序保持键 8B][行定位 6B] 复合全序、无键去重、[lo,hi) 范围扫描)已实现未接入 engine/catalog：树页统一用 MAGIC_BTREE_LEAF 魔数(type 字段区分叶/内节点，MAGIC_BTREE_INTERNAL 预留)，文件头页页头之后存根页号；接入时经 Engine 持锁调用

@@ -175,6 +175,41 @@ std::vector<std::vector<Value>> Engine::read_rows(uint64_t file_id,
     return rows;
 }
 
+// 回表(须持锁): 按行物理位置直读堆页取行, 墓碑/无效引用返回 false, 行损坏当场报错
+bool Engine::read_row(const RowRef& ref, const std::vector<ColumnSpec>& cols, Row* out)
+{
+    if (ref.page == INVALID_PAGE) {
+        return false;
+    }
+    const uint64_t fid = ref.page.file_id;
+    const uint32_t no = ref.page.page_no;
+    if (no == 0) {
+        return false;  // 指向文件头页
+    }
+    uint32_t max_no = files_.page_count(fid) - 1;
+    auto tail = tail_pages_.find(fid);
+    if (tail != tail_pages_.end() && tail->second > max_no) {
+        max_no = tail->second;
+    }
+    if (no > max_no) {
+        return false;  // 页号越界, 避免缓冲池补造空页
+    }
+    char* pg = pool_.read(ref.page, MAGIC_HEAP, files_);
+    const PageHeader* ph = header(pg);
+    if (ref.slot >= ph->slot_count || slot_tombstone(pg, ref.slot)) {
+        pool_.unpin(pg);
+        return false;  // 已删或越界
+    }
+    const Slot* s = slot_at(pg, ref.slot);
+    if (!decode_row(cols, record(pg, ref.slot), s->len, out->values)) {
+        pool_.unpin(pg);
+        DB_RAISE(db::ErrCode::CorruptData, LogModule::STORAGE, "数据页记录损坏");
+    }
+    out->ref = ref;
+    pool_.unpin(pg);
+    return true;
+}
+
 // 删除单行(须持锁): 按物理位置打墓碑, 无效/已删引用返回 0
 size_t Engine::delete_row(const RowRef& ref)
 {

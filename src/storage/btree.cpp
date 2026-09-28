@@ -1,4 +1,4 @@
-// btree.cpp: B+ 树实现: 下探/插入/分裂/点查/叶子链扫描
+// btree.cpp: B+ 树实现: 下探/插入/分裂/键编码/范围扫描
 #include "btree.h"
 
 #include <algorithm>
@@ -11,9 +11,6 @@
 namespace st {
 
 namespace {
-
-// 单元格内键字节数
-constexpr uint16_t CELL_KEY_SIZE = 8;
 
 // 文件头页根页号: 存于页头之后(u32)
 uint32_t file_root(const char* page)
@@ -28,6 +25,39 @@ void set_file_root(char* page, uint32_t v)
     std::memcpy(page + PAGE_HEADER_SIZE, &v, sizeof(v));
 }
 
+// 键三路比较: 非 NULL 按值序, NULL 排最大, 负/零/正 对应 小于/等于/大于
+int key_cmp(const IndexKey& a, const IndexKey& b)
+{
+    if (a.null != b.null) {
+        return a.null ? 1 : -1;
+    }
+    if (a.val != b.val) {
+        return a.val < b.val ? -1 : 1;
+    }
+    return 0;
+}
+
+// 复合序三路比较: 先键(NULL 最大), 同键按行定位(页号, 槽), 负/零/正 对应 小于/等于/大于
+int entry_cmp(const BTreeEntry& a, const BTreeEntry& b)
+{
+    if (const int c = key_cmp(a.key, b.key); c != 0) {
+        return c;
+    }
+    if (a.page_no != b.page_no) {
+        return a.page_no < b.page_no ? -1 : 1;
+    }
+    if (a.slot != b.slot) {
+        return a.slot < b.slot ? -1 : 1;
+    }
+    return 0;
+}
+
+// 单元格字段偏移: [键值 8B][NULL 标志 1B][页号 4B][槽 2B](与 IndexKey 内存布局解耦)
+constexpr uint16_t CELL_KEY_OFF = 0;
+constexpr uint16_t CELL_NULL_OFF = sizeof(uint64_t);
+constexpr uint16_t CELL_PAGE_OFF = CELL_NULL_OFF + sizeof(uint8_t);
+constexpr uint16_t CELL_SLOT_OFF = CELL_PAGE_OFF + sizeof(uint32_t);
+
 // ==================== 叶子页访问 ====================
 
 // 叶子槽目录: 页头后正向生长, 槽 i 即键序第 i 条
@@ -41,22 +71,26 @@ const Slot* leaf_slot(const char* page, uint16_t i)
     return reinterpret_cast<const Slot*>(page + PAGE_HEADER_SIZE + static_cast<size_t>(i) * SLOT_SIZE);
 }
 
-// 槽 i 指向的单元格键
-int64_t leaf_key(const char* page, uint16_t i)
+// 槽 i 指向的单元格条目
+BTreeEntry leaf_entry(const char* page, uint16_t i)
 {
-    int64_t k = 0;
-    std::memcpy(&k, page + leaf_slot(page, i)->off, sizeof(k));
-    return k;
+    BTreeEntry e;
+    const char* cell = page + leaf_slot(page, i)->off;
+    std::memcpy(&e.key.val, cell + CELL_KEY_OFF, sizeof(e.key.val));
+    std::memcpy(&e.key.null, cell + CELL_NULL_OFF, sizeof(e.key.null));
+    std::memcpy(&e.page_no, cell + CELL_PAGE_OFF, sizeof(e.page_no));
+    std::memcpy(&e.slot, cell + CELL_SLOT_OFF, sizeof(e.slot));
+    return e;
 }
 
-// 首个键 ≥ key 的槽位
-uint16_t leaf_lower_bound(const char* page, int64_t key)
+// 首个条目 ≥ e 的槽位
+uint16_t leaf_lower_bound(const char* page, const BTreeEntry& e)
 {
     uint16_t lo = 0;
     uint16_t hi = header(page)->slot_count;
     while (lo < hi) {
         const uint16_t mid = static_cast<uint16_t>(lo + (hi - lo) / 2);
-        if (leaf_key(page, mid) < key) {
+        if (entry_cmp(leaf_entry(page, mid), e) < 0) {
             lo = static_cast<uint16_t>(mid + 1);
         } else {
             hi = mid;
@@ -65,20 +99,22 @@ uint16_t leaf_lower_bound(const char* page, int64_t key)
     return lo;
 }
 
-// 槽位 pos 插入键与 payload: 槽目录腾位、单元格写入自由区尾, 不重算校验和(调用方收尾统一算)
-void leaf_insert_at(char* page, uint16_t pos, int64_t key, const uint8_t* payload, uint16_t len)
+// 槽位 pos 插入条目: 槽目录腾位、单元格写入自由区尾, 不重算校验和(调用方收尾统一算)
+void leaf_insert_at(char* page, uint16_t pos, const BTreeEntry& e)
 {
     PageHeader* h = header(page);
     const uint16_t n = h->slot_count;
     std::memmove(leaf_slot(page, static_cast<uint16_t>(pos + 1)), leaf_slot(page, pos),
                  static_cast<size_t>(n - pos) * SLOT_SIZE);
-    const uint16_t cell = static_cast<uint16_t>(CELL_KEY_SIZE + len);
-    h->free_end = static_cast<uint16_t>(h->free_end - cell);
-    std::memcpy(page + h->free_end, &key, sizeof(key));
-    std::memcpy(page + h->free_end + sizeof(key), payload, len);
+    h->free_end = static_cast<uint16_t>(h->free_end - BTREE_CELL_SIZE);
+    char* cell = page + h->free_end;
+    std::memcpy(cell + CELL_KEY_OFF, &e.key.val, sizeof(e.key.val));
+    std::memcpy(cell + CELL_NULL_OFF, &e.key.null, sizeof(e.key.null));
+    std::memcpy(cell + CELL_PAGE_OFF, &e.page_no, sizeof(e.page_no));
+    std::memcpy(cell + CELL_SLOT_OFF, &e.slot, sizeof(e.slot));
     Slot* s = leaf_slot(page, pos);
     s->off = h->free_end;
-    s->len = cell;
+    s->len = BTREE_CELL_SIZE;
     h->free_begin = static_cast<uint16_t>(h->free_begin + SLOT_SIZE);
     h->slot_count = static_cast<uint16_t>(n + 1);
 }
@@ -88,25 +124,31 @@ void leaf_build(char* page, const std::vector<BTreeEntry>& entries, uint16_t fro
 {
     init_page(page, MAGIC_BTREE_LEAF, PageType::BTreeLeaf);
     for (uint16_t i = from; i < to; ++i) {
-        const BTreeEntry& e = entries[static_cast<size_t>(i)];
-        leaf_insert_at(page, static_cast<uint16_t>(i - from), e.key, e.payload.data(),
-                       static_cast<uint16_t>(e.payload.size()));
+        leaf_insert_at(page, static_cast<uint16_t>(i - from), entries[static_cast<size_t>(i)]);
     }
 }
 
 // ==================== 内节点页访问 ====================
 
-// 内节点键: 页头后正向生长
-int64_t node_key(const char* page, uint16_t i)
+// 内节点分隔项: 页头后正向生长, 步长 BTREE_CELL_SIZE
+BTreeEntry node_sep(const char* page, uint16_t i)
 {
-    int64_t k = 0;
-    std::memcpy(&k, page + PAGE_HEADER_SIZE + static_cast<size_t>(i) * sizeof(int64_t), sizeof(k));
-    return k;
+    BTreeEntry e;
+    const char* p = page + PAGE_HEADER_SIZE + static_cast<size_t>(i) * BTREE_CELL_SIZE;
+    std::memcpy(&e.key.val, p + CELL_KEY_OFF, sizeof(e.key.val));
+    std::memcpy(&e.key.null, p + CELL_NULL_OFF, sizeof(e.key.null));
+    std::memcpy(&e.page_no, p + CELL_PAGE_OFF, sizeof(e.page_no));
+    std::memcpy(&e.slot, p + CELL_SLOT_OFF, sizeof(e.slot));
+    return e;
 }
 
-void set_node_key(char* page, uint16_t i, int64_t key)
+void set_node_sep(char* page, uint16_t i, const BTreeEntry& e)
 {
-    std::memcpy(page + PAGE_HEADER_SIZE + static_cast<size_t>(i) * sizeof(int64_t), &key, sizeof(key));
+    char* p = page + PAGE_HEADER_SIZE + static_cast<size_t>(i) * BTREE_CELL_SIZE;
+    std::memcpy(p + CELL_KEY_OFF, &e.key.val, sizeof(e.key.val));
+    std::memcpy(p + CELL_NULL_OFF, &e.key.null, sizeof(e.key.null));
+    std::memcpy(p + CELL_PAGE_OFF, &e.page_no, sizeof(e.page_no));
+    std::memcpy(p + CELL_SLOT_OFF, &e.slot, sizeof(e.slot));
 }
 
 // 内节点子指针: 页尾反向生长, 子 j 位于页尾 - 4*(j+1)
@@ -122,14 +164,14 @@ void set_node_child(char* page, uint16_t j, uint32_t child)
     std::memcpy(page + PAGE_SIZE - static_cast<size_t>(j + 1) * sizeof(uint32_t), &child, sizeof(child));
 }
 
-// key 所属子树的下标: 首个键 > key 的位置
-uint16_t node_child_index(const char* page, int64_t key)
+// 条目所属子树的下标: 首个分隔项 > e 的位置
+uint16_t node_child_index(const char* page, const BTreeEntry& e)
 {
     uint16_t lo = 0;
     uint16_t hi = header(page)->slot_count;
     while (lo < hi) {
         const uint16_t mid = static_cast<uint16_t>(lo + (hi - lo) / 2);
-        if (node_key(page, mid) <= key) {
+        if (entry_cmp(node_sep(page, mid), e) <= 0) {
             lo = static_cast<uint16_t>(mid + 1);
         } else {
             hi = mid;
@@ -138,39 +180,39 @@ uint16_t node_child_index(const char* page, int64_t key)
     return lo;
 }
 
-// 键位 i 插入分隔键与右子(来自子 i 的分裂), 不重算校验和(调用方收尾统一算)
-void node_insert_at(char* page, uint16_t i, int64_t sep, uint32_t right)
+// 键位 i 插入分隔项与右子(来自子 i 的分裂), 不重算校验和(调用方收尾统一算)
+void node_insert_at(char* page, uint16_t i, const BTreeEntry& sep, uint32_t right)
 {
     PageHeader* h = header(page);
     const uint16_t n = h->slot_count;
-    // 键 [i..n) 右移一格
-    std::memmove(page + PAGE_HEADER_SIZE + static_cast<size_t>(i + 1) * sizeof(int64_t),
-                 page + PAGE_HEADER_SIZE + static_cast<size_t>(i) * sizeof(int64_t),
-                 static_cast<size_t>(n - i) * sizeof(int64_t));
+    // 分隔项 [i..n) 右移一格
+    std::memmove(page + PAGE_HEADER_SIZE + static_cast<size_t>(i + 1) * BTREE_CELL_SIZE,
+                 page + PAGE_HEADER_SIZE + static_cast<size_t>(i) * BTREE_CELL_SIZE,
+                 static_cast<size_t>(n - i) * BTREE_CELL_SIZE);
     // 子 [i+1..n+1] 各下移一格
     std::memmove(page + PAGE_SIZE - static_cast<size_t>(n + 2) * sizeof(uint32_t),
                  page + PAGE_SIZE - static_cast<size_t>(n + 1) * sizeof(uint32_t),
                  static_cast<size_t>(n - i) * sizeof(uint32_t));
-    set_node_key(page, i, sep);
+    set_node_sep(page, i, sep);
     set_node_child(page, static_cast<uint16_t>(i + 1), right);
-    h->free_begin = static_cast<uint16_t>(h->free_begin + sizeof(int64_t));
+    h->free_begin = static_cast<uint16_t>(h->free_begin + BTREE_CELL_SIZE);
     h->free_end = static_cast<uint16_t>(h->free_end - sizeof(uint32_t));
     h->slot_count = static_cast<uint16_t>(n + 1);
 }
 
-// 整页重建内节点: 重置后写入键区间 [from, to) 与子区间 [from, to]
-void node_build(char* page, const std::vector<int64_t>& keys, const std::vector<uint32_t>& children,
+// 整页重建内节点: 重置后写入分隔项区间 [from, to) 与子区间 [from, to]
+void node_build(char* page, const std::vector<BTreeEntry>& seps, const std::vector<uint32_t>& children,
                 uint16_t from, uint16_t to)
 {
     init_page(page, MAGIC_BTREE_LEAF, PageType::BTreeInternal);
     for (uint16_t i = from; i < to; ++i) {
-        set_node_key(page, static_cast<uint16_t>(i - from), keys[static_cast<size_t>(i)]);
+        set_node_sep(page, static_cast<uint16_t>(i - from), seps[static_cast<size_t>(i)]);
         set_node_child(page, static_cast<uint16_t>(i - from), children[static_cast<size_t>(i)]);
     }
     set_node_child(page, static_cast<uint16_t>(to - from), children[static_cast<size_t>(to)]);
     PageHeader* h = header(page);
     const uint16_t m = static_cast<uint16_t>(to - from);
-    h->free_begin = static_cast<uint16_t>(PAGE_HEADER_SIZE + static_cast<size_t>(m) * sizeof(int64_t));
+    h->free_begin = static_cast<uint16_t>(PAGE_HEADER_SIZE + static_cast<size_t>(m) * BTREE_CELL_SIZE);
     h->free_end = static_cast<uint16_t>(PAGE_SIZE - static_cast<size_t>(m + 1) * sizeof(uint32_t));
     h->slot_count = m;
 }
@@ -183,6 +225,36 @@ bool tree_page_type(uint8_t type)
 }
 
 }  // namespace
+
+// ==================== 键编码 ====================
+
+IndexKey encode_key(ColType type, const Value& v)
+{
+    constexpr uint64_t sign_flip = 0x8000'0000'0000'0000ULL;
+    if (std::holds_alternative<std::monostate>(v)) {
+        // NULL 入索引且排最大, 键值部分无意义置 0
+        return IndexKey{0, true};
+    }
+    if (const int64_t* i = std::get_if<int64_t>(&v)) {
+        if (type != ColType::Int && type != ColType::BigInt) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "索引键值与列类型不匹配");
+        }
+        // 最高符号位翻转, 无符号序即有符号数值序
+        return IndexKey{static_cast<uint64_t>(*i) ^ sign_flip, false};
+    }
+    if (const double* d = std::get_if<double>(&v)) {
+        if (type != ColType::Double && type != ColType::Float) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "索引键值与列类型不匹配");
+        }
+        // -0.0 归一为 +0.0, 两零编码一致
+        const double x = (*d == 0.0) ? 0.0 : *d;
+        uint64_t bits = 0;
+        std::memcpy(&bits, &x, sizeof(bits));
+        // IEEE754: 负数按位取反、正数翻符号位, 无符号序即浮点全序
+        return IndexKey{(bits >> 63) ? ~bits : (bits | sign_flip), false};
+    }
+    DB_RAISE(db::ErrCode::NotImplemented, LogModule::STORAGE, "索引键类型未支持(变长键)");
+}
 
 // ==================== BTree ====================
 
@@ -254,49 +326,24 @@ void BTree::set_root(uint32_t no)
     root_page = no;
 }
 
-void BTree::insert(int64_t key, const uint8_t* payload, uint16_t len)
+void BTree::insert(const BTreeEntry& e)
 {
-    if (len > BTREE_MAX_PAYLOAD) {
-        DB_RAISE(db::ErrCode::RecordTooLong, LogModule::STORAGE, "B+树记录超长");
-    }
-    BTreeSplit r = insert_rec(root_page, key, payload, len);
+    BTreeSplit r = insert_rec(root_page, e);
     if (!r.split) {
         return;
     }
-    // 根分裂: 新根内节点承载上提分隔键与新旧两子
-    std::vector<int64_t> keys{r.sep};
+    // 根分裂: 新根内节点承载上提分隔条目与新旧两子
+    std::vector<BTreeEntry> seps{r.sep};
     std::vector<uint32_t> children{root_page, r.right};
     auto [no, pg] = new_page();
-    node_build(pg, keys, children, 0, 1);
+    node_build(pg, seps, children, 0, 1);
     header(pg)->checksum = page_checksum(pg);
     pool.mark_dirty(pg);
     pool.unpin(pg);
     set_root(no);
 }
 
-bool BTree::lookup(int64_t key, std::vector<uint8_t>& out)
-{
-    uint32_t no = root_page;
-    for (;;) {
-        char* pg = read_tree(PageId{file_id, no});
-        const PageHeader* h = header(pg);
-        if (h->type == static_cast<uint8_t>(PageType::BTreeLeaf)) {
-            const uint16_t pos = leaf_lower_bound(pg, key);
-            const bool found = pos < h->slot_count && leaf_key(pg, pos) == key;
-            if (found) {
-                const Slot* s = leaf_slot(pg, pos);
-                const uint8_t* cell = reinterpret_cast<const uint8_t*>(pg) + s->off;
-                out.assign(cell + CELL_KEY_SIZE, cell + s->len);
-            }
-            pool.unpin(pg);
-            return found;
-        }
-        no = node_child(pg, node_child_index(pg, key));
-        pool.unpin(pg);
-    }
-}
-
-BTreeSplit BTree::insert_rec(uint32_t page_no, int64_t key, const uint8_t* payload, uint16_t len)
+BTreeSplit BTree::insert_rec(uint32_t page_no, const BTreeEntry& e)
 {
     char* pg = read_tree(PageId{file_id, page_no});
     PageHeader* h = header(pg);
@@ -304,14 +351,10 @@ BTreeSplit BTree::insert_rec(uint32_t page_no, int64_t key, const uint8_t* paylo
     // 叶子: 二分定位, 有空即插, 页满整页分裂
     if (h->type == static_cast<uint8_t>(PageType::BTreeLeaf)) {
         const uint16_t n = h->slot_count;
-        const uint16_t pos = leaf_lower_bound(pg, key);
-        if (pos < n && leaf_key(pg, pos) == key) {
-            pool.unpin(pg);
-            DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "B+树键重复: {}", key);
-        }
-        const uint32_t need = static_cast<uint32_t>(SLOT_SIZE) + CELL_KEY_SIZE + len;
+        const uint16_t pos = leaf_lower_bound(pg, e);
+        const uint32_t need = static_cast<uint32_t>(SLOT_SIZE) + BTREE_CELL_SIZE;
         if (need <= free_space(pg)) {
-            leaf_insert_at(pg, pos, key, payload, len);
+            leaf_insert_at(pg, pos, e);
             h->checksum = page_checksum(pg);
             pool.mark_dirty(pg);
             pool.unpin(pg);
@@ -321,21 +364,15 @@ BTreeSplit BTree::insert_rec(uint32_t page_no, int64_t key, const uint8_t* paylo
         std::vector<BTreeEntry> entries;
         entries.reserve(static_cast<size_t>(n) + 1);
         for (uint16_t i = 0; i < n; ++i) {
-            const Slot* s = leaf_slot(pg, i);
-            const uint8_t* cell = reinterpret_cast<const uint8_t*>(pg) + s->off;
-            BTreeEntry e;
-            e.key = leaf_key(pg, i);
-            e.payload.assign(cell + CELL_KEY_SIZE, cell + s->len);
-            entries.push_back(std::move(e));
+            entries.push_back(leaf_entry(pg, i));
         }
-        entries.insert(entries.begin() + pos,
-                       BTreeEntry{key, std::vector<uint8_t>(payload, payload + len)});
+        entries.insert(entries.begin() + pos, e);
         const uint16_t cnt = static_cast<uint16_t>(entries.size());
         const uint16_t mid = static_cast<uint16_t>(cnt / 2);
         const uint32_t old_next = h->next_page;
         BTreeSplit res;
         res.split = true;
-        res.sep = entries[static_cast<size_t>(mid)].key;
+        res.sep = entries[static_cast<size_t>(mid)];
 
         auto [rno, rpg] = new_page();
         leaf_build(rpg, entries, mid, cnt);
@@ -354,15 +391,15 @@ BTreeSplit BTree::insert_rec(uint32_t page_no, int64_t key, const uint8_t* paylo
         return res;
     }
 
-    // 内节点: 先递归子页, 子分裂时在本层落分隔键与右子
-    const uint16_t j = node_child_index(pg, key);
-    BTreeSplit r = insert_rec(node_child(pg, j), key, payload, len);
+    // 内节点: 先递归子页, 子分裂时在本层落分隔项与右子
+    const uint16_t j = node_child_index(pg, e);
+    BTreeSplit r = insert_rec(node_child(pg, j), e);
     if (!r.split) {
         pool.unpin(pg);
         return {};
     }
     const uint16_t n = h->slot_count;
-    const uint32_t need = static_cast<uint32_t>(sizeof(int64_t)) + sizeof(uint32_t);
+    const uint32_t need = static_cast<uint32_t>(BTREE_CELL_SIZE) + sizeof(uint32_t);
     if (need <= free_space(pg)) {
         node_insert_at(pg, j, r.sep, r.right);
         h->checksum = page_checksum(pg);
@@ -370,17 +407,17 @@ BTreeSplit BTree::insert_rec(uint32_t page_no, int64_t key, const uint8_t* paylo
         pool.unpin(pg);
         return {};
     }
-    // 收集含新键/新子的全量, 以中点分裂, 分隔键上提不驻留子页两侧
-    std::vector<int64_t> keys;
+    // 收集含新分隔项/新子的全量, 以中点分裂, 分隔项上提不驻留子页两侧
+    std::vector<BTreeEntry> seps;
     std::vector<uint32_t> children;
-    keys.reserve(static_cast<size_t>(n) + 1);
+    seps.reserve(static_cast<size_t>(n) + 1);
     children.reserve(static_cast<size_t>(n) + 2);
     for (uint16_t i = 0; i < j; ++i) {
-        keys.push_back(node_key(pg, i));
+        seps.push_back(node_sep(pg, i));
     }
-    keys.push_back(r.sep);
+    seps.push_back(r.sep);
     for (uint16_t i = j; i < n; ++i) {
-        keys.push_back(node_key(pg, i));
+        seps.push_back(node_sep(pg, i));
     }
     for (uint16_t c = 0; c <= j; ++c) {
         children.push_back(node_child(pg, c));
@@ -389,19 +426,19 @@ BTreeSplit BTree::insert_rec(uint32_t page_no, int64_t key, const uint8_t* paylo
     for (uint16_t c = static_cast<uint16_t>(j + 1); c <= n; ++c) {
         children.push_back(node_child(pg, c));
     }
-    const uint16_t cnt = static_cast<uint16_t>(keys.size());
+    const uint16_t cnt = static_cast<uint16_t>(seps.size());
     const uint16_t mid = static_cast<uint16_t>(cnt / 2);
     BTreeSplit res;
     res.split = true;
-    res.sep = keys[static_cast<size_t>(mid)];
+    res.sep = seps[static_cast<size_t>(mid)];
 
     auto [rno, rpg] = new_page();
-    node_build(rpg, keys, children, static_cast<uint16_t>(mid + 1), cnt);
+    node_build(rpg, seps, children, static_cast<uint16_t>(mid + 1), cnt);
     header(rpg)->checksum = page_checksum(rpg);
     pool.mark_dirty(rpg);
     pool.unpin(rpg);
 
-    node_build(pg, keys, children, 0, mid);
+    node_build(pg, seps, children, 0, mid);
     header(pg)->checksum = page_checksum(pg);
     pool.mark_dirty(pg);
     pool.unpin(pg);
@@ -412,14 +449,16 @@ BTreeSplit BTree::insert_rec(uint32_t page_no, int64_t key, const uint8_t* paylo
 
 // ==================== BTreeScanner ====================
 
-BTreeScanner::BTreeScanner(BufferPool& p, FileManager& f, uint64_t fid, uint32_t root)
-        : pool(p), files(f), file_id(fid)
+BTreeScanner::BTreeScanner(BTree& tree, std::optional<IndexKey> lo, std::optional<IndexKey> hi)
+        : pool(tree.pool), files(tree.files), file_id(tree.file_id), hi_key(hi)
 {
-    // 从根沿最左子指针下探到最左叶子
-    uint32_t no = root;
+    // 无下界沿最左子指针下探; 有下界按 (键, 最小行定位) 复合序路由
+    const BTreeEntry probe{lo.value_or(IndexKey{}), 0, 0};
+    uint32_t no = tree.root_page;
     char* pg = pool.read(PageId{file_id, no}, MAGIC_BTREE_LEAF, files);
     while (header(pg)->type == static_cast<uint8_t>(PageType::BTreeInternal)) {
-        no = node_child(pg, 0);
+        const uint16_t child = lo.has_value() ? node_child_index(pg, probe) : 0;
+        no = node_child(pg, child);
         pool.unpin(pg);
         pg = pool.read(PageId{file_id, no}, MAGIC_BTREE_LEAF, files);
     }
@@ -431,6 +470,7 @@ BTreeScanner::BTreeScanner(BufferPool& p, FileManager& f, uint64_t fid, uint32_t
     cur = pg;
     cur_page = PageId{file_id, no};
     next_no = header(pg)->next_page;
+    slot_idx = lo.has_value() ? leaf_lower_bound(pg, probe) : 0;
 }
 
 BTreeScanner::~BTreeScanner()
@@ -473,10 +513,12 @@ bool BTreeScanner::next(BTreeEntry* out)
         }
         const PageHeader* h = header(cur);
         if (slot_idx < h->slot_count) {
-            const Slot* s = leaf_slot(cur, slot_idx);
-            const uint8_t* cell = reinterpret_cast<const uint8_t*>(cur) + s->off;
-            out->key = leaf_key(cur, slot_idx);
-            out->payload.assign(cell + CELL_KEY_SIZE, cell + s->len);
+            const BTreeEntry e = leaf_entry(cur, slot_idx);
+            if (hi_key.has_value() && key_cmp(e.key, *hi_key) >= 0) {
+                done = true;
+                return false;  // 越过排他上界
+            }
+            *out = e;
             ++slot_idx;
             return true;
         }
