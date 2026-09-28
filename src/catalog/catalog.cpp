@@ -171,11 +171,12 @@ uint64_t Catalog::create_table_impl(const std::string& name,
 void Catalog::write_meta_rows(uint64_t tid, uint64_t fid, const std::string& name,
                               const std::vector<st::ColumnSpec>& cols)
 {
+    st::RowRef ref;
     engine_.insert_row(kTableMetaId, table_meta_cols(),
                        {st::Value{static_cast<int64_t>(tid)}, st::Value{name},
-                        st::Value{static_cast<int64_t>(fid)}});
+                        st::Value{static_cast<int64_t>(fid)}}, &ref);
     for (const std::vector<st::Value>& row : column_meta_rows(tid, cols)) {
-        engine_.insert_row(kColumnMetaId, column_meta_cols(), row);
+        engine_.insert_row(kColumnMetaId, column_meta_cols(), row, &ref);
     }
 }
 
@@ -320,7 +321,8 @@ st::RowId Catalog::insert(const std::string& table, const std::vector<st::Value>
 {
     std::lock_guard<std::mutex> lock(mutex_);
     const st::TableMeta meta = find_table_meta(table);
-    return engine_.insert_row(meta.file_id, meta.cols, values);
+    st::RowRef ref;
+    return engine_.insert_row(meta.file_id, meta.cols, values, &ref);
 }
 
 size_t Catalog::delete_by_ref(const st::RowRef& ref)

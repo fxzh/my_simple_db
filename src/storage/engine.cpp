@@ -1,4 +1,4 @@
-// engine.cpp: 文件引擎 M1 实现(堆页追加 + 全表扫描 + 删除)
+// engine.cpp: 文件引擎实现(堆页追加 + 全表扫描 + 删除 + 二级索引)
 #include "engine.h"
 
 #include <algorithm>
@@ -27,6 +27,7 @@ void Engine::open()
 {
     pool_.invalidate_all();
     tail_pages_.clear();
+    trees_.clear();
     open_ = true;
 }
 
@@ -88,9 +89,9 @@ uint32_t Engine::link_header_to_first_data_page(uint64_t file_id)
     return new_no;
 }
 
-// 插行(须持锁): 值合法性由调用方保证, 编码后追加并分配 rowid
+// 插行(须持锁): 值合法性由调用方保证, 编码后追加并分配 rowid, ref 输出新行物理位置
 RowId Engine::insert_row(uint64_t file_id, const std::vector<ColumnSpec>& cols,
-                         const std::vector<Value>& values)
+                         const std::vector<Value>& values, RowRef* ref)
 {
     std::vector<uint8_t> rec;
     if (!encode_row(cols, values, rec)) {
@@ -128,6 +129,7 @@ RowId Engine::insert_row(uint64_t file_id, const std::vector<ColumnSpec>& cols,
             pool_.mark_dirty(pg);
             pool_.unpin(pg);
             tail_pages_[file_id] = tail;
+            *ref = RowRef{pid, slot};
             return rid;
         }
         // 页满: 扩展一个新页并把尾页链上去
@@ -269,6 +271,71 @@ size_t Engine::row_count(uint64_t file_id)
         }
         pno = ph->next_page;
         pool_.unpin(pg);
+    }
+    return n;
+}
+
+// ==================== 索引 ====================
+
+// 取指定索引的树(须持锁): 未跟踪时打开已有索引文件
+BTree& Engine::tree_for(uint64_t fid)
+{
+    auto it = trees_.find(fid);
+    if (it == trees_.end()) {
+        it = trees_.try_emplace(fid, pool_, files_, fid).first;
+        it->second.open();
+    }
+    return it->second;
+}
+
+// 建索引文件(须持锁): 初始化空树, 空叶根落盘
+void Engine::init_index_file(uint64_t fid)
+{
+    trees_.erase(fid);
+    BTree& tree = trees_.try_emplace(fid, pool_, files_, fid).first->second;
+    tree.create();
+    pool_.flush(PageId{fid, 1}, files_);
+}
+
+// 删索引文件(须持锁): 删文件并清缓冲与树跟踪
+void Engine::remove_index_file(uint64_t fid)
+{
+    files_.remove_table_file(fid);
+    pool_.drop_table(fid);
+    trees_.erase(fid);
+}
+
+// 索引条目插入(须持锁): (键, 行定位) 唯一性由调用方保证
+void Engine::index_insert(uint64_t fid, const IndexKey& key, const RowRef& ref)
+{
+    tree_for(fid).insert(BTreeEntry{key, ref.page.page_no, ref.slot});
+}
+
+// 索引范围扫描(须持锁): 迭代器不持锁, 仅持页 pin
+std::unique_ptr<BTreeScanner> Engine::index_scan(uint64_t fid, std::optional<IndexKey> lo,
+                                                 std::optional<IndexKey> hi)
+{
+    return std::make_unique<BTreeScanner>(tree_for(fid), std::move(lo), std::move(hi));
+}
+
+// 建索引回填(须持锁): 全表扫描堆页, 逐行取指定列编码入树, 返回条目数
+size_t Engine::build_index(uint64_t table_fid, const std::vector<ColumnSpec>& cols, uint16_t ordinal,
+                           uint64_t index_fid)
+{
+    if (ordinal >= cols.size()) {
+        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "索引列序号越界: {}", ordinal);
+    }
+    BTree& tree = tree_for(index_fid);
+    TableMeta meta;
+    meta.file_id = table_fid;
+    meta.cols = cols;
+    size_t n = 0;
+    Scanner scanner(this, meta);
+    Row row;
+    while (scanner.next(&row)) {
+        const IndexKey key = encode_key(cols[ordinal].type, row.values[ordinal]);
+        tree.insert(BTreeEntry{key, row.ref.page.page_no, row.ref.slot});
+        ++n;
     }
     return n;
 }

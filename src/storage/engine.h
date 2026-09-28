@@ -1,11 +1,14 @@
-// engine.h: 文件引擎对外接口(M1: 堆页追加 + 全表扫描, 无索引), 公开原语全部须持锁(锁在 catalog)
+// engine.h: 文件引擎对外接口(堆页追加 + 全表扫描 + 二级索引原语), 公开原语全部须持锁(锁在 catalog)
 #ifndef STORAGE_ENGINE_H
 #define STORAGE_ENGINE_H
 
+#include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+#include "btree.h"
 #include "buffer_pool.h"
 #include "file_manager.h"
 #include "types.h"
@@ -39,7 +42,7 @@ private:
     bool done_ = false;
 };
 
-// 文件引擎: 页/文件/缓冲池/堆, 目录(表名/列定义)不在本层
+// 文件引擎: 页/文件/缓冲池/堆/索引树, 目录(表名/列定义/索引定义)不在本层
 class Engine {
 public:
     explicit Engine(std::string dir);
@@ -60,9 +63,9 @@ public:
     void init_table_file(uint64_t fid);
     // 删表文件并清缓冲与尾页跟踪
     void remove_table_file(uint64_t fid);
-    // 插行: 值合法性由调用方保证, 编码追加并分配 rowid, 用户插行与元数据表引导共用
+    // 插行: 值合法性由调用方保证, 编码追加并分配 rowid, ref 输出新行物理位置, 用户插行与元数据表引导共用
     RowId insert_row(uint64_t fid, const std::vector<ColumnSpec>& cols,
-                     const std::vector<Value>& values);
+                     const std::vector<Value>& values, RowRef* ref);
     // 读取指定表全部存活行: 沿页链解码, 行损坏当场报错
     std::vector<std::vector<Value>> read_rows(uint64_t fid,
                                               const std::vector<ColumnSpec>& cols);
@@ -75,8 +78,24 @@ public:
     // 存活行数统计
     size_t row_count(uint64_t fid);
 
+    // 建索引文件并初始化空树: 文件头页与空叶根落盘
+    void init_index_file(uint64_t fid);
+    // 删索引文件并清缓冲与树跟踪
+    void remove_index_file(uint64_t fid);
+    // 索引条目插入: (键, 行定位) 唯一性由调用方保证
+    void index_insert(uint64_t fid, const IndexKey& key, const RowRef& ref);
+    // 索引范围扫描: 定位 lo(缺省为最左) 后沿叶子链前进, hi 为排他上界(缺省为无上界);
+    // 迭代器不持锁(仅持页 pin), 并发 DDL 期间扫描是未定义行为
+    std::unique_ptr<BTreeScanner> index_scan(uint64_t fid, std::optional<IndexKey> lo,
+                                             std::optional<IndexKey> hi);
+    // 建索引回填: 全表扫描堆页, 逐行取指定列编码入树, 返回条目数
+    size_t build_index(uint64_t table_fid, const std::vector<ColumnSpec>& cols, uint16_t ordinal,
+                       uint64_t index_fid);
+
 private:
     friend class Scanner;
+    // 取指定索引的树: 未跟踪时打开已有索引文件
+    BTree& tree_for(uint64_t fid);
     // 建首个数据页(页号 1)并链到文件头页, 返回新页号
     uint32_t link_header_to_first_data_page(uint64_t file_id);
 
@@ -84,6 +103,7 @@ private:
     FileManager files_;
     BufferPool pool_;
     std::unordered_map<uint64_t, uint32_t> tail_pages_;  // 文件 -> 最高页号(含仅存内存的页)
+    std::unordered_map<uint64_t, BTree> trees_;          // 索引文件 -> 树(根页号与页分配跟踪)
     bool open_ = false;
 };
 

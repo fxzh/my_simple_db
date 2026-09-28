@@ -1,4 +1,4 @@
-# 存储引擎静态库(storage): M1 堆页追加 + 全表扫描, 含 B+ 树模块(已实现未接入 engine)
+# 存储引擎静态库(storage): 堆页追加 + 全表扫描 + B+ 树二级索引
 # 目录逻辑在 catalog 库, 本库只含页/文件/缓冲池/堆/B+树; 报错/告警依赖 log 库, catalog 与测试链接它
 
 add_library(storage STATIC
