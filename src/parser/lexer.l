@@ -31,6 +31,7 @@ WS       [ \t\r]
 
 "create"   { return yy::parser::token::CREATE; }
 "table"    { return yy::parser::token::TABLE; }
+"schema"   { return yy::parser::token::SCHEMA; }
 "drop"     { return yy::parser::token::DROP; }
 "delete"   { return yy::parser::token::DELETE; }
 "from"     { return yy::parser::token::FROM; }

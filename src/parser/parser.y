@@ -55,7 +55,7 @@
 // Token定义
 %token END 0 "end of file"
 %token TOK_ERROR
-%token CREATE TABLE DROP INSERT INTO VALUES DELETE FROM
+%token CREATE TABLE DROP SCHEMA INSERT INTO VALUES DELETE FROM
 %token INT BIGINT FLOAT CHAR VARCHAR DOUBLE
 %token SELECT AS NULL_T WHERE AND OR NOT IS
 %token EQ NE LE GE
@@ -79,7 +79,7 @@
 %right UMINUS
 
 // 类型声明
-%type <std::unique_ptr<SQLStatement>> statement create_statement drop_statement insert_statement delete_statement create_table_statement drop_table_statement select_statement
+%type <std::unique_ptr<SQLStatement>> statement create_statement drop_statement insert_statement delete_statement create_table_statement drop_table_statement create_schema_statement drop_schema_statement select_statement
 %type <std::vector<ColumnDef>> column_definitions
 %type <ColumnDef> column_definition
 %type <TypeInfo> type_specifier
@@ -116,15 +116,24 @@ statement:
     |   select_statement  { $$ = std::move($1); }
     ;
 
-// create table ...
+// create table / create schema ...
 create_statement:
         create_table_statement { $$ = std::move($1); }
+    |   create_schema_statement { $$ = std::move($1); }
     ;
 
 create_table_statement:
         CREATE TABLE IDENTIFIER '(' column_definitions ')'
         {
             $$ = std::make_unique<CreateTableStmt>(std::move($3), std::move($5));
+        }
+    ;
+
+// create schema ...
+create_schema_statement:
+        CREATE SCHEMA IDENTIFIER
+        {
+            $$ = std::make_unique<CreateSchemaStmt>(std::move($3));
         }
     ;
 
@@ -147,15 +156,24 @@ column_definition:
         }
     ;
 
-// drop table ...
+// drop table / drop schema ...
 drop_statement:
         drop_table_statement { $$ = std::move($1); }
+    |   drop_schema_statement { $$ = std::move($1); }
     ;
 
 drop_table_statement:
         DROP TABLE IDENTIFIER
         {
             $$ = std::make_unique<DropTableStmt>(std::move($3));
+        }
+    ;
+
+// drop schema ...
+drop_schema_statement:
+        DROP SCHEMA IDENTIFIER
+        {
+            $$ = std::make_unique<DropSchemaStmt>(std::move($3));
         }
     ;
 

@@ -285,6 +285,8 @@ inline std::string expr_to_string(const Expr& e)
 enum class StmtKind {
     CreateTable,
     DropTable,
+    CreateSchema,
+    DropSchema,
     Insert,
     Delete,
     Select,
@@ -336,6 +338,38 @@ public:
     }
 
     StmtKind kind() const override { return StmtKind::DropTable; }
+};
+
+// CREATE SCHEMA 模式名(语法已接入, 执行暂缺)
+class CreateSchemaStmt : public SQLStatement {
+    std::string schema;
+public:
+    explicit CreateSchemaStmt(std::string name) : schema(std::move(name)) {}
+
+    const std::string& schema_name() const { return schema; }
+
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "CreateSchema: " << schema << std::endl;
+    }
+
+    StmtKind kind() const override { return StmtKind::CreateSchema; }
+};
+
+// DROP SCHEMA 模式名(语法已接入, 执行暂缺)
+class DropSchemaStmt : public SQLStatement {
+    std::string schema;
+public:
+    explicit DropSchemaStmt(std::string name) : schema(std::move(name)) {}
+
+    const std::string& schema_name() const { return schema; }
+
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "DropSchema: " << schema << std::endl;
+    }
+
+    StmtKind kind() const override { return StmtKind::DropSchema; }
 };
 
 // INSERT INTO 表名 [(列清单)] VALUES (值列表)

@@ -433,6 +433,12 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt)
         b->table = ds.table_name();
         return b;
     }
+    case StmtKind::CreateSchema: {
+        DB_RAISE(db::ErrCode::NotImplemented, LogModule::ANALYZER, "暂不支持: CREATE SCHEMA");
+    }
+    case StmtKind::DropSchema: {
+        DB_RAISE(db::ErrCode::NotImplemented, LogModule::ANALYZER, "暂不支持: DROP SCHEMA");
+    }
     case StmtKind::Insert: {
         const auto& is = static_cast<const InsertStmt&>(stmt);
         check_reserved_table(is.table_name());
