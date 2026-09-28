@@ -2,20 +2,20 @@
 
 ## 1. 目标与范围
 
-本模块为 my_simple_db 提供"数据落盘 + 按主键定位"的物理存储能力，技术上采用 **B+ 树聚簇索引** 路线（InnoDB 风格，简化版）。
+本模块为 my_simple_db 提供"数据落盘 + 按索引定位"的物理存储能力，技术上采用 **堆表 + B+ 树二级索引** 路线（PostgreSQL 风格，简化版）：行数据存堆页，索引条目以 (列值, 行物理位置) 记录定位，查得后回表读堆。
 
 范围：
 
-- 表/列的元数据持久化（元数据表 catalog）
-- 行数据的持久化：插入、按 rowid 点查、全表扫描
-- 索引：隐式 rowid 为聚簇键的 B+ 树
+- 表/列/索引的元数据持久化（元数据表 catalog）
+- 行数据的持久化：插入、删除、全表扫描
+- 索引：二级 B+ 树（本次接入存储层；文法与执行器接入见 §11）
 - 崩溃恢复：WAL + 检查点
 
 不在本设计范围内：
 
-- 执行器（将来连接 parser 与 storage 的中间层）
+- CREATE/DROP INDEX 文法与索引访问路径选择（§11 规划，M5 实现）
+- 多列复合索引（后续里程碑）
 - 复杂并发控制（MVCC 列为后续里程碑）
-- SELECT 等未进文法的新语法
 
 ## 2. 总体架构
 
@@ -31,8 +31,8 @@ src/storage(静态库 storage)
    ├── types.h         ColType/Value/Schema/TableMeta/RowId
    ├── codec.h/.cpp    行序列化/反序列化
    ├── page.h          页头与槽(Slot)内存布局
-   ├── file_manager    每表一个文件的读写原语(pread/pwrite)
-   ├── buffer_pool     页缓存, LRU/Clock 淘汰
+   ├── file_manager    每表/每索引文件的读写原语(pread/pwrite)
+   ├── buffer_pool     页缓存, Clock 淘汰
    ├── btree           B+ 树(叶/内节点, 查找/插入/分裂)
    ├── wal             追加式日志, 检查点
    └── recovery        启动时崩溃恢复
@@ -50,177 +50,85 @@ namespace st {
 Status create_table(std::string_view name, const std::vector<ColumnSpec>& cols);
 Status drop_table(std::string_view name);
 
-// 插入一行, 返回分配的 rowid
+// 建索引: 建索引文件 + 全表扫描回填 + 写 db_index 元数据行
+Status create_index(std::string_view table, std::string_view col, std::string_view index_name);
+Status drop_index(std::string_view index_name);
+
+// 插入一行: 堆页追加 + 该表全部索引的条目插入, 返回分配的 rowid
 Status insert(std::string_view table, const std::vector<Value>& row, RowId* rid);
 
-// 点查: 按 rowid 走 B+ 树; 未实现索引前为全表扫描
-Status point_get(std::string_view table, RowId rid, Row* out);
+// 索引扫描: 键区间 [lo, hi) 沿叶子链前进, 迭代产出 RowRef, 回表取整行
+Scan*   index_scan(std::string_view index_name, const Value* lo, const Value* hi);
 
-// 顺序扫描: 叶子链向前扫描; 返回迭代器句柄
+// 全表扫描: 沿堆页链前进, 不经索引; 返回迭代器句柄
 Scan*   scan(std::string_view table);
 
 }
 ```
 
-`Storage` 内部成员：`BufferPool`、`FileManager`、`BTreeMgr`（每表一棵树）、`Wal`。所有修改先经 WAL 再改页（见 §9）。
+`Storage` 内部成员：`BufferPool`、`FileManager`、`BTreeMgr`（每索引一棵树）、`Wal`。所有修改先经 WAL 再改页（见 §9）。
 
 ## 3. 文件布局
 
-数据目录（运行时参数指定，如 `./data`）：
+数据目录（运行时参数指定，如 `./data`）：元数据表文件 t_1/t_2/t_3.dat（见 §6）、每表/每索引一个数据文件 t_<file_id>.dat（4KB 页流，页号从 0 起、文件内偏移 = 页号 × 页大小，第 0 页为文件头页）、wal.log（M4，所有表与索引共享）。表文件与索引文件同构：表文件头页存 rowid 计数器，索引文件头页存 B+ 树根页号（§8）。文件级读写原语已实现（src/storage/file_manager.h）。
 
-```
-data/
-  t_1.dat/t_2.dat  元数据表文件(db_table/db_column), 见 §6
-  wal.log         WAL 日志(所有表共享)
-  t_<file_id>.dat  每表一个数据文件, 全部由 4KB 页组成
-```
-
-页号编码（按文件定位）：
-
-```
-page_id = struct { file_id:uint64, page_no:uint32 }
-```
-
-page_no 从 0 开始；文件内物理偏移 = `page_no * PAGE_SIZE`。数据文件第 0 页为"文件头页"（magic、版本、file_id、下一个空闲页链表头），之后是数据页。
-
-**每表独立文件**的好处：DROP TABLE = 直接删文件；单表调试/导出方便；页分配只看本地文件长度。单文件设计（SQLite/InnoDB tablespace）留给将来可选。
-
-页分配：
-
-- 新页：优先空闲页链表，空了就 `ftruncate` 扩展文件一个页
-- 释放：页标记 FREE，挂回空闲链表，链头记录在文件头页
+**每表/每索引独立文件**：DROP = 直接删文件；页分配只看本地文件长度，当前为文件尾追加。空闲页链表（释放页标记 FREE 挂回链表、链头记录在文件头页）为后续设计，接入后删除空间才可按页回收；单文件设计（SQLite/InnoDB tablespace）留给将来可选。
 
 ## 4. 页格式
 
-`PAGE_SIZE = 4096`。每页有公共页头：
-
-```cpp
-struct PageHeader {
-  uint32_t magic;      // 页魔数, 检测错位/垃圾页
-  uint8_t  type;       // PageType: FILE_HEADER / HEAP / BTREE_LEAF / BTREE_INTERNAL / FREE
-  uint8_t  pad[3];     // 对齐
-  uint16_t slot_count; // 当前记录数
-  uint16_t free_begin; // 行数据区起点(相对页首), 追加时从这里向下增长
-  uint16_t free_end;   // 槽数组起点, 新槽从这里向 free_begin 靠拢
-  uint32_t next_page;  // 链式堆页: 下一页页号(0 表示无)
-  uint32_t checksum;   // 全页 checksum(CRC32)
-};
-```
-
-页内布局（通用）：
-
-```
-[PageHeader][数据区 free_begin ────────────────→][槽数组 ← end][页尾]
-```
-
-槽项(Slot) 4 字节，从页尾向前生长：
-
-```cpp
-struct Slot {
-  uint16_t off;   // 记录相对页首偏移
-  uint16_t len;   // 记录长度
-};
-```
-
-记录何时算空闲：`free_end - free_begin` 即为空洞 + 尾部剩余。页内整理（compact）在删除后触发。
+`PAGE_SIZE = 4096`，页头/槽布局、堆页追加、墓碑删除、页校验和均已实现，字段与语义见 src/storage/page.h（页头 24B 定长，槽数组自页尾反向生长，槽指向数据区记录）。页内整理 compact 已实现但 DB 层未接入，删除空间暂不回用；FREE 页类型与空闲链表为后续设计（§3）。
 
 ## 5. 行格式与类型
 
-支持的列类型（与 parser 的字符串类型名映射）：
+列类型与记录编解码已实现（src/storage/codec.h）：int/bigint/float/double/char/varchar 六类，记录 = [长度 u16][NULL 位图][列数据区]（NULL 不占字节，char 定长补空格，varchar 长度前缀），单行约 4KB 上限不跨页，NOT NULL 列拒绝 NULL；其他类型（date/datetime/bool）后续按需加。
 
-| 类型名 | ColType | 存储 | 大小 |
-|---|---|---|---|
-| int | Int | int32 小端 | 4 |
-| bigint | BigInt | int64 小端 | 8 |
-| float | Float | IEEE754 单精度 | 4 |
-| double | Double | IEEE754 | 8 |
-| char(n) | Char | 定长 n 字节, 不足补空格(缺省 n=1) | n |
-| varchar(n) | VarChar | uint16 长度前缀 + 字节 | ≤ 65535 |
+- 页内定位用 `(page_id, slot_index)`，即 `RowRef`；二级索引条目以 `(列值编码, RowRef)` 定位行，回表按 RowRef 直读堆页（见 §8）
 
-其他类型（date/datetime/bool）后续按需加，每加一类只改 codec 的类型分派。
-
-记录（Record）序列化格式：
-
-```
-[记录长度 uint16][NULL 位图 ceil(列数/8) 字节][列数据区]
-列数据区 = 非 NULL 列依次排列: 固定类型 inline 累加 + varchar 各带长度前缀 + char 定长 n 字节无前缀
-```
-
-- 长度上限：`PAGE_SIZE - 页头 - 槽`，约 4000 字节；**超长行暂不支持**
-- NULL 以记录头位图表示(值层为 monostate)，NULL 列不占列数据区字节；NOT NULL 列由 insert 拒绝 NULL
-- 页内定位用 `(page_id, slot_index)`；B+ 树叶子用 rowid 定位
-
-rowid（§8 详述）：表内自增 int64，是聚簇索引键。叶子节点里 **payload 不含 rowid**，rowid 在节点的 key 数组里，由 B+ 树迭代器补成 `Row{rid, values}`。
+rowid：表内自增 int64，由表文件头页计数器分配并随 insert 返回；不参与索引定位（索引按 RowRef 物理定位，见 §8），保留作将来显式主键/逻辑行标识的基础。
 
 ## 6. 目录（元数据表）
 
-目录不是独立文件, 而是两张保留段元数据表, schema 硬编码引导, 不存于自身;
-目录逻辑位于 src/catalog(ct::Catalog), 存储引擎只提供须持锁的按 file_id 原语:
+目录不是独立文件, 而是保留段元数据表, schema 硬编码引导, 不存于自身; 目录逻辑位于 src/catalog(ct::Catalog), 存储引擎只提供须持锁的按 file_id 原语。db_table(table_id, table_name, file_id) 与 db_column(table_id, col_name, ordinal, type, length, not_null) 已实现: 元数据行为唯一事实来源, 无内存缓存, 查找实时全扫; create_table 先建数据文件再写元数据行, drop_table 反向; 引导与 open 校验见 catalog。
 
-- db_table(table_id, table_name, file_id): 每表一行, file_id 独立分配并决定数据文件名
-- db_column(table_id, col_name, ordinal, type, length, not_null): 每列一行
-
-读写规则:
-
-- 元数据行是目录唯一事实来源, 无内存缓存, 查找(表名→id、列定义)实时全扫两表
-- DDL: create_table 先建数据文件再写元数据行; drop_table 删元数据行并删数据文件
-- initdb 经 ct::Catalog::create 引导两表(含自描述行); open 以两表文件存在为准, 缺失即报错拒绝启动
+M3 新增第三张 db_index(table_id, index_name, col_ordinal, file_id): 每索引一行, 单列索引, col_ordinal 指向 db_column。DDL 规则: create_index 先建索引文件并全表回填再写元数据行, drop_index 反向, drop_table 连带删该表全部索引; 引导与 open 校验随之扩为三表。
 
 ## 7. 缓冲池 Buffer Pool
 
-目标：屏蔽磁盘 IO，让 btree/heap 只操作内存页。
+已实现（src/storage/buffer_pool.h）：定长帧数组（默认 128）+ Clock 淘汰 + pin 引用计数，read/allocate/unpin/mark_dirty/flush 原语；pin > 0 的帧不可淘汰；数据页校验失败按尾部截断重建空页，文件头页校验失败报错；内部不加锁，串行化由上层全局锁保证（§10）。
 
-```
-frame = { page_id, char data[PAGE_SIZE], dirty, pin_count, page_lsn }
-BufferPool:
-  frame 数组(容量可配, 默认 128)
-  page_id → frame 索引 哈希表
-  Clock/LRU 淘汰器, 时钟指针
-```
+M4 接入 WAL 时帧增加 page_lsn，脏页落盘前确认覆盖该 LSN 的日志已 fsync（write-ahead 不变量，见 §9）。
 
-接口（简化）：
+## 8. B+ 树（二级索引）
 
-```cpp
-Page* read(page_id);      // pin +1; 未命中则从文件载入(淘汰一个 unpin 干净页或写回 dirty页)
-Page* allocate(page_id);  // 取一个空闲页(新页或 FREE 链表), 清零
-void  flush(page_id);     // 写盘(GROUP_COMMIT 前断言 WAL 已刷过本页 LSN, 见 §9)
-void  unpin(Page*);       // pin -1, 到达 0 后进入可淘汰区
-```
+每索引一棵 B+ 树，存于独立索引文件（t_<file_id>.dat，页 0 文件头页存根页号）。树内只有索引条目，行数据始终在堆页：堆是表，树是路标。
 
-要点：
+条目与比较序：
 
-- pin 数 > 0 的页不可被淘汰，保护正在被 btree 使用的页
-- 脏页淘汰前回调 `wal::flushed(p->lsn)` 确认对应日志已落盘（write-ahead 不变量）
-- 缓冲池整体一把 `std::mutex`；页内容本身的串行化由上层（§10 锁模型）保证，页级闩锁留到并发里程碑
+- 单元格 = [键: 索引列值的序保持字节编码][行定位: RowRef(页号 u32 + 槽 u16)]
+- 全序 = 先按键字节序，同键按 RowRef 数值序；(键, RowRef) 全局唯一（堆槽不复用，RowRef 不撞键），插入无键冲突
+- 路由与分裂按完整复合序，分隔键取右页首条目的复合键，同键多行跨分隔键不丢失
 
-## 8. B+ 树（聚簇索引，数据即叶子）
+键编码（首期定长数值列 int/bigint/float/double，编码后统一 8B）：
 
-每表一棵 B+ 树，键 = 该表 rowid（int64），值 = 完整行记录。叶子页存数据，内节点存键 + 子页指针。**所有数据都在叶子里**，这就是"聚簇"。
+- 整型：最高符号位翻转，无符号字节序即有符号数值序
+- 浮点：IEEE754 正数翻符号位、负数按位取反，字节序即数值序
+- char/varchar 变长键延后（M6）：届时叶/内节点改单元格布局或做键前缀截断
 
-叶子页布局（槽目录式，支持变长 payload）：
+页布局与插入/分裂/点查/叶子链扫描已在 src/storage/btree.cpp 实现（int64 单键、键去重）。接入索引的改造点：叶子单元格从 [键 8B][payload] 换成 [键 8B][RowRef 6B]，内节点键数组步长 8B → 14B，比较函数换复合序并放开同键去重；槽序即 (键, RowRef) 序，`next_page` 单向成链，分裂（分隔键上提）与根增高流程不变。内节点路由语义：c_0 子树 < k_0；c_i 子树 ∈ [k_{i-1}, k_i)；c_m 子树 ≥ k_{m-1}。
 
-```
-[PageHeader][key 数组: key_0...key_{n-1}, 每个 8B, 从 free_begin 向后]
-[自由区: 记录 payload 从 free_end 方向分配]
-[slot 数组: slot_i 指向 payload_i]
-```
+查找与回表：
 
-- key 数组定长定序 → 记录少时也可以二分查找
-- payload 变长 → 槽指向
-- `next_page/prev_page` 承接叶子右/左兄弟，形成有序双向链表，scan 沿 next_page 前进
+- 等值：下探到叶后二分定位键下界，沿槽扫过全部键相等条目，逐条回表
+- 范围：定位键下界后沿叶子链前进，越过上界即止
+- 回表：RowRef → buffer_pool 读堆页取槽解码；槽为墓碑则跳过（索引条目滞后于堆删除，见 §13）
 
-内节点布局（定长，纯索引）：
+维护：
 
-```
-[PageHeader][keys: k_0..k_{m-1}][children: c_0..c_{m-1}]
-语义: c_0 子树 < k_0; c_i 子树 ∈ [k_{i-1}, k_i); c_{m-1} 子树 ≥ k_{m-1}
-```
+- insert：堆页追加得 RowRef → 编码索引列值 → 该表各索引树插入条目
+- delete：首期不删索引条目，堆墓碑 + 回表校验兜底；条目物理清理与下溢合并一并延后（M6，涉及兄弟页锁，先不做）
+- create_index：持全局锁全表扫描堆页，逐行以 (列值, RowRef) 插入树
 
-插入时执行标准 B+ 树流程：定位叶 → 二分插入 key/slot → 页满分裂（从中间取分割点，key 上提）→ 内节点满了继续向上分裂 → 根满则增高一层。分裂点取 `slot_count/2`。
-
-删除/下溢合并：**M3 暂不实现**，删除只做 slot 标记 + 页内 compact，空洞页最后按整页耗尽回收；孤儿记录靠叶子内排序保证 scan 正确。下溢合并放入后续里程碑（涉及兄弟页锁，先不做）。
-
-性能预期（学习目标，非优化目标）：点查 O(log n) 页 IO，范围查询命中页数 = 数据页数。
+性能预期（学习目标，非优化目标）：等值查找 O(log n) 页 IO + 每命中行回表 1 页；范围查询页 IO ∝ 命中条目数；全表扫描走堆页链，不经索引。
 
 ## 9. WAL 与崩溃恢复
 
@@ -236,6 +144,8 @@ WHY: B+ 树原地改写页 + 缓冲池延迟写盘（性能），若不做日志
   OP_PAGE_PATCH   [offset uint32][len uint16][字节]   # 物理重做, 直接补页区域
   OP_CREATE_TABLE [name 长度前缀 + name][schema...]
   OP_DROP_TABLE   [file_id uint64]
+  OP_CREATE_INDEX [name 长度前缀 + name][table_id][col_ordinal][file_id]
+  OP_DROP_INDEX   [file_id uint64]
   OP_CHECKPOINT   (仅出现在日志头部位置)
 ```
 
@@ -256,7 +166,7 @@ insert:
 
 1. 读取元数据表
 2. 打开 wal.log；若头部 `start_lsn` 有效且日志非空 → 从该 LSN 起顺序扫描重放：
-   - OP_CREATE_TABLE / OP_DROP_TABLE：重放元数据行变化
+   - OP_CREATE_TABLE / OP_DROP_TABLE / OP_CREATE_INDEX / OP_DROP_INDEX：重放元数据行变化
    - OP_PAGE_PATCH：读页，若 `页.page_lsn < 记录LSN` 且页当前存在（表未被后续 DROP）→ 应用字节补丁、置 page_lsn，标记脏
    - 日志尾部不完整（无 OP_PAGE_PATCH 全长）→ 截断丢弃，属正常崩溃边界
 3. 回放结束后 flush 脏页、写检查点、清空日志
@@ -272,24 +182,39 @@ insert:
 当前 server 每客户端一线程，多线程并发会同时打 storage。正确性优先，按此顺序演化：
 
 - **M1~M4（本次范围）**：`Storage` 内一把数据库级 `std::mutex` 串行化所有写；scan 持有页 pin。模型等价单写多读（读也串行，量小无影响）。WAL 的 txn_id 恒为 0，无冲突。
-- **M5（后续）**：表级 `std::shared_mutex`（scan 共享、insert 独占）→ 缓冲池页帧闩锁 + B+树锁耦合（latch coupling）→ MVCC（行头加版本字段，读快照）。行格式届时按需扩展，不做兼容。
+- **M7（后续）**：表级 `std::shared_mutex`（scan 共享、insert 独占）→ 缓冲池页帧闩锁 + B+树锁耦合（latch coupling）→ MVCC（行头加版本字段，读快照）。行格式届时按需扩展，不做兼容。
 
-## 11. 实施里程碑
+## 11. SQL 链路接入（M5，规划）
+
+存储层索引就位后，文法与执行器按下述接入；本节为规划，暂不实现：
+
+- 文法（parser）：`CREATE [UNIQUE] INDEX name ON table (col);` 与 `DROP INDEX name;`，单列，语句风格随现有 DDL
+- 语义分析（analyzer）：绑定表/列存在性；索引列类型须属于当前键支持集；索引名经 db_index 查重；UNIQUE 标志届时按需加字段记入 db_index
+- 计划（planner）：现有 Project[Filter[SeqScan]] 之上，Filter 含 `col θ const`（θ ∈ =, <, ≤, >, ≥, BETWEEN）且该列有索引时，生成 IndexScan{键下界, 上界} 替换 SeqScan 并摘除该谓词，其余谓词留在 Filter；无适用索引维持 SeqScan（访问路径选择，非降级）
+- 执行（executor）：IndexScan 迭代 = 树范围扫描 → 回表取整行 → 堆槽墓碑跳过 → 残余 Filter 过滤 → 上抛 Project；UNIQUE 索引在 insert 前对键做等值预查，命中非墓碑行即拒绝
+- 依赖方向不变：executor 经 catalog 新增门面（create_index/drop_index/索引扫描原语）访问存储层
+
+## 12. 实施里程碑
 
 | 阶段 | 内容 | 完成后可做 |
 |---|---|---|
 | M1 | types/codec/page 布局；file_manager 按页读写；buffer_pool；元数据表引导；heap 追加写 + 全扫描(无索引)；重启读回 | CREATE/DROP/INSERT 持久化，重启数据还在 |
-| M2 | 空闲页链表；删除(标记+compact)；页 checksum 校验读盘 | DELETE 行、碎片整理 |
-| M3 | B+树叶子+内节点、插入/分裂、按 rowid 点查、叶子链 scan；行内不再带 rowid | point_get、有序全表扫描 |
-| M4 | WAL + checkpoint + recovery，接入 buffer_pool 刷盘判定 | 抗崩溃，事务提交语义 |
-| M5(可选) | 表级锁 → 页闩锁 → MVCC | 并发读/写正确性 |
+| M2 | 删除(墓碑标记)；页 checksum 校验读盘 | DELETE 行 |
+| M3 | 存储层二级索引：db_index 元数据表、索引文件生命周期、insert 双写、等值/范围查找与回表、建索引回填；键限 int/bigint/float/double 定长编码 | 存储层可建/维护/查询索引 |
+| M4 | WAL + checkpoint + recovery，接入 buffer_pool 刷盘判定（含索引页补丁与索引 DDL 记录） | 抗崩溃，事务提交语义 |
+| M5 | SQL 链路：CREATE/DROP INDEX 文法与绑定、planner 索引选择、IndexScan 执行、UNIQUE 索引（见 §11） | 客户端可建/用索引 |
+| M6 | 索引全类型键（char/varchar 变长编码，节点单元格布局）；条目删除与下溢合并；空闲页链表与 vacuum | varchar 索引、空间回收 |
+| M7(可选) | 表级锁 → 页闩锁 → MVCC | 并发读/写正确性 |
 
 每阶段独立可编译、可测试、可回滚。M1 不引入 WAL，崩溃恢复靠"长度前缀 + 页 checksum 截断检测"，数据按追加式可丢失尾部为准，属于可接受的简化，M4 兑现完整正确性。
 
-## 12. 简化项与已知限制
+## 13. 简化项与已知限制
 
 - 超长行（>约 4000B）不支持，varchar(n) 需 n ≤ 4000
-- B+ 树删除不做下溢合并（标记删除 + compact）
-- 无主键约束（用隐式 rowid 聚簇；grammar 支持 PRIMARY KEY 后，加"主键 → rowid"二级索引，主键 B+树不变）
+- 索引键首期限 int/bigint/float/double 定长编码，char/varchar 变长键 M6
+- 索引条目删除未实现：DELETE 只做堆墓碑，索引条目滞留靠回表校验过滤；物理清理与下溢合并 M6
+- M4（WAL）之前堆与索引双写无崩溃原子性：崩溃可致索引缺条目（等值查询漏行，堆链全表扫描不受影响）或悬空条目（回表按页损坏报错），重建索引可修复
+- 仅单列索引，多列复合索引后续里程碑
+- 无显式主键/唯一约束；rowid 照常分配但不参与定位，PRIMARY KEY/UNIQUE 于 M5 经索引落地
 - 事务仅自动提交；无 MVCC
 - 单文件单一目录，数据库互斥，未做多库
