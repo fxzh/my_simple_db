@@ -159,3 +159,29 @@ add_test(NAME sql_lexer_string COMMAND test_sql
     ${SQL_CASES_DIR}/lexer/cases/lexer_string.sql
     ${SQL_CASES_DIR}/lexer/expected/lexer_string.out)
 set_tests_properties(sql_lexer_string PROPERTIES FIXTURES_REQUIRED SRV_UP)
+
+# L2 e2e: client -f 文件执行入口, Ok 复用 lexer 用例与预期, 其余三项连接前报错无需 server
+add_executable(test_sqlfile e2e/sqlfile/test_sqlfile.cpp)
+target_link_libraries(test_sqlfile PRIVATE test_common GTest::gtest)
+target_compile_definitions(test_sqlfile PRIVATE MSDB_BIN_DIR="${PROJECT_BINARY_DIR}/bin")
+
+add_test(NAME sqlfile_ok COMMAND test_sqlfile
+    ${SQL_CASES_DIR}/lexer/cases/lexer_comment.sql
+    ${SQL_CASES_DIR}/lexer/expected/lexer_comment.out
+    --gtest_filter=SqlFile.Ok)
+set_tests_properties(sqlfile_ok PROPERTIES FIXTURES_REQUIRED SRV_UP)
+
+add_test(NAME sqlfile_bad_path COMMAND test_sqlfile
+    ${SQL_CASES_DIR}/lexer/cases/lexer_comment.sql
+    ${SQL_CASES_DIR}/lexer/expected/lexer_comment.out
+    --gtest_filter=SqlFile.BadPath)
+
+add_test(NAME sqlfile_empty COMMAND test_sqlfile
+    ${SQL_CASES_DIR}/lexer/cases/lexer_comment.sql
+    ${SQL_CASES_DIR}/lexer/expected/lexer_comment.out
+    --gtest_filter=SqlFile.Empty)
+
+add_test(NAME sqlfile_conflict COMMAND test_sqlfile
+    ${SQL_CASES_DIR}/lexer/cases/lexer_comment.sql
+    ${SQL_CASES_DIR}/lexer/expected/lexer_comment.out
+    --gtest_filter=SqlFile.Conflict)

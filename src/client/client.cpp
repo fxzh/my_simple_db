@@ -1,4 +1,5 @@
 #include <format>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -219,6 +220,26 @@ void process_input(std::string& input)
     lexer->yylex();
 }
 
+// 批处理模式(-c/-f): 逐行送扫描器按 ';' 逐条发送, 末尾无 ';' 的残留缓冲补上终结符后发送,
+// 关闭连接并按执行结果定退出码
+int run_batch(std::istream& input)
+{
+    std::string line;
+    while (std::getline(input, line)) {
+        // -a 逐行回显非空原始输入
+        if (echo_all && !line.empty()) {
+            std::cout << line << std::endl;
+        }
+        process_input(line);
+    }
+    if (!sql_buffer.empty()) {
+        append_to_sql(";", 1);
+        send_to_server();
+    }
+    close(sock);
+    return sql_failed ? 1 : 0;
+}
+
 int main(int argc, char* argv[])
 {
     struct sockaddr_in serv_addr;
@@ -228,6 +249,20 @@ int main(int argc, char* argv[])
         return -1;
     }
     echo_all = opts.echo_all;
+
+    // -f 载荷在连接前校验, 打开失败或空文件立即报错
+    std::ifstream sql_file;
+    if (!opts.sql_file.empty()) {
+        sql_file.open(opts.sql_file);
+        if (!sql_file) {
+            std::cerr << "错误: 无法打开SQL文件: " << opts.sql_file << std::endl;
+            return -1;
+        }
+        if (sql_file.peek() == std::char_traits<char>::eof()) {
+            std::cerr << "错误: SQL文件为空: " << opts.sql_file << std::endl;
+            return -1;
+        }
+    }
 
     // 创建socket
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -251,8 +286,8 @@ int main(int argc, char* argv[])
         return -1;
     }
 
-    // -c 模式面向脚本执行, 不打印交互横幅
-    if (opts.sql.empty()) {
+    // 批处理模式(-c/-f)面向脚本执行, 不打印交互横幅
+    if (opts.sql.empty() && opts.sql_file.empty()) {
         std::cout << "已连接到服务器！" << std::endl;
         std::cout << "输入消息发送给服务器，输入 'quit' 或 'exit' 退出" << std::endl;
         std::cout << "==========================================" << std::endl;
@@ -261,23 +296,13 @@ int main(int argc, char* argv[])
     // 连接成功后创建扫描器, 供每行输入复用
     lexer = std::make_unique<yyFlexLexer>(nullptr, nullptr);
 
-    // -c 模式: 整段输入按 ';' 逐条发送, 末尾无 ';' 的残留缓冲补上终结符后发送, 按执行结果定退出码
+    // 批处理模式: -c 用参数文本, -f 用文件流, 逐条执行后退出
     if (!opts.sql.empty()) {
         std::istringstream payload(opts.sql);
-        std::string line;
-        while (std::getline(payload, line)) {
-            // -a 逐行回显非空原始输入
-            if (echo_all && !line.empty()) {
-                std::cout << line << std::endl;
-            }
-            process_input(line);
-        }
-        if (!sql_buffer.empty()) {
-            append_to_sql(";", 1);
-            send_to_server();
-        }
-        close(sock);
-        return sql_failed ? 1 : 0;
+        return run_batch(payload);
+    }
+    if (sql_file.is_open()) {
+        return run_batch(sql_file);
     }
 
     // 持续发送和接收消息

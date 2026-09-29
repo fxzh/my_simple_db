@@ -55,6 +55,16 @@ static bool parse_sql(std::string_view value, Options& opts)
     return true;
 }
 
+static bool parse_sql_file(std::string_view value, Options& opts)
+{
+    if (value.empty()) {
+        std::cerr << "错误: SQL文件路径为空" << std::endl;
+        return false;
+    }
+    opts.sql_file.assign(value);
+    return true;
+}
+
 // -a 无值选项, 置位回显开关
 static bool parse_echo(std::string_view, Options& opts)
 {
@@ -66,6 +76,7 @@ static const OptionSpec kOptions[] = {
     {"-p", "端口号", true, parse_port},
     {"-h", "主机地址", true, parse_host},
     {"-c", "SQL文本", true, parse_sql},
+    {"-f", "SQL文件", true, parse_sql_file},
     {"-a", "回显原始SQL", false, parse_echo},
 };
 
@@ -131,6 +142,13 @@ bool parse_args(int argc, char* argv[], Options& opts)
             return false;
         }
         seen[index] = true;
+    }
+
+    // -c 与 -f 互斥, 批处理载荷只允许一种来源
+    if (!opts.sql.empty() && !opts.sql_file.empty()) {
+        std::cerr << "错误: 不能同时指定 SQL文本 与 SQL文件" << std::endl;
+        print_usage(argv[0]);
+        return false;
     }
     return true;
 }
