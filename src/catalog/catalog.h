@@ -2,6 +2,7 @@
 #ifndef CATALOG_CATALOG_H
 #define CATALOG_CATALOG_H
 
+#include <atomic>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -12,7 +13,8 @@
 
 namespace ct {
 
-// id 保留段: 1~20000 留给系统元数据对象(table_id/file_id/schema_id 共用), 用户对象从 20001 起分配
+// id 保留段: 1~20000 留给系统元数据对象(table_id/schema_id 共用), 用户 table_id 从 20001 起分配
+// file_id 不走保留段: open() 扫 db_table 取现存最大值作起点递增, 用户文件 id 可与保留段数值重叠
 constexpr uint64_t kReservedMaxTableId = 20000;
 constexpr uint64_t kFirstUserTableId = 20001;
 
@@ -60,9 +62,9 @@ public:
     st::TableMeta table_meta(const std::string& name);
 
 private:
-    // 建表公共路径(须持锁): 校验后按指定 table_id/file_id 建数据文件、写元数据行
+    // 建表公共路径(须持锁): 校验后按指定 table_id 建数据文件、写元数据行, file_id 内部分配
     uint64_t create_table_impl(const std::string& name, const std::vector<st::ColumnSpec>& cols,
-                               uint64_t tid, uint64_t fid);
+                               uint64_t tid);
     // 写入指定表的元数据行(须持锁): db_table 一行, db_column 每列一行, 引导与建表共用
     void write_meta_rows(uint64_t sid, uint64_t tid, uint64_t fid, const std::string& name,
                          const std::vector<st::ColumnSpec>& cols);
@@ -79,12 +81,13 @@ private:
     bool file_id_exists(uint64_t file_id);
     // 用户段 table_id 分配(须持锁): max(当前最大表 id + 1, kFirstUserTableId)
     uint64_t alloc_table_id();
-    // 用户段 file_id 分配(须持锁): max(当前最大文件 id + 1, kFirstUserTableId)
+    // file_id 分配: 原子自增返回, 依赖 open() 扫描初始化
     uint64_t alloc_file_id();
 
     std::string dir_;
     st::Engine engine_;   // 文件引擎, 原语经本类持锁调用
     std::mutex mutex_;   // 序列化所有复合操作(并发演化见存储设计文档 §10)
+    std::atomic<uint64_t> next_file_id_{0};   // 下一个 file_id, open() 扫 db_table 取最大值+1 初始化
 };
 
 }  // namespace ct

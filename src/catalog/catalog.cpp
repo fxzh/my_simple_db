@@ -121,6 +121,12 @@ void Catalog::open()
         DB_RAISE(db::ErrCode::CatalogMissing, LogModule::CATALOG, "数据目录未初始化: {}", dir_);
     }
     engine_.open();
+    // 此处先于客户端线程, 不持锁; 扫 db_table 取现存最大 file_id 作分配起点
+    int64_t max_id = 0;
+    for (const std::vector<st::Value>& row : engine_.read_rows(kTableMetaId, table_meta_cols())) {
+        max_id = std::max(max_id, row_int(row, 2));
+    }
+    next_file_id_.store(static_cast<uint64_t>(max_id) + 1);
 }
 
 void Catalog::close()
@@ -138,12 +144,11 @@ st::TableMeta Catalog::table_meta(const std::string& name)
 uint64_t Catalog::create_table(const std::string& name, const std::vector<st::ColumnSpec>& cols)
 {
     std::lock_guard<std::mutex> lock(mutex_);
-    return create_table_impl(name, cols, alloc_table_id(), alloc_file_id());
+    return create_table_impl(name, cols, alloc_table_id());
 }
 
 uint64_t Catalog::create_table_impl(const std::string& name,
-                                    const std::vector<st::ColumnSpec>& cols, uint64_t tid,
-                                    uint64_t fid)
+                                    const std::vector<st::ColumnSpec>& cols, uint64_t tid)
 {
     if (name.empty()) {
         DB_RAISE(db::ErrCode::InvalidDdl, LogModule::CATALOG, "表名为空");
@@ -170,6 +175,7 @@ uint64_t Catalog::create_table_impl(const std::string& name,
         }
     }
 
+    const uint64_t fid = alloc_file_id();
     // 先建数据文件, 再写元数据行, 保证元数据可见时数据文件必有效
     engine_.init_table_file(fid);
     write_meta_rows(kSystemSchemaId, tid, fid, name, cols);
@@ -314,15 +320,10 @@ uint64_t Catalog::alloc_table_id()
             std::max(max_id + 1, static_cast<int64_t>(kFirstUserTableId)));
 }
 
-// 用户段 file_id 分配(须持锁): max(当前最大文件 id + 1, kFirstUserTableId)
+// file_id 分配: 原子自增返回, 依赖 open() 扫描初始化
 uint64_t Catalog::alloc_file_id()
 {
-    int64_t max_id = 0;
-    for (const std::vector<st::Value>& row : engine_.read_rows(kTableMetaId, table_meta_cols())) {
-        max_id = std::max(max_id, row_int(row, 2));
-    }
-    return static_cast<uint64_t>(
-            std::max(max_id + 1, static_cast<int64_t>(kFirstUserTableId)));
+    return next_file_id_.fetch_add(1);
 }
 
 void Catalog::drop_table(const std::string& name)
