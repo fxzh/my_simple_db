@@ -20,7 +20,7 @@
 #include <unistd.h>
 #include <arpa/inet.h>
 #include "common/err.h"
-#include "config.h"
+#include "config/config.h"
 #include "log/log.h"
 #include "catalog.h"
 #include "session.h"
@@ -96,10 +96,9 @@ int main(int argc, char* argv[])
     std::string data_dir = data_dir_abs.string();
 
     // 加载配置文件 db.conf(位于数据目录内), 日志未初始化, 报错只走控制台
-    config::Config cfg;
     std::string config_path = config::conf_path(data_dir);
     std::string config_error;
-    if (!config::load(config_path, cfg, config_error)) {
+    if (!config::load(config_path, config_error)) {
         std::cerr << config_error << std::endl;
         if (!std::filesystem::exists(config_path)) {
             std::cout << "配置文件不存在, 请先运行 initdb -D " << data_dir << std::endl;
@@ -108,9 +107,9 @@ int main(int argc, char* argv[])
     }
     std::cout << "已加载配置文件: " << config_path << std::endl;
 
-    std::string ctl_sock = cfg.control_socket.empty()
+    std::string ctl_sock = config::cfg.control_socket.empty()
         ? (data_dir_abs / "server.sock").string()
-        : std::filesystem::absolute(cfg.control_socket).string();
+        : std::filesystem::absolute(config::cfg.control_socket).string();
 
     // 日志文件与 pidfile 都在数据目录内
     std::string log_path = (data_dir_abs / "simple.log").string();
@@ -171,7 +170,7 @@ int main(int argc, char* argv[])
 
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(static_cast<in_port_t>(cfg.port));
+    address.sin_port = htons(static_cast<in_port_t>(config::cfg.port));
 
     // 绑定socket到地址和端口
     if (bind(server_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
@@ -261,7 +260,7 @@ int main(int argc, char* argv[])
     }
 
     // 启动信息 LOG 必须在 fork 之后, 保证子进程内首次构造 Logger
-    LOG(INFO, SYSTEM, "服务器已启动, 监听端口 %d", cfg.port);
+    LOG(INFO, SYSTEM, "服务器已启动, 监听端口 %d", config::cfg.port);
 
     std::cout << "支持最多 " << MAX_CLIENTS << " 个客户端同时连接" << std::endl;
 

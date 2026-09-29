@@ -11,11 +11,14 @@ struct Config {
     std::string control_socket;  // 控制通道 socket 路径; 空串表示未配置, 缺省为数据目录/server.sock
 };
 
+// 全局配置变量: load() 写入, 启动后只读
+extern Config cfg;
+
 // 返回数据目录内 db.conf 路径
 std::string conf_path(const std::string& data_dir);
 
-// 从配置文件加载配置: 逐行解析, 未知/重复配置项、非法值、格式错误均报错返回 false
-bool load(const std::string& path, Config& cfg, std::string& error);
+// 从配置文件加载配置到全局变量 cfg: 逐行解析, 未知/重复配置项、非法值、格式错误均报错返回 false
+bool load(const std::string& path, std::string& error);
 
 }
 

@@ -6,7 +6,7 @@
 #include <system_error>
 
 #include "log/log.h"
-#include "server/config.h"
+#include "config/config.h"
 #include "catalog.h"
 
 namespace {

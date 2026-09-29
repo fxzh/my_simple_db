@@ -1,4 +1,4 @@
-#include "config.h"
+#include "config/config.h"
 
 #include <filesystem>
 #include <fstream>
@@ -8,6 +8,9 @@
 #include <system_error>
 
 namespace config {
+
+// 全局配置变量, 声明见 config.h
+Config cfg;
 
 namespace {
 
@@ -35,7 +38,7 @@ std::string conf_path(const std::string& data_dir)
     return (std::filesystem::path(data_dir) / kDbConfFile).string();
 }
 
-bool load(const std::string& path, Config& cfg, std::string& error)
+bool load(const std::string& path, std::string& error)
 {
     std::ifstream file(path);
     if (!file.is_open()) {

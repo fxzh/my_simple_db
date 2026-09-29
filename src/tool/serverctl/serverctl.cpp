@@ -12,7 +12,7 @@
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#include "server/config.h"
+#include "config/config.h"
 
 namespace {
 
@@ -31,10 +31,10 @@ bool exe_dir(std::string& dir, std::string& error)
 }
 
 // 控制通道路径解析: 与 server 启动解析规则保持一致
-std::string control_socket_path(const config::Config& cfg, const std::string& data_dir)
+std::string control_socket_path(const std::string& data_dir)
 {
-    if (!cfg.control_socket.empty()) {
-        return std::filesystem::absolute(cfg.control_socket).string();
+    if (!config::cfg.control_socket.empty()) {
+        return std::filesystem::absolute(config::cfg.control_socket).string();
     }
     return (std::filesystem::path(data_dir) / "server.sock").string();
 }
@@ -225,10 +225,9 @@ int main(int argc, char* argv[])
     // 数据目录统一转绝对路径, 与 server 解析规则保持一致
     std::string data_dir = std::filesystem::absolute(data_dir_arg).string();
 
-    config::Config cfg;
     std::string config_path = config::conf_path(data_dir);
     std::string config_error;
-    if (!config::load(config_path, cfg, config_error)) {
+    if (!config::load(config_path, config_error)) {
         std::cerr << "读取配置失败: " << config_error << std::endl;
         if (!std::filesystem::exists(config_path)) {
             std::cerr << "请先运行 initdb -D " << data_dir << std::endl;
@@ -236,7 +235,7 @@ int main(int argc, char* argv[])
         return 2;
     }
 
-    std::string sock_path = control_socket_path(cfg, data_dir);
+    std::string sock_path = control_socket_path(data_dir);
     std::string pidfile_path = (std::filesystem::path(data_dir) / "server.pid").string();
 
     if (cmd == "start") {

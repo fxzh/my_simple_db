@@ -7,9 +7,10 @@ executor 执行层静态库(executor)：先经 ana::analyze 绑定、pl::build �
 server   服务端可执行程序：多线程 TCP，-D <数据目录> 必选启动，读目录内 db.conf 配置端口与控制通道，sql_parser 分析后经 executor 执行，使用 log
 log      日志静态库：单例 + 异步写线程，输出 simple.log
 common    跨层错误库：DbError + DB_RAISE，源头报错记日志并抛结构化异常
+config    配置静态库：db.conf 逐项解析写入全局变量 cfg，零依赖
 proto    帧协议头文件(header-only)：长度前缀+消息类型，client 与 server 共用，无链接依赖
 storage  文件引擎静态库：堆页追加+全表扫描+二级索引原语(页/文件/缓冲池/编解码/B+树)，后续 WAL
 catalog  目录层静态库(catalog)：元数据表(db_table/db_column)逻辑与名字型门面，持全局锁组合引擎原语
 tool     独立工具
 
-依赖关系：server → parser、log、common、executor；executor → planner、analyzer、parser、catalog、storage、log、common(报错/告警)、proto(header-only)；planner → analyzer、log、common(报错/告警)；analyzer → parser、catalog、storage、log、common(报错/告警)；catalog → storage、log、common(报错/告警)；storage → log、common(报错/告警)；client 与 server 仅通过 TCP 帧协议(proto)交互
+依赖关系：server → parser、log、common、executor、config；executor → planner、analyzer、parser、catalog、storage、log、common(报错/告警)、proto(header-only)；planner → analyzer、log、common(报错/告警)；analyzer → parser、catalog、storage、log、common(报错/告警)；catalog → storage、log、common(报错/告警)；storage → log、common(报错/告警)；initdb/serverctl → config(initdb 另链 catalog)；client 与 server 仅通过 TCP 帧协议(proto)交互

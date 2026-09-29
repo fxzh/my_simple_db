@@ -1,12 +1,11 @@
 # 服务器可执行文件
 add_executable(server
-    config.cpp
     server.cpp
     session.cpp
 )
 
 # 链接 SQL 词法/语法解析库与执行层
-target_link_libraries(server PRIVATE sql_parser executor log common)
+target_link_libraries(server PRIVATE sql_parser executor log common config)
 
 # 平台特定的链接库
 if(WIN32)
