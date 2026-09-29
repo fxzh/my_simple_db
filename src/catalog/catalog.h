@@ -50,7 +50,7 @@ public:
     // 删表, 保留段表拒绝删除
     void drop_table(const std::string& name);
     st::RowId insert(const std::string& table, const std::vector<st::Value>& values);
-    // 删除单行(按扫描得到的物理位置), 无效/已删引用返回 0
+    // 删除单行(按扫描得到的物理位置), 已删引用返回 0, 无效引用报错
     size_t delete_by_ref(const st::RowRef& ref);
     // 删除表中全部行, 返回删除行数
     size_t delete_all(const std::string& table);
@@ -77,8 +77,6 @@ private:
     st::TableMeta find_table_meta(const std::string& name);
     // 表名是否已存在(须持锁): 全扫 db_table 匹配
     bool has_table_name(const std::string& name);
-    // file_id 是否已存在(须持锁): 全扫 db_table 匹配
-    bool file_id_exists(uint64_t file_id);
     // 用户段 table_id 分配(须持锁): max(当前最大表 id + 1, kFirstUserTableId)
     uint64_t alloc_table_id();
     // file_id 分配: 原子自增返回, 依赖 open() 扫描初始化

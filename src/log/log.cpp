@@ -85,6 +85,11 @@ void Logger::writerThreadFunc()
             if (log_file_.is_open()) {
                 log_file_ << log_line;
                 log_file_.flush();  // 立即刷新，确保日志及时写入
+                if (!log_file_) {
+                    // 流状态粘滞, 清状态供后续重试, 本行转投 stderr
+                    log_file_.clear();
+                    std::cerr << log_line;
+                }
             }
 
             // 同时输出到控制台（可选）

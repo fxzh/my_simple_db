@@ -69,9 +69,9 @@ public:
     // 读取指定表全部存活行: 沿页链解码, 行损坏当场报错
     std::vector<std::vector<Value>> read_rows(uint64_t fid,
                                               const std::vector<ColumnSpec>& cols);
-    // 回表: 按行物理位置直读堆页取行, 墓碑/无效引用返回 false, 行损坏当场报错
+    // 回表: 按行物理位置直读堆页取行, 已删/槽位越界返回 false, 无效引用与行损坏当场报错
     bool read_row(const RowRef& ref, const std::vector<ColumnSpec>& cols, Row* out);
-    // 删除单行(按物理位置), 无效/已删引用返回 0
+    // 删除单行(按物理位置), 已删/槽位越界返回 0, 无效引用当场报错
     size_t delete_row(const RowRef& ref);
     // 清空指定表全部行, 返回删除行数
     size_t delete_all_rows(uint64_t fid);
@@ -98,6 +98,8 @@ private:
     BTree& tree_for(uint64_t fid);
     // 建首个数据页(页号 1)并链到文件头页, 返回新页号
     uint32_t link_header_to_first_data_page(uint64_t file_id);
+    // 校验行引用页位置: 缺页位置/页 0/页号越界当场报错
+    void check_row_ref(const RowRef& ref) const;
 
     std::string dir_;
     FileManager files_;

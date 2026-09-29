@@ -298,17 +298,6 @@ bool Catalog::has_table_name(const std::string& name)
     return false;
 }
 
-// file_id 是否已存在(须持锁): 全扫 db_table 匹配
-bool Catalog::file_id_exists(uint64_t file_id)
-{
-    for (const std::vector<st::Value>& row : engine_.read_rows(kTableMetaId, table_meta_cols())) {
-        if (static_cast<uint64_t>(row_int(row, 2)) == file_id) {
-            return true;
-        }
-    }
-    return false;
-}
-
 // 用户段 table_id 分配(须持锁): max(当前最大表 id + 1, kFirstUserTableId)
 uint64_t Catalog::alloc_table_id()
 {
@@ -349,10 +338,11 @@ size_t Catalog::delete_by_ref(const st::RowRef& ref)
 {
     std::lock_guard<std::mutex> lock(mutex_);
     if (ref.page == st::INVALID_PAGE) {
-        return 0;
+        DB_RAISE(db::ErrCode::Internal, LogModule::CATALOG, "删除引用缺少页位置");
     }
-    if (!file_id_exists(ref.page.file_id)) {
-        return 0;  // 表不存在
+    if (!engine_.table_file_exists(ref.page.file_id)) {
+        DB_RAISE(db::ErrCode::TableNotFound, LogModule::CATALOG, "删除引用指向不存在的表文件: fid={}",
+                 ref.page.file_id);
     }
     return engine_.delete_row(ref);
 }

@@ -157,7 +157,7 @@ TEST_F(StorageDb, ReopenLifecycle)
             EXPECT_EQ(db.delete_by_ref(first.ref), 1);
             EXPECT_EQ(db.row_count("t"), size_t{401});
             EXPECT_EQ(db.delete_by_ref(first.ref), 0);
-            EXPECT_EQ(db.delete_by_ref(RowRef{}), 0);
+            EXPECT_THROW(db.delete_by_ref(RowRef{}), std::runtime_error);
             bool seen = false;
             {
                 auto s2 = db.scan("t");
@@ -177,8 +177,14 @@ TEST_F(StorageDb, ReopenLifecycle)
             EXPECT_FALSE(s->next(&r));
         }
 
-        // drop 后目录不可见
+        // drop 后悬空引用删除报错, 目录不可见
+        Row victim;
+        {
+            auto s = db.scan("t");
+            EXPECT_TRUE(s->next(&victim));
+        }
         db.drop_table("t");
+        EXPECT_THROW(db.delete_by_ref(victim.ref), std::runtime_error);
         EXPECT_THROW(db.row_count("t"), std::runtime_error);
         db.close();
     }

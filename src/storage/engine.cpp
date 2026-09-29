@@ -178,25 +178,31 @@ std::vector<std::vector<Value>> Engine::read_rows(uint64_t file_id,
     return rows;
 }
 
-// 回表(须持锁): 按行物理位置直读堆页取行, 墓碑/无效引用返回 false, 行损坏当场报错
-bool Engine::read_row(const RowRef& ref, const std::vector<ColumnSpec>& cols, Row* out)
+// 校验行引用页位置(须持锁): 缺页位置/页 0/页号越界当场报错
+void Engine::check_row_ref(const RowRef& ref) const
 {
     if (ref.page == INVALID_PAGE) {
-        return false;
+        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "行引用缺少页位置");
     }
-    const uint64_t fid = ref.page.file_id;
-    const uint32_t no = ref.page.page_no;
-    if (no == 0) {
-        return false;  // 指向文件头页
+    if (ref.page.page_no == 0) {
+        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "行引用指向文件头页");
     }
-    uint32_t max_no = files_.page_count(fid) - 1;
-    auto tail = tail_pages_.find(fid);
+    const uint32_t pages = files_.page_count(ref.page.file_id);
+    uint32_t max_no = pages == 0 ? 0 : pages - 1;
+    auto tail = tail_pages_.find(ref.page.file_id);
     if (tail != tail_pages_.end() && tail->second > max_no) {
         max_no = tail->second;
     }
-    if (no > max_no) {
-        return false;  // 页号越界, 避免缓冲池补造空页
+    if (ref.page.page_no > max_no) {
+        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "行引用页号越界: fid={} page_no={}",
+                 ref.page.file_id, ref.page.page_no);
     }
+}
+
+// 回表(须持锁): 按行物理位置直读堆页取行, 已删/槽位越界返回 false, 无效引用与行损坏当场报错
+bool Engine::read_row(const RowRef& ref, const std::vector<ColumnSpec>& cols, Row* out)
+{
+    check_row_ref(ref);
     char* pg = pool_.read(ref.page, MAGIC_HEAP, files_);
     const PageHeader* ph = header(pg);
     if (ref.slot >= ph->slot_count || slot_tombstone(pg, ref.slot)) {
@@ -213,25 +219,10 @@ bool Engine::read_row(const RowRef& ref, const std::vector<ColumnSpec>& cols, Ro
     return true;
 }
 
-// 删除单行(须持锁): 按物理位置打墓碑, 无效/已删引用返回 0
+// 删除单行(须持锁): 按物理位置打墓碑, 已删/槽位越界返回 0, 无效引用当场报错
 size_t Engine::delete_row(const RowRef& ref)
 {
-    if (ref.page == INVALID_PAGE) {
-        return 0;
-    }
-    const uint64_t fid = ref.page.file_id;
-    const uint32_t no = ref.page.page_no;
-    if (no == 0) {
-        return 0;  // 指向文件头页
-    }
-    uint32_t max_no = files_.page_count(fid) - 1;
-    auto tail = tail_pages_.find(fid);
-    if (tail != tail_pages_.end() && tail->second > max_no) {
-        max_no = tail->second;
-    }
-    if (no > max_no) {
-        return 0;  // 页号越界, 避免缓冲池补造空页
-    }
+    check_row_ref(ref);
     char* pg = pool_.read(ref.page, MAGIC_HEAP, files_);
     const PageHeader* ph = header(pg);
     if (ref.slot >= ph->slot_count || slot_tombstone(pg, ref.slot)) {
