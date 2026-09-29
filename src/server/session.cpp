@@ -7,6 +7,7 @@
 #include <vector>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <unistd.h>
 #include <arpa/inet.h>
 #include "common/err.h"
@@ -167,6 +168,14 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
 // 受理一个新连接: 拒超限/建线程/入表
 void spawn_client(int new_socket, const struct sockaddr_in& address, ct::Catalog* db)
 {
+    // 关闭 Nagle, 回复帧即时发出
+    int nodelay = 1;
+    if (setsockopt(new_socket, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay)) != 0) {
+        LOG(WARNING, NETWORK, "设置 TCP_NODELAY 失败, 断开该连接");
+        close(new_socket);
+        return;
+    }
+
     // 检查是否达到最大客户端数
     {
         std::lock_guard<std::mutex> lock(clients_mutex);

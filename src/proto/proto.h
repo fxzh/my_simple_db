@@ -100,14 +100,16 @@ inline bool recv_frame(int fd, uint32_t max_payload, MsgType& type, std::string&
     return true;
 }
 
-// 发一帧
+// 发一帧: 帧头/类型/body 拼为整帧一次写出
 inline bool send_frame(int fd, MsgType type, const std::string& body)
 {
     const uint32_t len_net = htonl(1 + static_cast<uint32_t>(body.size()));
-    const unsigned char type_byte = static_cast<unsigned char>(type);
-    return send_exact(fd, &len_net, FRAME_HEADER_SIZE)
-        && send_exact(fd, &type_byte, 1)
-        && send_exact(fd, body.data(), body.size());
+    std::string frame;
+    frame.reserve(FRAME_HEADER_SIZE + 1 + body.size());
+    frame.append(reinterpret_cast<const char*>(&len_net), sizeof(len_net));
+    frame.push_back(static_cast<char>(type));
+    frame.append(body);
+    return send_exact(fd, frame.data(), frame.size());
 }
 
 // ==================== 结果集(ResultSet body 编解码) ====================

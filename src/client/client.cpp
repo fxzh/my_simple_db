@@ -7,6 +7,7 @@
 #include <vector>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <readline/readline.h>
@@ -287,6 +288,13 @@ int main(int argc, char* argv[])
     if (connect(sock, reinterpret_cast<sockaddr*>(&serv_addr), sizeof(serv_addr)) < 0) {
         std::cerr << "连接服务器失败" << std::endl;
         std::cerr << "请确保服务器已启动" << std::endl;
+        return -1;
+    }
+
+    // 关闭 Nagle, 语句帧即时发出
+    int nodelay = 1;
+    if (setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay)) != 0) {
+        std::cerr << "设置 TCP_NODELAY 失败" << std::endl;
         return -1;
     }
 
