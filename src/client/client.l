@@ -11,6 +11,7 @@
 %x COMMENT
 %x STRING_SINGLE
 %x STRING_DOUBLE
+%x COMMENT_BLOCK
 
 SPACE       [ \t\r\n]
 SEMICOLON   ;
@@ -28,6 +29,20 @@ MINUS       -
     \n {
         BEGIN(INITIAL);
         scanner_state = STATE_INITIAL;
+        append_to_sql(yytext, static_cast<std::size_t>(yyleng));
+    }
+}
+
+<COMMENT_BLOCK>{
+    "*"+"/" {
+        // 块注释结束
+        append_to_sql(yytext, static_cast<std::size_t>(yyleng));
+        BEGIN(INITIAL);
+        scanner_state = STATE_INITIAL;
+    }
+
+    [^*]+|"*"+ {
+        // 注释内容原样累积, 内部分号不触发切分
         append_to_sql(yytext, static_cast<std::size_t>(yyleng));
     }
 }
@@ -57,6 +72,13 @@ MINUS       -
         // 进入单行注释
         append_to_sql(yytext, static_cast<std::size_t>(yyleng));
         BEGIN(COMMENT);
+        scanner_state = STATE_COMMENT;
+    }
+
+    "/*" {
+        // 进入块注释
+        append_to_sql(yytext, static_cast<std::size_t>(yyleng));
+        BEGIN(COMMENT_BLOCK);
         scanner_state = STATE_COMMENT;
     }
 

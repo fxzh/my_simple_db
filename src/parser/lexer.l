@@ -7,13 +7,31 @@
 // C++ 扫描器: 词法状态全部存放于 SQLScanner 实例成员(见 sql_scanner.h),
 // 无模块级全局变量, 可与其他解析并发执行
 
-// 位置更新宏: 在每个token匹配时写入扫描器实例成员(与 yylloc/line/column 配套)
+// 位置更新宏: 在每个token匹配时写入扫描器实例成员(与 yylloc/line/column 配套),
+// 匹配文本内含换行时同步推进行列, 保证跨行 token(字符串/块注释)位置正确
 #define YY_USER_ACTION \
-    yylloc->begin.line = line; \
-    yylloc->begin.column = column; \
-    yylloc->end.line = line; \
-    yylloc->end.column = column + static_cast<unsigned>(yyleng); \
-    column += static_cast<unsigned>(yyleng);
+    { \
+        unsigned nl = 0; \
+        unsigned last_nl = 0; \
+        for (int i = 0; i < yyleng; ++i) { \
+            if (yytext[i] == '\n') { \
+                ++nl; \
+                last_nl = static_cast<unsigned>(i); \
+            } \
+        } \
+        yylloc->begin.line = line; \
+        yylloc->begin.column = column; \
+        if (nl == 0) { \
+            yylloc->end.line = line; \
+            yylloc->end.column = column + static_cast<unsigned>(yyleng); \
+            column = yylloc->end.column; \
+        } else { \
+            line += nl; \
+            yylloc->end.line = line; \
+            yylloc->end.column = static_cast<unsigned>(yyleng) - last_nl; \
+            column = yylloc->end.column; \
+        } \
+    }
 %}
 
 %option noyywrap
@@ -22,6 +40,8 @@
 %option c++
 %option yyclass="SQLScanner"
 %option case-insensitive
+
+%x COMMENT_BLOCK
 
 DIGIT    [0-9]
 ID       [a-zA-Z_][a-zA-Z0-9_]*
@@ -63,10 +83,30 @@ WS       [ \t\r]
     return yy::parser::token::INTEGER;
 }
 
-'[^'\n]*' {
-    // 去掉首尾引号
-    yylval->build<std::string>(std::string(yytext + 1, static_cast<std::size_t>(yyleng) - 2));
+'([^']|'')*' {
+    // 去掉首尾引号, 折叠 '' 转义为单个引号
+    std::string val;
+    for (int i = 1; i < yyleng - 1; ++i) {
+        val += yytext[i];
+        if (yytext[i] == '\'' && yytext[i + 1] == '\'') {
+            ++i;
+        }
+    }
+    yylval->build<std::string>(std::move(val));
     return yy::parser::token::STRING;
+}
+
+\"([^"]|\"\")*\" {
+    // 界定标识符: 去掉首尾引号, 折叠 "" 转义为单个引号
+    std::string val;
+    for (int i = 1; i < yyleng - 1; ++i) {
+        val += yytext[i];
+        if (yytext[i] == '"' && yytext[i + 1] == '"') {
+            ++i;
+        }
+    }
+    yylval->build<std::string>(std::move(val));
+    return yy::parser::token::IDENTIFIER;
 }
 
 {ID} {
@@ -83,12 +123,39 @@ WS       [ \t\r]
 }
 
 \n {
-    line++;
-    column = 1;
+    // 换行: 行列推进由 YY_USER_ACTION 统一处理
 }
 
 {WS}+ {
     // 忽略空白
+}
+
+"--"[^\n]* {
+    // 单行注释: 跳过
+}
+
+"/*" {
+    // 块注释开始
+    BEGIN(COMMENT_BLOCK);
+}
+
+<COMMENT_BLOCK>{
+    "*"+"/" {
+        // 块注释结束
+        BEGIN(INITIAL);
+    }
+
+    [^*]+|"*"+ {
+        // 注释内容: 跳过
+    }
+
+    <<EOF>> {
+        // 块注释未闭合即到达输入末尾
+        std::ostringstream oss;
+        oss << *yylloc << ": unterminated block comment";
+        *err_buf = oss.str();
+        return yy::parser::token::TOK_ERROR;
+    }
 }
 
 . {

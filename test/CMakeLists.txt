@@ -149,3 +149,13 @@ add_test(NAME sql_semantic_select COMMAND test_sql
     ${SQL_CASES_DIR}/semantic/cases/semantic_select.sql
     ${SQL_CASES_DIR}/semantic/expected/semantic_select.out)
 set_tests_properties(sql_semantic_select PROPERTIES FIXTURES_REQUIRED SRV_UP)
+
+add_test(NAME sql_lexer_comment COMMAND test_sql
+    ${SQL_CASES_DIR}/lexer/cases/lexer_comment.sql
+    ${SQL_CASES_DIR}/lexer/expected/lexer_comment.out)
+set_tests_properties(sql_lexer_comment PROPERTIES FIXTURES_REQUIRED SRV_UP)
+
+add_test(NAME sql_lexer_string COMMAND test_sql
+    ${SQL_CASES_DIR}/lexer/cases/lexer_string.sql
+    ${SQL_CASES_DIR}/lexer/expected/lexer_string.out)
+set_tests_properties(sql_lexer_string PROPERTIES FIXTURES_REQUIRED SRV_UP)
