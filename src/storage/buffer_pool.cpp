@@ -25,12 +25,18 @@ BufferPool::BufferPool(size_t capacity) : frames_(capacity) {}
 
 size_t BufferPool::find(PageId page) const
 {
-    for (size_t i = 0; i < frames_.size(); ++i) {
-        if (frames_[i].valid && frames_[i].page == page) {
-            return i;
-        }
+    const auto it = page_table_.find(page);
+    return it == page_table_.end() ? frames_.size() : it->second;
+}
+
+size_t BufferPool::frame_index(char* data) const
+{
+    // frames_ 定长不重分配, 数据指针差值除以帧大小即下标
+    const size_t idx = static_cast<size_t>(data - frames_.front().data) / sizeof(PageFrame);
+    if (idx >= frames_.size() || !frames_[idx].valid || frames_[idx].data != data) {
+        return frames_.size();
     }
-    return frames_.size();
+    return idx;
 }
 
 void BufferPool::write_back(PageFrame& f, FileManager& files)
@@ -44,7 +50,8 @@ void BufferPool::write_back(PageFrame& f, FileManager& files)
 
 size_t BufferPool::evict(FileManager& files)
 {
-    for (size_t i = 0; i < frames_.size(); ++i) {
+    // 扫最多两圈: 第一圈清引用位, 第二圈选牺牲帧; 两圈仍无 pin==0 帧才报错
+    for (size_t i = 0; i < 2 * frames_.size(); ++i) {
         const size_t idx = (clock_hand_ + i) % frames_.size();
         PageFrame& f = frames_[idx];
         if (f.pin > 0) {
@@ -55,6 +62,9 @@ size_t BufferPool::evict(FileManager& files)
             continue;
         }
         write_back(f, files);
+        if (f.valid) {
+            page_table_.erase(f.page);  // 有效帧才登记在页表
+        }
         f.valid = false;
         clock_hand_ = (idx + 1) % frames_.size();
         return idx;
@@ -78,6 +88,7 @@ char* BufferPool::read(PageId page, uint32_t expect_magic, FileManager& files)
     f.valid = true;
     f.ref = true;
     f.pin = 1;
+    page_table_.emplace(page, idx);
     files.read_page(page.file_id, page.page_no, f.data);
 
     if (!page_valid(f.data, expect_magic)) {
@@ -108,32 +119,29 @@ char* BufferPool::allocate(PageId page, FileManager& files)
     f.dirty = true;
     f.ref = true;
     f.pin = 1;
+    page_table_.emplace(page, idx);
     std::memset(f.data, 0, PAGE_SIZE);
     return f.data;
 }
 
 void BufferPool::unpin(char* data)
 {
-    for (auto& f : frames_) {
-        if (f.valid && f.data == data) {
-            if (f.pin > 0) {
-                --f.pin;
-            }
-            return;
-        }
+    const size_t idx = frame_index(data);
+    if (idx == frames_.size()) {
+        raise_error(db::ErrCode::Internal, "unpin 未命中的页");
     }
-    raise_error(db::ErrCode::Internal, "unpin 未命中的页");
+    if (frames_[idx].pin > 0) {
+        --frames_[idx].pin;
+    }
 }
 
 void BufferPool::mark_dirty(char* data)
 {
-    for (auto& f : frames_) {
-        if (f.valid && f.data == data) {
-            f.dirty = true;
-            return;
-        }
+    const size_t idx = frame_index(data);
+    if (idx == frames_.size()) {
+        raise_error(db::ErrCode::Internal, "mark_dirty 未命中的页");
     }
-    raise_error(db::ErrCode::Internal, "mark_dirty 未命中的页");
+    frames_[idx].dirty = true;
 }
 
 void BufferPool::flush(PageId page, FileManager& files)
@@ -157,14 +165,18 @@ void BufferPool::invalidate_all()
     for (auto& f : frames_) {
         f = PageFrame{};
     }
+    page_table_.clear();
     clock_hand_ = 0;
 }
 
 void BufferPool::drop_table(uint64_t file_id)
 {
-    for (auto& f : frames_) {
-        if (f.valid && f.page.file_id == file_id) {
-            f = PageFrame{};
+    for (auto it = page_table_.begin(); it != page_table_.end();) {
+        if (it->first.file_id == file_id) {
+            frames_[it->second] = PageFrame{};
+            it = page_table_.erase(it);
+        } else {
+            ++it;
         }
     }
 }

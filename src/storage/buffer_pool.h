@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <vector>
+#include <unordered_map>
 
 #include "file_manager.h"
 #include "types.h"
@@ -21,7 +22,17 @@ struct PageFrame {
     char data[PAGE_SIZE];
 };
 
-// 定长帧缓冲池, 按页号缓存整页
+// PageId 哈希: file_id 与 page_no 折叠混合
+struct PageIdHash {
+    size_t operator()(const PageId& p) const
+    {
+        uint64_t h = p.file_id;
+        h ^= static_cast<uint64_t>(p.page_no) + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2);
+        return static_cast<size_t>(h);
+    }
+};
+
+// 定长帧缓冲池, 按页号缓存整页, 经哈希页表查找
 // 并发由上层(Storage)的全局互斥锁保证, 内部不加锁
 class BufferPool {
 public:
@@ -61,10 +72,13 @@ public:
 
 private:
     size_t find(PageId page) const;
+    // 帧数据指针 -> 帧下标, 非本池帧返回 frames_.size()
+    size_t frame_index(char* data) const;
     size_t evict(FileManager& files);
     void write_back(PageFrame& f, FileManager& files);
 
     std::vector<PageFrame> frames_;
+    std::unordered_map<PageId, size_t, PageIdHash> page_table_;  // 有效帧的页表
     size_t clock_hand_ = 0;
 };
 

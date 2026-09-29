@@ -15,7 +15,7 @@ test    测试用例
 # 设计方案
 额外读取 ai_docs/design.md
 
-# 新增/修改测试用例
+# 新增/修改测试用例 / 手动测试
 读取 ai_docs/testcase.md
 
 # 构建与依赖
