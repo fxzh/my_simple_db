@@ -26,11 +26,12 @@ struct TypeInfo {
     std::optional<long long> length;
 };
 
-// 列定义: 列名 + 类型说明
+// 列定义: 列名 + 类型说明 + NOT NULL 约束
 struct ColumnDef {
     std::string name;
     DataType type;
     std::optional<long long> length;  // char/varchar 的声明长度, 未声明为 nullopt
+    bool not_null = false;  // NOT NULL 约束, 未声明即可空
 };
 
 // 类型名转文本, 带 (长度) 后缀: 供打印与日志使用
@@ -317,7 +318,11 @@ public:
         os << std::string(static_cast<std::size_t>(indent), ' ') << "CreateTable: " << table << std::endl;
         for (const auto& col : columns) {
             os << std::string(static_cast<std::size_t>(indent + 4), ' ') << col.name << " "
-               << type_to_string(col.type, col.length) << std::endl;
+               << type_to_string(col.type, col.length);
+            if (col.not_null) {
+                os << " NOT NULL";
+            }
+            os << std::endl;
         }
     }
 

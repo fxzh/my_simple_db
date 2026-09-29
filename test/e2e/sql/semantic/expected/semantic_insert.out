@@ -65,3 +65,28 @@ SELECT * FROM t_ic;
 (1 行)
 DROP TABLE t_ic;
 DROP
+CREATE TABLE t_sn (a int NOT NULL, b int, s varchar(4) not null);
+CREATE
+INSERT INTO t_sn VALUES (1, NULL, 'x');
+INSERT 1
+INSERT INTO t_sn VALUES (NULL, 1, 'x');
+ERROR: NOT NULL 列不允许 NULL: a
+INSERT INTO t_sn (b) VALUES (1);
+ERROR: NOT NULL 列不允许 NULL: a
+INSERT INTO t_sn (a, s) VALUES (1, NULL);
+ERROR: NOT NULL 列不允许 NULL: s
+INSERT INTO t_sn VALUES (1, 2);
+ERROR: 值的数量与列数不符
+INSERT INTO t_sn VALUES (2, NULL, 'y'), (NULL, 3, 'z');
+ERROR: NOT NULL 列不允许 NULL: a
+INSERT INTO t_sn VALUES (3, 4, 'ok'), (5, 6, 'no');
+INSERT 2
+SELECT * FROM t_sn;
+ a | b    | s
+---+------+----
+ 1 | NULL | x
+ 3 | 4    | ok
+ 5 | 6    | no
+(3 行)
+DROP TABLE t_sn;
+DROP

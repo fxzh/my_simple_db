@@ -86,7 +86,7 @@
 %type <std::vector<std::unique_ptr<Expr>>> value_list
 %type <std::vector<std::vector<std::unique_ptr<Expr>>>> values_rows
 %type <std::unique_ptr<Expr>> value expression where_opt
-%type <bool> null_not_opt
+%type <bool> null_not_opt not_null_opt
 %type <std::vector<SelectItem>> select_list select_items
 %type <SelectItem> select_item
 %type <std::string> alias_opt
@@ -151,10 +151,16 @@ column_definitions:
     ;
 
 column_definition:
-        IDENTIFIER type_specifier
+        IDENTIFIER type_specifier not_null_opt
         {
-            $$ = ColumnDef{ std::move($1), $2.type, $2.length };
+            $$ = ColumnDef{ std::move($1), $2.type, $2.length, $3 };
         }
+    ;
+
+// 列定义可选 NOT NULL 约束后缀
+not_null_opt:
+        /* empty */ { $$ = false; }
+    |   NOT NULL_T { $$ = true; }
     ;
 
 // drop table / drop schema ...

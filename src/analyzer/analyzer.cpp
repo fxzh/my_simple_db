@@ -47,7 +47,7 @@ void convert_columns(const std::vector<ColumnDef>& defs, std::vector<st::ColumnS
         } else if (def.type == DataType::Char) {
             len = 1;
         }
-        cols.emplace_back(st::ColumnSpec{def.name, map_col_type(def.type), len});
+        cols.emplace_back(st::ColumnSpec{def.name, map_col_type(def.type), len, def.not_null});
     }
 }
 
