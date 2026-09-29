@@ -121,7 +121,7 @@ void Catalog::open()
         DB_RAISE(db::ErrCode::CatalogMissing, LogModule::CATALOG, "数据目录未初始化: {}", dir_);
     }
     engine_.open();
-    // 此处先于客户端线程, 不持锁; 扫 db_table 取现存最大 file_id/table_id 作分配起点
+    // 此处先于客户端线程, 不持锁; 扫 db_table 取现存最大 file_id/table_id, 扫 db_schema 取现存最大 schema_id 作分配起点
     int64_t max_fid = 0;
     int64_t max_tid = 0;
     for (const std::vector<st::Value>& row : engine_.read_rows(kTableMetaId, table_meta_cols())) {
@@ -131,6 +131,11 @@ void Catalog::open()
     next_file_id_.store(static_cast<uint64_t>(max_fid) + 1);
     next_table_id_.store(static_cast<uint64_t>(
             std::max(max_tid + 1, static_cast<int64_t>(kFirstUserTableId))));
+    int64_t max_sid = 0;
+    for (const std::vector<st::Value>& row : engine_.read_rows(kSchemaMetaId, schema_meta_cols())) {
+        max_sid = std::max(max_sid, row_int(row, 0));
+    }
+    next_schema_id_.store(static_cast<uint64_t>(max_sid) + 1);
 }
 
 void Catalog::close()
@@ -149,6 +154,23 @@ uint64_t Catalog::create_table(const std::string& name, const std::vector<st::Co
 {
     std::lock_guard<std::mutex> lock(mutex_);
     return create_table_impl(name, cols, alloc_table_id());
+}
+
+void Catalog::create_schema(const std::string& name)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (name.empty()) {
+        DB_RAISE(db::ErrCode::InvalidDdl, LogModule::CATALOG, "schema 名为空");
+    }
+    if (name.size() > kMetaNameLen) {
+        DB_RAISE(db::ErrCode::InvalidDdl, LogModule::CATALOG, "schema 名超过 {} 字节上限", kMetaNameLen);
+    }
+    if (has_schema_name(name)) {
+        DB_RAISE(db::ErrCode::SchemaExists, LogModule::CATALOG, "schema 已存在: {}", name);
+    }
+    st::RowRef ref;
+    engine_.insert_row(kSchemaMetaId, schema_meta_cols(),
+                       {st::Value{static_cast<int64_t>(alloc_schema_id())}, st::Value{name}}, &ref);
 }
 
 uint64_t Catalog::create_table_impl(const std::string& name,
@@ -302,6 +324,17 @@ bool Catalog::has_table_name(const std::string& name)
     return false;
 }
 
+// schema 名是否已存在(须持锁): 全扫 db_schema 匹配
+bool Catalog::has_schema_name(const std::string& name)
+{
+    for (const std::vector<st::Value>& row : engine_.read_rows(kSchemaMetaId, schema_meta_cols())) {
+        if (row_str(row, 1) == name) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // 用户段 table_id 分配: 原子自增返回, 依赖 open() 扫描初始化(不低于 kFirstUserTableId)
 uint64_t Catalog::alloc_table_id()
 {
@@ -314,6 +347,12 @@ uint64_t Catalog::alloc_file_id()
     return next_file_id_.fetch_add(1);
 }
 
+// schema_id 分配: 原子自增返回, 依赖 open() 扫描初始化
+uint64_t Catalog::alloc_schema_id()
+{
+    return next_schema_id_.fetch_add(1);
+}
+
 void Catalog::drop_table(const std::string& name)
 {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -323,6 +362,39 @@ void Catalog::drop_table(const std::string& name)
     }
     delete_meta_rows(meta.table_id);
     engine_.remove_table_file(meta.file_id);
+}
+
+void Catalog::drop_schema(const std::string& name)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    // 定位 schema 行: 扫 db_schema 按名匹配取 id 与行引用
+    st::TableMeta meta;
+    meta.table_id = kSchemaMetaId;
+    meta.file_id = kSchemaMetaId;
+    meta.cols = schema_meta_cols();
+    int64_t sid = 0;
+    st::RowRef ref;
+    bool found = false;
+    st::Scanner scanner(&engine_, meta);
+    st::Row row;
+    while (scanner.next(&row)) {
+        if (row_str(row.values, 1) == name) {
+            sid = row_int(row.values, 0);
+            ref = row.ref;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        DB_RAISE(db::ErrCode::SchemaNotFound, LogModule::CATALOG, "schema 不存在: {}", name);
+    }
+    // 非空拒绝: db_table 有挂该 schema 的表则拒绝, system 名下有元数据表因此受保护
+    for (const std::vector<st::Value>& trow : engine_.read_rows(kTableMetaId, table_meta_cols())) {
+        if (row_int(trow, 3) == sid) {
+            DB_RAISE(db::ErrCode::SchemaNotEmpty, LogModule::CATALOG, "schema 非空禁止删除: {}", name);
+        }
+    }
+    engine_.delete_row(ref);
 }
 
 st::RowId Catalog::insert(const std::string& table, const std::vector<st::Value>& values)

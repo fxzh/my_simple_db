@@ -99,6 +99,7 @@ function(add_sql_case test_name feature stem)
 endfunction()
 
 add_sql_case(sql_ddl             ddl       ddl)
+add_sql_case(sql_ddl_schema      ddl       schema)
 add_sql_case(sql_dml_insert      dml       insert)
 add_sql_case(sql_dml_delete      dml       delete)
 add_sql_case(sql_select_basic    select    select_basic)

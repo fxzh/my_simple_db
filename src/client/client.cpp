@@ -75,6 +75,10 @@ std::string command_display(proto::CommandTag tag, uint64_t count)
         return "CREATE";
     case proto::CommandTag::DropTable:
         return "DROP";
+    case proto::CommandTag::CreateSchema:
+        return "CREATE";
+    case proto::CommandTag::DropSchema:
+        return "DROP";
     case proto::CommandTag::Insert:
         return "INSERT " + std::to_string(count);
     case proto::CommandTag::Delete:

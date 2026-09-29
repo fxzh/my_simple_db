@@ -37,6 +37,8 @@ enum class CommandTag : uint8_t {
     DropTable = 2,   // count 恒 0
     Insert = 3,      // count 为插入行数
     Delete = 4,      // count 为删除行数
+    CreateSchema = 5, // count 恒 0
+    DropSchema = 6,   // count 恒 0
 };
 
 // 读满 len 字节: 对端关闭或系统错误返回 false, EINTR 自动重试
@@ -302,7 +304,7 @@ inline bool decode_command(std::string_view body, CommandTag& tag, uint64_t& cou
         return false;
     }
     const auto t = static_cast<unsigned char>(body[0]);
-    if (t > static_cast<unsigned char>(CommandTag::Delete)) {
+    if (t > static_cast<unsigned char>(CommandTag::DropSchema)) {
         return false;  // 未知 tag
     }
     tag = static_cast<CommandTag>(t);

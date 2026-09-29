@@ -445,10 +445,16 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt)
         return b;
     }
     case StmtKind::CreateSchema: {
-        DB_RAISE(db::ErrCode::NotImplemented, LogModule::ANALYZER, "暂不支持: CREATE SCHEMA");
+        const auto& cs = static_cast<const CreateSchemaStmt&>(stmt);
+        auto b = std::make_unique<BoundCreateSchema>();
+        b->schema = cs.schema_name();
+        return b;
     }
     case StmtKind::DropSchema: {
-        DB_RAISE(db::ErrCode::NotImplemented, LogModule::ANALYZER, "暂不支持: DROP SCHEMA");
+        const auto& ds = static_cast<const DropSchemaStmt&>(stmt);
+        auto b = std::make_unique<BoundDropSchema>();
+        b->schema = ds.schema_name();
+        return b;
     }
     case StmtKind::Insert: {
         const auto& is = static_cast<const InsertStmt&>(stmt);

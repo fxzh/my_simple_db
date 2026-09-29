@@ -43,6 +43,8 @@ const char* tag_log_name(proto::CommandTag tag)
     case proto::CommandTag::Empty: return "EMPTY";
     case proto::CommandTag::CreateTable: return "CREATE";
     case proto::CommandTag::DropTable: return "DROP";
+    case proto::CommandTag::CreateSchema: return "CREATE_SCHEMA";
+    case proto::CommandTag::DropSchema: return "DROP_SCHEMA";
     case proto::CommandTag::Insert: return "INSERT";
     case proto::CommandTag::Delete: return "DELETE";
     }

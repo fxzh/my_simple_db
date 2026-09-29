@@ -49,6 +49,18 @@ std::unique_ptr<PlanNode> build(ana::BoundStmt& bound)
         p->table = bs.table;
         return p;
     }
+    case ana::BoundKind::CreateSchema: {
+        const auto& bs = static_cast<const ana::BoundCreateSchema&>(bound);
+        auto p = std::make_unique<CreateSchemaPlan>();
+        p->schema = bs.schema;
+        return p;
+    }
+    case ana::BoundKind::DropSchema: {
+        const auto& bs = static_cast<const ana::BoundDropSchema&>(bound);
+        auto p = std::make_unique<DropSchemaPlan>();
+        p->schema = bs.schema;
+        return p;
+    }
     case ana::BoundKind::Insert: {
         auto& bs = static_cast<ana::BoundInsert&>(bound);
         auto p = std::make_unique<InsertPlan>();

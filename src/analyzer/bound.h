@@ -20,7 +20,7 @@ struct ProjCol {
 
 // 绑定语句种类, 供执行层按类型分派
 enum class BoundKind {
-    CreateTable, DropTable, Insert, Delete, Select,
+    CreateTable, DropTable, CreateSchema, DropSchema, Insert, Delete, Select,
 };
 
 // 绑定语句基类: 表达式为绑定树, 由语句对象持有
@@ -40,6 +40,18 @@ struct BoundCreateTable : BoundStmt {
 struct BoundDropTable : BoundStmt {
     std::string table;
     BoundKind kind() const override { return BoundKind::DropTable; }
+};
+
+// CREATE SCHEMA: 名字透传, 名字校验在 catalog 层
+struct BoundCreateSchema : BoundStmt {
+    std::string schema;
+    BoundKind kind() const override { return BoundKind::CreateSchema; }
+};
+
+// DROP SCHEMA: 名字透传
+struct BoundDropSchema : BoundStmt {
+    std::string schema;
+    BoundKind kind() const override { return BoundKind::DropSchema; }
 };
 
 // INSERT: 每行的值为常量上下文绑定树(已归一化为表全宽), 留待执行期求值

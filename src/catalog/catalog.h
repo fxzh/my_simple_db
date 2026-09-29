@@ -13,8 +13,9 @@
 
 namespace ct {
 
-// id 保留段: 1~20000 留给系统元数据对象(table_id/schema_id 共用), 用户 table_id 从 20001 起分配
+// id 保留段: 1~20000 留给系统元数据 table_id, 用户 table_id 从 20001 起分配
 // table_id/file_id 分配: open() 扫 db_table 取现存最大值作起点原子递增不回收; file_id 不走保留段, 用户文件 id 可与保留段数值重叠
+// schema_id 分配: open() 扫 db_schema 取现存最大值+1 作起点原子递增不回收, 无保留段
 constexpr uint64_t kReservedMaxTableId = 20000;
 constexpr uint64_t kFirstUserTableId = 20001;
 
@@ -49,6 +50,10 @@ public:
     uint64_t create_table(const std::string& name, const std::vector<st::ColumnSpec>& cols);
     // 删表, 保留段表拒绝删除
     void drop_table(const std::string& name);
+    // 建 schema, 重名拒绝
+    void create_schema(const std::string& name);
+    // 删 schema, 不存在的拒绝, 非空拒绝(不级联)
+    void drop_schema(const std::string& name);
     st::RowId insert(const std::string& table, const std::vector<st::Value>& values);
     // 删除单行(按扫描得到的物理位置), 已删引用返回 0, 无效引用报错
     size_t delete_by_ref(const st::RowRef& ref);
@@ -77,16 +82,21 @@ private:
     st::TableMeta find_table_meta(const std::string& name);
     // 表名是否已存在(须持锁): 全扫 db_table 匹配
     bool has_table_name(const std::string& name);
+    // schema 名是否已存在(须持锁): 全扫 db_schema 匹配
+    bool has_schema_name(const std::string& name);
     // 用户段 table_id 分配: 原子自增返回, 依赖 open() 扫描初始化(不低于 kFirstUserTableId)
     uint64_t alloc_table_id();
     // file_id 分配: 原子自增返回, 依赖 open() 扫描初始化
     uint64_t alloc_file_id();
+    // schema_id 分配: 原子自增返回, 依赖 open() 扫描初始化
+    uint64_t alloc_schema_id();
 
     std::string dir_;
     st::Engine engine_;   // 文件引擎, 原语经本类持锁调用
     std::mutex mutex_;   // 序列化所有复合操作(并发演化见存储设计文档 §10)
     std::atomic<uint64_t> next_file_id_{0};   // 下一个 file_id, open() 扫 db_table 取最大值+1 初始化
     std::atomic<uint64_t> next_table_id_{0};   // 下一个 table_id, open() 扫 db_table 取最大值+1 初始化, 不低于 kFirstUserTableId
+    std::atomic<uint64_t> next_schema_id_{0};  // 下一个 schema_id, open() 扫 db_schema 取最大值+1 初始化
 };
 
 }  // namespace ct

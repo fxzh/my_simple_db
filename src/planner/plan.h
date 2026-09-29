@@ -13,7 +13,7 @@ namespace pl {
 
 // 计划节点种类, 供执行层按类型分派
 enum class PlanKind {
-    SeqScan, Filter, Project, Insert, Delete, CreateTable, DropTable,
+    SeqScan, Filter, Project, Insert, Delete, CreateTable, DropTable, CreateSchema, DropSchema,
 };
 
 // 计划节点基类: 表达式为绑定树, 由计划节点持有
@@ -67,6 +67,18 @@ struct CreateTablePlan : PlanNode {
 struct DropTablePlan : PlanNode {
     std::string table;
     PlanKind kind() const override { return PlanKind::DropTable; }
+};
+
+// 建 schema
+struct CreateSchemaPlan : PlanNode {
+    std::string schema;
+    PlanKind kind() const override { return PlanKind::CreateSchema; }
+};
+
+// 删 schema
+struct DropSchemaPlan : PlanNode {
+    std::string schema;
+    PlanKind kind() const override { return PlanKind::DropSchema; }
 };
 
 }  // namespace pl
