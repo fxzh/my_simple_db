@@ -94,7 +94,7 @@ M3 新增 db_index(table_id, index_name, col_ordinal, file_id): 每索引一行,
 
 ## 7. 缓冲池 Buffer Pool
 
-已实现（src/storage/buffer_pool.h）：定长帧数组（默认 128）+ 哈希页表（PageId→帧下标，unpin/mark_dirty 经数据指针换算帧下标）+ Clock 淘汰 + pin 引用计数，read/allocate/unpin/mark_dirty/flush 原语；pin > 0 的帧不可淘汰；数据页校验失败按尾部截断重建空页，文件头页校验失败报错；内部不加锁，串行化由上层全局锁保证（§10）。
+已实现（src/storage/buffer_pool.h）：定长帧数组（帧数经 db.conf 的 buffer_pool_frames 配置，默认 8192）+ 哈希页表（PageId→帧下标，unpin/mark_dirty 经数据指针换算帧下标）+ Clock 淘汰 + pin 引用计数，read/allocate/unpin/mark_dirty/flush 原语；pin > 0 的帧不可淘汰；数据页校验失败按尾部截断重建空页，文件头页校验失败报错；内部不加锁，串行化由上层全局锁保证（§10）。
 
 M4 接入 WAL 时帧增加 page_lsn，脏页落盘前确认覆盖该 LSN 的日志已 fsync（write-ahead 不变量，见 §9）。
 

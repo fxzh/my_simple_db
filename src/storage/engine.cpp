@@ -6,6 +6,7 @@
 
 #include "codec.h"
 #include "common/err.h"
+#include "config/config.h"
 #include "log/log.h"
 #include "page.h"
 
@@ -14,7 +15,7 @@ namespace st {
 // ==================== Engine ====================
 
 Engine::Engine(std::string dir)
-        : dir_(std::move(dir)), files_(dir_), pool_(BufferPool::kDefaultCapacity) {}
+        : dir_(std::move(dir)), files_(dir_), pool_(config::cfg.buffer_pool_frames) {}
 
 Engine::~Engine()
 {

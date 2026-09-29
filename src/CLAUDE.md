@@ -12,5 +12,3 @@ proto    帧协议头文件(header-only)：长度前缀+消息类型，client �
 storage  文件引擎静态库：堆页追加+全表扫描+二级索引原语(页/文件/缓冲池/编解码/B+树)，后续 WAL
 catalog  目录层静态库(catalog)：元数据表(db_table/db_column)逻辑与名字型门面，持全局锁组合引擎原语
 tool     独立工具
-
-依赖关系：server → parser、log、common、executor、config；executor → planner、analyzer、parser、catalog、storage、log、common(报错/告警)、proto(header-only)；planner → analyzer、log、common(报错/告警)；analyzer → parser、catalog、storage、log、common(报错/告警)；catalog → storage、log、common(报错/告警)；storage → log、common(报错/告警)；initdb/serverctl → config(initdb 另链 catalog)；client 与 server 仅通过 TCP 帧协议(proto)交互

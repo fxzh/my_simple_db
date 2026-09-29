@@ -36,9 +36,7 @@ struct PageIdHash {
 // 并发由上层(Storage)的全局互斥锁保证, 内部不加锁
 class BufferPool {
 public:
-    static constexpr size_t kDefaultCapacity = 128;
-
-    explicit BufferPool(size_t capacity = kDefaultCapacity);
+    explicit BufferPool(size_t capacity);
     ~BufferPool() = default;
 
     BufferPool(const BufferPool&) = delete;

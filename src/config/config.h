@@ -1,6 +1,7 @@
 #ifndef CONFIG_H
 #define CONFIG_H
 
+#include <cstddef>
 #include <string>
 
 namespace config {
@@ -9,6 +10,7 @@ namespace config {
 struct Config {
     int port = 8123;  // 监听端口
     std::string control_socket;  // 控制通道 socket 路径; 空串表示未配置, 缺省为数据目录/server.sock
+    size_t buffer_pool_frames = 8192;  // 缓冲池帧数(页数)
 };
 
 // 全局配置变量: load() 写入, 启动后只读

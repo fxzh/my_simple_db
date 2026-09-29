@@ -67,6 +67,15 @@ set_tests_properties(server_stop PROPERTIES FIXTURES_CLEANUP SRV_UP)
 add_test(NAME server_stop_not_running COMMAND test_serverctl --gtest_filter=Ctl.StopNotRunning)
 add_test(NAME server_status_not_running COMMAND test_serverctl --gtest_filter=Ctl.StatusNotRunning)
 
+# L1 e2e: server 配置项校验, 非法值启动即退
+add_executable(test_config e2e/config/test_config.cpp)
+target_link_libraries(test_config PRIVATE test_common GTest::gtest_main)
+target_compile_definitions(test_config PRIVATE
+    MSDB_BIN_DIR="${PROJECT_BINARY_DIR}/bin"
+)
+
+add_test(NAME config_bad_frames COMMAND test_config --gtest_filter=Config.BadBufferPoolFrames)
+
 # L2 SQL : 以 client -a -c 的 stdout 全文 diff 为唯一通过判据;
 # 实际输出与 diff 落盘至 e2e_out/<功能目录>_<stem>.{out,diff}
 add_executable(test_sql e2e/sql/test_sql.cpp)

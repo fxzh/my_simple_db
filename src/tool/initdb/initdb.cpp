@@ -16,6 +16,7 @@ constexpr char kDefaultConf[] = R"(# my_simple_db 服务端配置
 # 语法: 一行一项 key = value, '#' 之后为注释
 # port           监听端口, 1~65535
 # control_socket 控制通道 socket 路径, 不配置时为数据目录/server.sock
+# buffer_pool_frames 缓冲池帧数, 16~1048576, 不配置时为 8192
 
 port = 8123
 )";
