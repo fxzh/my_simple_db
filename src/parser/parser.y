@@ -84,6 +84,7 @@
 %type <ColumnDef> column_definition
 %type <TypeInfo> type_specifier
 %type <std::vector<std::unique_ptr<Expr>>> value_list
+%type <std::vector<std::vector<std::unique_ptr<Expr>>>> values_rows
 %type <std::unique_ptr<Expr>> value expression where_opt
 %type <bool> null_not_opt
 %type <std::vector<SelectItem>> select_list select_items
@@ -227,11 +228,11 @@ alias_opt:
     |   AS IDENTIFIER { $$ = std::move($2); }
     ;
 
-// insert into 表名 [(列清单)] values (值列表)
+// insert into 表名 [(列清单)] values 值行列表
 insert_statement:
-        INSERT INTO IDENTIFIER columns_opt VALUES '(' value_list ')'
+        INSERT INTO IDENTIFIER columns_opt VALUES values_rows
         {
-            $$ = std::make_unique<InsertStmt>(std::move($3), std::move($4), std::move($7));
+            $$ = std::make_unique<InsertStmt>(std::move($3), std::move($4), std::move($6));
         }
     ;
 
@@ -251,6 +252,20 @@ column_name_list:
         {
             $$ = std::vector<std::string>();
             $$.push_back(std::move($1));
+        }
+    ;
+
+// 值行列表: 逗号连接的 '(值列表)', 支持一条 insert 插入多行
+values_rows:
+        values_rows ',' '(' value_list ')'
+        {
+            $1.push_back(std::move($4));
+            $$ = std::move($1);
+        }
+    |   '(' value_list ')'
+        {
+            $$ = std::vector<std::vector<std::unique_ptr<Expr>>>();
+            $$.push_back(std::move($2));
         }
     ;
 

@@ -53,7 +53,7 @@ std::unique_ptr<PlanNode> build(ana::BoundStmt& bound)
         auto& bs = static_cast<ana::BoundInsert&>(bound);
         auto p = std::make_unique<InsertPlan>();
         p->table = bs.table;
-        p->values = std::move(bs.values);
+        p->rows = std::move(bs.rows);
         return p;
     }
     case ana::BoundKind::Delete: {

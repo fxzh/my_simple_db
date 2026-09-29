@@ -87,3 +87,45 @@ SELECT * FROM t_cols;
 (7 行)
 DROP TABLE t_cols;
 DROP
+CREATE TABLE t_multi (id int, name varchar, score double);
+CREATE
+INSERT INTO t_multi VALUES (1, 'alice', 90.5), (2, 'bob', 60.0), (3, 'carol', 75.5);
+INSERT 3
+INSERT INTO t_multi VALUES (4, 'dave', NULL), (NULL, NULL, NULL);
+INSERT 2
+INSERT INTO t_multi VALUES (5, 'eve', 50 + 25.5), (6, 'frank', NULL / 0);
+INSERT 2
+SELECT * FROM t_multi;
+ id   | name  | score
+------+-------+-------
+ 1    | alice | 90.5
+ 2    | bob   | 60
+ 3    | carol | 75.5
+ 4    | dave  | NULL
+ NULL | NULL  | NULL
+ 5    | eve   | 75.5
+ 6    | frank | NULL
+(7 行)
+INSERT INTO t_multi VALUES (7), (8, 'gina', 40.0);
+ERROR: 值的数量与列数不符
+INSERT INTO t_multi VALUES (9, 'henry', 10.0), (10, 20, 20.0);
+ERROR: 值与列类型不匹配
+INSERT INTO t_multi (id, score) VALUES (11, 1.0), (12, 2.0);
+INSERT 2
+INSERT INTO t_multi (id, score) VALUES (14, 4.0), (15);
+ERROR: 值的数量与列数不符
+SELECT * FROM t_multi;
+ id   | name  | score
+------+-------+-------
+ 1    | alice | 90.5
+ 2    | bob   | 60
+ 3    | carol | 75.5
+ 4    | dave  | NULL
+ NULL | NULL  | NULL
+ 5    | eve   | 75.5
+ 6    | frank | NULL
+ 11   | NULL  | 1
+ 12   | NULL  | 2
+(9 行)
+DROP TABLE t_multi;
+DROP

@@ -372,19 +372,19 @@ public:
     StmtKind kind() const override { return StmtKind::DropSchema; }
 };
 
-// INSERT INTO 表名 [(列清单)] VALUES (值列表)
+// INSERT INTO 表名 [(列清单)] VALUES 值行列表
 class InsertStmt : public SQLStatement {
     std::string table;
     std::vector<std::string> columns_;  // 指定列清单, 空表示未指定
-    std::vector<std::unique_ptr<Expr>> values_;
+    std::vector<std::vector<std::unique_ptr<Expr>>> rows_;
 public:
     InsertStmt(std::string name, std::vector<std::string> cols,
-               std::vector<std::unique_ptr<Expr>> vals)
-        : table(std::move(name)), columns_(std::move(cols)), values_(std::move(vals)) {}
+               std::vector<std::vector<std::unique_ptr<Expr>>> rows)
+        : table(std::move(name)), columns_(std::move(cols)), rows_(std::move(rows)) {}
 
     const std::string& table_name() const { return table; }
     const std::vector<std::string>& columns() const { return columns_; }
-    const std::vector<std::unique_ptr<Expr>>& values() const { return values_; }
+    const std::vector<std::vector<std::unique_ptr<Expr>>>& rows() const { return rows_; }
 
     void print(std::ostream& os, int indent) const override
     {
@@ -392,8 +392,10 @@ public:
         for (const std::string& col : columns_) {
             os << std::string(static_cast<std::size_t>(indent + 4), ' ') << "Column: " << col << std::endl;
         }
-        for (const auto& e : values_) {
-            e->print(os, indent + 4);
+        for (const auto& row : rows_) {
+            for (const auto& e : row) {
+                e->print(os, indent + 4);
+            }
         }
     }
 

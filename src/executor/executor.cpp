@@ -89,13 +89,16 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt)
     }
     case pl::PlanKind::Insert: {
         const auto& p = static_cast<const pl::InsertPlan&>(*plan);
-        std::vector<st::Value> values;
-        values.reserve(p.values.size());
-        for (const auto& v : p.values) {
-            values.push_back(to_st_value(eval_const(*v)));
+        // 逐行求值并写盘: 求值期错误(溢出/除零)在执行中报错, 已写入行保留
+        for (const auto& plan_row : p.rows) {
+            std::vector<st::Value> values;
+            values.reserve(plan_row.size());
+            for (const auto& v : plan_row) {
+                values.push_back(to_st_value(eval_const(*v)));
+            }
+            db.insert(p.table, values);
         }
-        db.insert(p.table, values);
-        return tag_result(proto::CommandTag::Insert, 1);
+        return tag_result(proto::CommandTag::Insert, p.rows.size());
     }
     case pl::PlanKind::Delete: {
         const auto& p = static_cast<const pl::DeletePlan&>(*plan);

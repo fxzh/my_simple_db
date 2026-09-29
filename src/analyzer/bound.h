@@ -42,10 +42,10 @@ struct BoundDropTable : BoundStmt {
     BoundKind kind() const override { return BoundKind::DropTable; }
 };
 
-// INSERT: 值为常量上下文绑定树, 留待执行期求值
+// INSERT: 每行的值为常量上下文绑定树(已归一化为表全宽), 留待执行期求值
 struct BoundInsert : BoundStmt {
     std::string table;
-    std::vector<std::unique_ptr<BoundExpr>> values;
+    std::vector<std::vector<std::unique_ptr<BoundExpr>>> rows;
     BoundKind kind() const override { return BoundKind::Insert; }
 };
 
