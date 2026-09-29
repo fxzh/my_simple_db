@@ -14,7 +14,7 @@
 namespace ct {
 
 // id 保留段: 1~20000 留给系统元数据对象(table_id/schema_id 共用), 用户 table_id 从 20001 起分配
-// file_id 不走保留段: open() 扫 db_table 取现存最大值作起点递增, 用户文件 id 可与保留段数值重叠
+// table_id/file_id 分配: open() 扫 db_table 取现存最大值作起点原子递增不回收; file_id 不走保留段, 用户文件 id 可与保留段数值重叠
 constexpr uint64_t kReservedMaxTableId = 20000;
 constexpr uint64_t kFirstUserTableId = 20001;
 
@@ -77,7 +77,7 @@ private:
     st::TableMeta find_table_meta(const std::string& name);
     // 表名是否已存在(须持锁): 全扫 db_table 匹配
     bool has_table_name(const std::string& name);
-    // 用户段 table_id 分配(须持锁): max(当前最大表 id + 1, kFirstUserTableId)
+    // 用户段 table_id 分配: 原子自增返回, 依赖 open() 扫描初始化(不低于 kFirstUserTableId)
     uint64_t alloc_table_id();
     // file_id 分配: 原子自增返回, 依赖 open() 扫描初始化
     uint64_t alloc_file_id();
@@ -86,6 +86,7 @@ private:
     st::Engine engine_;   // 文件引擎, 原语经本类持锁调用
     std::mutex mutex_;   // 序列化所有复合操作(并发演化见存储设计文档 §10)
     std::atomic<uint64_t> next_file_id_{0};   // 下一个 file_id, open() 扫 db_table 取最大值+1 初始化
+    std::atomic<uint64_t> next_table_id_{0};   // 下一个 table_id, open() 扫 db_table 取最大值+1 初始化, 不低于 kFirstUserTableId
 };
 
 }  // namespace ct

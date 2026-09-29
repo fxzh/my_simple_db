@@ -121,12 +121,16 @@ void Catalog::open()
         DB_RAISE(db::ErrCode::CatalogMissing, LogModule::CATALOG, "数据目录未初始化: {}", dir_);
     }
     engine_.open();
-    // 此处先于客户端线程, 不持锁; 扫 db_table 取现存最大 file_id 作分配起点
-    int64_t max_id = 0;
+    // 此处先于客户端线程, 不持锁; 扫 db_table 取现存最大 file_id/table_id 作分配起点
+    int64_t max_fid = 0;
+    int64_t max_tid = 0;
     for (const std::vector<st::Value>& row : engine_.read_rows(kTableMetaId, table_meta_cols())) {
-        max_id = std::max(max_id, row_int(row, 2));
+        max_fid = std::max(max_fid, row_int(row, 2));
+        max_tid = std::max(max_tid, row_int(row, 0));
     }
-    next_file_id_.store(static_cast<uint64_t>(max_id) + 1);
+    next_file_id_.store(static_cast<uint64_t>(max_fid) + 1);
+    next_table_id_.store(static_cast<uint64_t>(
+            std::max(max_tid + 1, static_cast<int64_t>(kFirstUserTableId))));
 }
 
 void Catalog::close()
@@ -298,15 +302,10 @@ bool Catalog::has_table_name(const std::string& name)
     return false;
 }
 
-// 用户段 table_id 分配(须持锁): max(当前最大表 id + 1, kFirstUserTableId)
+// 用户段 table_id 分配: 原子自增返回, 依赖 open() 扫描初始化(不低于 kFirstUserTableId)
 uint64_t Catalog::alloc_table_id()
 {
-    int64_t max_id = 0;
-    for (const std::vector<st::Value>& row : engine_.read_rows(kTableMetaId, table_meta_cols())) {
-        max_id = std::max(max_id, row_int(row, 0));
-    }
-    return static_cast<uint64_t>(
-            std::max(max_id + 1, static_cast<int64_t>(kFirstUserTableId)));
+    return next_table_id_.fetch_add(1);
 }
 
 // file_id 分配: 原子自增返回, 依赖 open() 扫描初始化
