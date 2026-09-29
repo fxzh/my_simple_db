@@ -57,6 +57,7 @@ TEST(Initdb, Ok)
     EXPECT_TRUE(std::filesystem::is_regular_file(conf));
     EXPECT_TRUE(std::filesystem::is_regular_file(std::filesystem::path(data) / "t_1.dat"));
     EXPECT_TRUE(std::filesystem::is_regular_file(std::filesystem::path(data) / "t_2.dat"));
+    EXPECT_TRUE(std::filesystem::is_regular_file(std::filesystem::path(data) / "t_3.dat"));
     std::ifstream in(conf);
     std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     EXPECT_NE(content.find("port = 8123"), std::string::npos);

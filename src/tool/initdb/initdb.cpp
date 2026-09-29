@@ -1,4 +1,4 @@
-// initdb: 初始化工具, 在 -D 指定的数据目录内生成默认配置文件 db.conf 与元数据表 db_table/db_column
+// initdb: 初始化工具, 在 -D 指定的数据目录内生成默认配置文件 db.conf 与元数据表 db_table/db_column/db_schema
 #include <filesystem>
 #include <fstream>
 #include <iostream>

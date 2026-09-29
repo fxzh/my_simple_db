@@ -19,7 +19,8 @@ std::vector<st::ColumnSpec> table_meta_cols()
 {
     return {{"table_id", st::ColType::BigInt, 0, true},
             {"table_name", st::ColType::VarChar, kMetaNameLen, true},
-            {"file_id", st::ColType::BigInt, 0, true}};
+            {"file_id", st::ColType::BigInt, 0, true},
+            {"schema_id", st::ColType::BigInt, 0, true}};
 }
 
 // db_column 列定义
@@ -31,6 +32,13 @@ std::vector<st::ColumnSpec> column_meta_cols()
             {"type", st::ColType::Int, 0, true},
             {"length", st::ColType::Int, 0, true},
             {"not_null", st::ColType::Int, 0, true}};
+}
+
+// db_schema 列定义
+std::vector<st::ColumnSpec> schema_meta_cols()
+{
+    return {{"schema_id", st::ColType::BigInt, 0, true},
+            {"schema_name", st::ColType::VarChar, kMetaNameLen, true}};
 }
 
 // 生成某表的 db_column 自描述行(ordinal 从 0 起, type/not_null 存枚举值与 0/1)
@@ -108,7 +116,8 @@ void Catalog::create()
 
 void Catalog::open()
 {
-    if (!engine_.table_file_exists(kTableMetaId) || !engine_.table_file_exists(kColumnMetaId)) {
+    if (!engine_.table_file_exists(kTableMetaId) || !engine_.table_file_exists(kColumnMetaId)
+        || !engine_.table_file_exists(kSchemaMetaId)) {
         DB_RAISE(db::ErrCode::CatalogMissing, LogModule::CATALOG, "数据目录未初始化: {}", dir_);
     }
     engine_.open();
@@ -163,18 +172,19 @@ uint64_t Catalog::create_table_impl(const std::string& name,
 
     // 先建数据文件, 再写元数据行, 保证元数据可见时数据文件必有效
     engine_.init_table_file(fid);
-    write_meta_rows(tid, fid, name, cols);
+    write_meta_rows(kSystemSchemaId, tid, fid, name, cols);
     return tid;
 }
 
 // 写入指定表的元数据行(须持锁): db_table 一行 + db_column 每列一行
-void Catalog::write_meta_rows(uint64_t tid, uint64_t fid, const std::string& name,
+void Catalog::write_meta_rows(uint64_t sid, uint64_t tid, uint64_t fid, const std::string& name,
                               const std::vector<st::ColumnSpec>& cols)
 {
     st::RowRef ref;
     engine_.insert_row(kTableMetaId, table_meta_cols(),
                        {st::Value{static_cast<int64_t>(tid)}, st::Value{name},
-                        st::Value{static_cast<int64_t>(fid)}}, &ref);
+                        st::Value{static_cast<int64_t>(fid)},
+                        st::Value{static_cast<int64_t>(sid)}}, &ref);
     for (const std::vector<st::Value>& row : column_meta_rows(tid, cols)) {
         engine_.insert_row(kColumnMetaId, column_meta_cols(), row, &ref);
     }
@@ -184,8 +194,17 @@ void Catalog::bootstrap_meta_tables()
 {
     engine_.init_table_file(kTableMetaId);
     engine_.init_table_file(kColumnMetaId);
-    write_meta_rows(kTableMetaId, kTableMetaId, kTableMetaName, table_meta_cols());
-    write_meta_rows(kColumnMetaId, kColumnMetaId, kColumnMetaName, column_meta_cols());
+    engine_.init_table_file(kSchemaMetaId);
+    write_meta_rows(kSystemSchemaId, kTableMetaId, kTableMetaId, kTableMetaName,
+                    table_meta_cols());
+    write_meta_rows(kSystemSchemaId, kColumnMetaId, kColumnMetaId, kColumnMetaName,
+                    column_meta_cols());
+    write_meta_rows(kSystemSchemaId, kSchemaMetaId, kSchemaMetaId, kSchemaMetaName,
+                    schema_meta_cols());
+    st::RowRef ref;
+    engine_.insert_row(kSchemaMetaId, schema_meta_cols(),
+                       {st::Value{static_cast<int64_t>(kSystemSchemaId)},
+                        st::Value{std::string{kSystemSchemaName}}}, &ref);
 }
 
 // 删除指定表的元数据行(须持锁): 扫两张元数据表, 收集第 0 列等于 tid 的行引用后逐个物理删除

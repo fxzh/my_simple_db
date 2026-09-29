@@ -2,18 +2,26 @@ CREATE TABLE db_table (id int);
 ERROR: 表已存在: db_table
 CREATE TABLE db_column (id int);
 ERROR: 表已存在: db_column
+CREATE TABLE db_schema (id int);
+ERROR: 表已存在: db_schema
 DROP TABLE db_table;
 ERROR: 保留表名禁止使用: db_table
 DROP TABLE db_column;
 ERROR: 保留表名禁止使用: db_column
+DROP TABLE db_schema;
+ERROR: 保留表名禁止使用: db_schema
 INSERT INTO db_table VALUES (1, 'x');
 ERROR: 保留表名禁止使用: db_table
 INSERT INTO db_column VALUES (1, 'x', 0, 1, 0, 1);
 ERROR: 保留表名禁止使用: db_column
+INSERT INTO db_schema VALUES (1, 'x');
+ERROR: 保留表名禁止使用: db_schema
 DELETE FROM db_table;
 ERROR: 保留表名禁止使用: db_table
 DELETE FROM db_column;
 ERROR: 保留表名禁止使用: db_column
+DELETE FROM db_schema;
+ERROR: 保留表名禁止使用: db_schema
 CREATE TABLE t_reserved (id int);
 CREATE
 INSERT INTO t_reserved VALUES (7);
@@ -24,31 +32,41 @@ SELECT * FROM t_reserved;
  7
 (1 行)
 SELECT * FROM db_table;
- table_id | table_name | file_id
-----------+------------+---------
- 1        | db_table   | 1
- 2        | db_column  | 2
- 20001    | t_reserved | 20001
-(3 行)
+ table_id | table_name | file_id | schema_id
+----------+------------+---------+-----------
+ 1        | db_table   | 1       | 1
+ 2        | db_column  | 2       | 1
+ 3        | db_schema  | 3       | 1
+ 20001    | t_reserved | 20001   | 1
+(4 行)
 SELECT * FROM db_column;
- table_id | col_name   | ordinal | type | length | not_null
-----------+------------+---------+------+--------+----------
- 1        | table_id   | 0       | 2    | 0      | 1
- 1        | table_name | 1       | 4    | 64     | 1
- 1        | file_id    | 2       | 2    | 0      | 1
- 2        | table_id   | 0       | 2    | 0      | 1
- 2        | col_name   | 1       | 4    | 64     | 1
- 2        | ordinal    | 2       | 1    | 0      | 1
- 2        | type       | 3       | 1    | 0      | 1
- 2        | length     | 4       | 1    | 0      | 1
- 2        | not_null   | 5       | 1    | 0      | 1
- 20001    | id         | 0       | 1    | 0      | 0
-(10 行)
+ table_id | col_name    | ordinal | type | length | not_null
+----------+-------------+---------+------+--------+----------
+ 1        | table_id    | 0       | 2    | 0      | 1
+ 1        | table_name  | 1       | 4    | 64     | 1
+ 1        | file_id     | 2       | 2    | 0      | 1
+ 1        | schema_id   | 3       | 2    | 0      | 1
+ 2        | table_id    | 0       | 2    | 0      | 1
+ 2        | col_name    | 1       | 4    | 64     | 1
+ 2        | ordinal     | 2       | 1    | 0      | 1
+ 2        | type        | 3       | 1    | 0      | 1
+ 2        | length      | 4       | 1    | 0      | 1
+ 2        | not_null    | 5       | 1    | 0      | 1
+ 3        | schema_id   | 0       | 2    | 0      | 1
+ 3        | schema_name | 1       | 4    | 64     | 1
+ 20001    | id          | 0       | 1    | 0      | 0
+(13 行)
+SELECT * FROM db_schema;
+ schema_id | schema_name
+-----------+-------------
+ 1         | system
+(1 行)
 DROP TABLE t_reserved;
 DROP
 SELECT * FROM db_table;
- table_id | table_name | file_id
-----------+------------+---------
- 1        | db_table   | 1
- 2        | db_column  | 2
-(2 行)
+ table_id | table_name | file_id | schema_id
+----------+------------+---------+-----------
+ 1        | db_table   | 1       | 1
+ 2        | db_column  | 2       | 1
+ 3        | db_schema  | 3       | 1
+(3 行)

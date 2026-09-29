@@ -365,7 +365,7 @@ std::vector<std::unique_ptr<BoundExpr>> bind_insert_values(
 // (select 可查元数据, create 由存储层按表已存在拒绝)
 void check_reserved_table(const std::string& name)
 {
-    if (name == ct::kTableMetaName || name == ct::kColumnMetaName) {
+    if (name == ct::kTableMetaName || name == ct::kColumnMetaName || name == ct::kSchemaMetaName) {
         DB_RAISE(db::ErrCode::ProtectedTable, LogModule::ANALYZER, "保留表名禁止使用: {}", name);
     }
 }

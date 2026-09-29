@@ -12,18 +12,24 @@
 
 namespace ct {
 
-// id 保留段: 1~20000 留给系统元数据对象(table_id 与 file_id 共用), 用户对象从 20001 起分配
+// id 保留段: 1~20000 留给系统元数据对象(table_id/file_id/schema_id 共用), 用户对象从 20001 起分配
 constexpr uint64_t kReservedMaxTableId = 20000;
 constexpr uint64_t kFirstUserTableId = 20001;
 
-// 元数据表(保留段固定 id): db_table 记表名, db_column 记列定义, 引导期 schema 硬编码
+// 元数据表(保留段固定 id): db_table 记表名, db_column 记列定义, db_schema 记 schema, 引导期 schema 硬编码
 constexpr uint64_t kTableMetaId = 1;
 constexpr uint64_t kColumnMetaId = 2;
+constexpr uint64_t kSchemaMetaId = 3;
 constexpr const char* kTableMetaName = "db_table";
 constexpr const char* kColumnMetaName = "db_column";
+constexpr const char* kSchemaMetaName = "db_schema";
+
+// system schema 固定 id: 引导写入 db_schema 首行, 现阶段所有表的 schema_id 均挂其名下
+constexpr uint64_t kSystemSchemaId = 1;
+constexpr const char* kSystemSchemaName = "system";
 
 // 数据目录门面: 打开/关闭, 建表/删表/插入/删除/全表扫描
-// 元数据以 db_table/db_column 两张表为唯一事实来源, 查找实时扫描, 无目录文件与内存缓存
+// 元数据以 db_table/db_column/db_schema 三张表为唯一事实来源, 查找实时扫描, 无目录文件与内存缓存
 class Catalog {
 public:
     explicit Catalog(std::string dir);
@@ -58,9 +64,9 @@ private:
     uint64_t create_table_impl(const std::string& name, const std::vector<st::ColumnSpec>& cols,
                                uint64_t tid, uint64_t fid);
     // 写入指定表的元数据行(须持锁): db_table 一行, db_column 每列一行, 引导与建表共用
-    void write_meta_rows(uint64_t tid, uint64_t fid, const std::string& name,
+    void write_meta_rows(uint64_t sid, uint64_t tid, uint64_t fid, const std::string& name,
                          const std::vector<st::ColumnSpec>& cols);
-    // 引导元数据表: 直接建数据文件并写入自描述行, 不经过元数据表查找
+    // 引导元数据表: 直接建数据文件并写入自描述行与 system schema 行, 不经过元数据表查找
     void bootstrap_meta_tables();
     // 删除指定表的元数据行(须持锁): 按 table_id 匹配 db_table/db_column
     void delete_meta_rows(uint64_t tid);

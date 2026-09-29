@@ -88,9 +88,9 @@ rowid：表内自增 int64，由表文件头页计数器分配并随 insert 返�
 
 ## 6. 目录（元数据表）
 
-目录不是独立文件, 而是保留段元数据表, schema 硬编码引导, 不存于自身; 目录逻辑位于 src/catalog(ct::Catalog), 存储引擎只提供须持锁的按 file_id 原语。db_table(table_id, table_name, file_id) 与 db_column(table_id, col_name, ordinal, type, length, not_null) 已实现: 元数据行为唯一事实来源, 无内存缓存, 查找实时全扫; create_table 先建数据文件再写元数据行, drop_table 反向; 引导与 open 校验见 catalog。
+目录不是独立文件, 而是保留段元数据表, schema 硬编码引导, 不存于自身; 目录逻辑位于 src/catalog(ct::Catalog), 存储引擎只提供须持锁的按 file_id 原语。db_table(table_id, table_name, file_id, schema_id) 与 db_column(table_id, col_name, ordinal, type, length, not_null) 已实现: 元数据行为唯一事实来源, 无内存缓存, 查找实时全扫; create_table 先建数据文件再写元数据行, drop_table 反向; 引导与 open 校验见 catalog。db_schema(schema_id, schema_name) 引导写入唯一行 system(id=1); db_table.schema_id 现阶段所有表一律挂 system 名下, schema 名字解析未接入。
 
-M3 新增第三张 db_index(table_id, index_name, col_ordinal, file_id): 每索引一行, 单列索引, col_ordinal 指向 db_column。DDL 规则: create_index 先建索引文件并全表回填再写元数据行, drop_index 反向, drop_table 连带删该表全部索引; 引导与 open 校验随之扩为三表。
+M3 新增 db_index(table_id, index_name, col_ordinal, file_id): 每索引一行, 单列索引, col_ordinal 指向 db_column。DDL 规则: create_index 先建索引文件并全表回填再写元数据行, drop_index 反向, drop_table 连带删该表全部索引; 引导与 open 校验随之扩为四表。
 
 ## 7. 缓冲池 Buffer Pool
 
