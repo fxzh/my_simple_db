@@ -90,75 +90,28 @@ target_compile_definitions(test_sql PRIVATE
 # 全部挂 SRV_UP, 保证 server_stop 在所有 SQL 用例之后收尾
 set(SQL_CASES_DIR ${CMAKE_CURRENT_SOURCE_DIR}/e2e/sql)
 
-add_test(NAME sql_ddl COMMAND test_sql
-    ${SQL_CASES_DIR}/ddl/cases/ddl.sql
-    ${SQL_CASES_DIR}/ddl/expected/ddl.out)
-set_tests_properties(sql_ddl PROPERTIES FIXTURES_REQUIRED SRV_UP)
+# 注册 L2 SQL 用例: 用例文件 <feature>/cases/<stem>.sql, 预期文件 <feature>/expected/<stem>.out, 统一挂 SRV_UP
+function(add_sql_case test_name feature stem)
+    add_test(NAME ${test_name} COMMAND test_sql
+        ${SQL_CASES_DIR}/${feature}/cases/${stem}.sql
+        ${SQL_CASES_DIR}/${feature}/expected/${stem}.out)
+    set_tests_properties(${test_name} PROPERTIES FIXTURES_REQUIRED SRV_UP)
+endfunction()
 
-add_test(NAME sql_dml_insert COMMAND test_sql
-    ${SQL_CASES_DIR}/dml/cases/insert.sql
-    ${SQL_CASES_DIR}/dml/expected/insert.out)
-set_tests_properties(sql_dml_insert PROPERTIES FIXTURES_REQUIRED SRV_UP)
-
-add_test(NAME sql_dml_delete COMMAND test_sql
-    ${SQL_CASES_DIR}/dml/cases/delete.sql
-    ${SQL_CASES_DIR}/dml/expected/delete.out)
-set_tests_properties(sql_dml_delete PROPERTIES FIXTURES_REQUIRED SRV_UP)
-
-add_test(NAME sql_select_basic COMMAND test_sql
-    ${SQL_CASES_DIR}/select/cases/select_basic.sql
-    ${SQL_CASES_DIR}/select/expected/select_basic.out)
-set_tests_properties(sql_select_basic PROPERTIES FIXTURES_REQUIRED SRV_UP)
-
-add_test(NAME sql_proto_long COMMAND test_sql
-    ${SQL_CASES_DIR}/proto/cases/long_sql.sql
-    ${SQL_CASES_DIR}/proto/expected/long_sql.out)
-set_tests_properties(sql_proto_long PROPERTIES FIXTURES_REQUIRED SRV_UP)
-
-add_test(NAME sql_types COMMAND test_sql
-    ${SQL_CASES_DIR}/types/cases/types.sql
-    ${SQL_CASES_DIR}/types/expected/types.out)
-set_tests_properties(sql_types PROPERTIES FIXTURES_REQUIRED SRV_UP)
-
-add_test(NAME sql_where_basic COMMAND test_sql
-    ${SQL_CASES_DIR}/where/cases/where_basic.sql
-    ${SQL_CASES_DIR}/where/expected/where_basic.out)
-set_tests_properties(sql_where_basic PROPERTIES FIXTURES_REQUIRED SRV_UP)
-
-add_test(NAME sql_where_null COMMAND test_sql
-    ${SQL_CASES_DIR}/where/cases/where_null.sql
-    ${SQL_CASES_DIR}/where/expected/where_null.out)
-set_tests_properties(sql_where_null PROPERTIES FIXTURES_REQUIRED SRV_UP)
-
-add_test(NAME sql_where_char COMMAND test_sql
-    ${SQL_CASES_DIR}/where/cases/where_char.sql
-    ${SQL_CASES_DIR}/where/expected/where_char.out)
-set_tests_properties(sql_where_char PROPERTIES FIXTURES_REQUIRED SRV_UP)
-
-add_test(NAME sql_reserved COMMAND test_sql
-    ${SQL_CASES_DIR}/reserved/cases/reserved.sql
-    ${SQL_CASES_DIR}/reserved/expected/reserved.out)
-set_tests_properties(sql_reserved PROPERTIES FIXTURES_REQUIRED SRV_UP)
-
-add_test(NAME sql_semantic_insert COMMAND test_sql
-    ${SQL_CASES_DIR}/semantic/cases/semantic_insert.sql
-    ${SQL_CASES_DIR}/semantic/expected/semantic_insert.out)
-set_tests_properties(sql_semantic_insert PROPERTIES FIXTURES_REQUIRED SRV_UP)
-
-add_test(NAME sql_semantic_select COMMAND test_sql
-    ${SQL_CASES_DIR}/semantic/cases/semantic_select.sql
-    ${SQL_CASES_DIR}/semantic/expected/semantic_select.out)
-set_tests_properties(sql_semantic_select PROPERTIES FIXTURES_REQUIRED SRV_UP)
-
-add_test(NAME sql_lexer_comment COMMAND test_sql
-    ${SQL_CASES_DIR}/lexer/cases/lexer_comment.sql
-    ${SQL_CASES_DIR}/lexer/expected/lexer_comment.out)
-set_tests_properties(sql_lexer_comment PROPERTIES FIXTURES_REQUIRED SRV_UP)
-
-add_test(NAME sql_lexer_string COMMAND test_sql
-    ${SQL_CASES_DIR}/lexer/cases/lexer_string.sql
-    ${SQL_CASES_DIR}/lexer/expected/lexer_string.out)
-set_tests_properties(sql_lexer_string PROPERTIES FIXTURES_REQUIRED SRV_UP)
+add_sql_case(sql_ddl             ddl       ddl)
+add_sql_case(sql_dml_insert      dml       insert)
+add_sql_case(sql_dml_delete      dml       delete)
+add_sql_case(sql_select_basic    select    select_basic)
+add_sql_case(sql_proto_long      proto     long_sql)
+add_sql_case(sql_types           types     types)
+add_sql_case(sql_where_basic     where     where_basic)
+add_sql_case(sql_where_null      where     where_null)
+add_sql_case(sql_where_char      where     where_char)
+add_sql_case(sql_reserved        reserved  reserved)
+add_sql_case(sql_semantic_insert semantic  semantic_insert)
+add_sql_case(sql_semantic_select semantic  semantic_select)
+add_sql_case(sql_lexer_comment   lexer     lexer_comment)
+add_sql_case(sql_lexer_string    lexer     lexer_string)
 
 # L2 e2e: client -f 文件执行入口, Ok 复用 lexer 用例与预期, 其余三项连接前报错无需 server
 add_executable(test_sqlfile e2e/sqlfile/test_sqlfile.cpp)
