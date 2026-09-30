@@ -122,7 +122,7 @@ TEST(Ctl, StopNotRunning)
     ASSERT_TRUE(dir.create("msdb_ctl", error)) << error;
     std::string data = (std::filesystem::path(dir.path) / "data").string();
     ProcessResult r;
-    ASSERT_TRUE(run_ok({bin("initdb"), "-D", data}, 5000, r));
+    ASSERT_TRUE(run_ok({bin("initdb"), "-D", data}, 10000, r));
     EXPECT_EQ(r.exit_code, 0);
 
     ASSERT_TRUE(ctl(data, "stop", 5000, r));
@@ -137,7 +137,7 @@ TEST(Ctl, StatusNotRunning)
     ASSERT_TRUE(dir.create("msdb_ctl", error)) << error;
     std::string data = (std::filesystem::path(dir.path) / "data").string();
     ProcessResult r;
-    ASSERT_TRUE(run_ok({bin("initdb"), "-D", data}, 5000, r));
+    ASSERT_TRUE(run_ok({bin("initdb"), "-D", data}, 10000, r));
     EXPECT_EQ(r.exit_code, 0);
 
     ASSERT_TRUE(ctl(data, "status", 5000, r));

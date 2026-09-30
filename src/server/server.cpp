@@ -68,26 +68,33 @@ bool handle_control_command(int cfd)
 // 服务器主函数
 int main(int argc, char* argv[])
 {
-    // -D <数据目录> 必选, --daemon 可选后台运行
+    // -D <数据目录> 必选, --daemon 可选后台运行, --bootstrap 可选自举模式(前台)
     std::string data_dir_arg;
     bool daemon_mode = false;
+    bool bootstrap_mode = false;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "-D") {
             if (i + 1 >= argc || !data_dir_arg.empty()) {
-                std::cerr << "用法: server -D <数据目录> [--daemon]" << std::endl;
+                std::cerr << "用法: server -D <数据目录> [--daemon] [--bootstrap]" << std::endl;
                 return -1;
             }
             data_dir_arg = argv[++i];
         } else if (arg == "--daemon") {
             daemon_mode = true;
+        } else if (arg == "--bootstrap") {
+            bootstrap_mode = true;
         } else {
-            std::cerr << "用法: server -D <数据目录> [--daemon]" << std::endl;
+            std::cerr << "用法: server -D <数据目录> [--daemon] [--bootstrap]" << std::endl;
             return -1;
         }
     }
     if (data_dir_arg.empty()) {
-        std::cerr << "用法: server -D <数据目录> [--daemon]" << std::endl;
+        std::cerr << "用法: server -D <数据目录> [--daemon] [--bootstrap]" << std::endl;
+        return -1;
+    }
+    if (daemon_mode && bootstrap_mode) {
+        std::cerr << "--daemon 与 --bootstrap 互斥" << std::endl;
         return -1;
     }
 
@@ -168,9 +175,15 @@ int main(int argc, char* argv[])
         return -1;
     }
 
+    // 实际监听端口: bootstrap 模式由内核分配后回填, 正常模式为配置端口
+    int listen_port = config::cfg.port;
+
     address.sin_family = AF_INET;
-    address.sin_addr.s_addr = INADDR_ANY;
-    address.sin_port = htons(static_cast<in_port_t>(config::cfg.port));
+    // bootstrap 模式仅本机监听且端口 0 由内核临时分配, 配置端口忽略
+    address.sin_addr.s_addr = bootstrap_mode ? htonl(INADDR_LOOPBACK) : INADDR_ANY;
+    address.sin_port = htons(bootstrap_mode
+                                  ? 0
+                                  : static_cast<in_port_t>(config::cfg.port));
 
     // 绑定socket到地址和端口
     if (bind(server_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
@@ -184,6 +197,18 @@ int main(int argc, char* argv[])
         close(server_fd);
         LOG(CRITICAL, NETWORK, "监听失败");
         return -1;
+    }
+
+    // bootstrap 模式: 取内核分配的实际端口
+    if (bootstrap_mode) {
+        struct sockaddr_in bound;
+        socklen_t bound_len = sizeof(bound);
+        if (getsockname(server_fd, reinterpret_cast<sockaddr*>(&bound), &bound_len) != 0) {
+            close(server_fd);
+            LOG(CRITICAL, NETWORK, "获取实际监听端口失败");
+            return -1;
+        }
+        listen_port = ntohs(bound.sin_port);
     }
 
     // 控制通道: unix domain socket
@@ -260,9 +285,18 @@ int main(int argc, char* argv[])
     }
 
     // 启动信息 LOG 必须在 fork 之后, 保证子进程内首次构造 Logger
-    LOG(INFO, SYSTEM, "服务器已启动, 监听端口 %d", config::cfg.port);
+    if (bootstrap_mode) {
+        LOG(INFO, SYSTEM, "服务器已启动, bootstrap 模式监听 127.0.0.1:%d", listen_port);
+    } else {
+        LOG(INFO, SYSTEM, "服务器已启动, 监听端口 %d", listen_port);
+    }
 
     std::cout << "支持最多 " << MAX_CLIENTS << " 个客户端同时连接" << std::endl;
+
+    // bootstrap 端口行: initdb 经管道逐行匹配前缀读取, endl 立即刷新全缓冲的 stdout
+    if (bootstrap_mode) {
+        std::cout << "bootstrap_port=" << listen_port << std::endl;
+    }
 
     // 主循环: poll 双 socket(数据连接 + 控制连接)
     struct pollfd fds[2];

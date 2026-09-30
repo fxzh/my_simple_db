@@ -50,7 +50,7 @@ TEST(Initdb, Ok)
     std::string data = (std::filesystem::path(kStateDir) / "data").string();
 
     ProcessResult r;
-    ASSERT_TRUE(run_ok({bin("initdb"), "-D", data}, 5000, r));
+    ASSERT_TRUE(run_ok({bin("initdb"), "-D", data}, 10000, r));
     EXPECT_EQ(r.exit_code, 0);
     EXPECT_NE(r.out.find("已初始化数据目录"), std::string::npos) << r.err;
     std::filesystem::path conf = std::filesystem::path(data) / "db.conf";
@@ -72,7 +72,7 @@ TEST(Initdb, DirExistsEmpty)
     std::filesystem::create_directories(data);
 
     ProcessResult r;
-    ASSERT_TRUE(run_ok({bin("initdb"), "-D", data}, 5000, r));
+    ASSERT_TRUE(run_ok({bin("initdb"), "-D", data}, 10000, r));
     EXPECT_EQ(r.exit_code, 0);
     EXPECT_TRUE(std::filesystem::is_regular_file(std::filesystem::path(data) / "db.conf"));
 }

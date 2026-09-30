@@ -1,9 +1,24 @@
-// initdb: 初始化工具, 在 -D 指定的数据目录内生成默认配置文件 db.conf 与元数据表 db_table/db_column/db_schema
+// initdb: 初始化工具, 在 -D 指定的数据目录内生成默认配置文件 db.conf 与元数据表 db_table/db_column/db_schema,
+// 并拉起同目录 server --bootstrap 读到端口行后直接经控制通道关闭(暂不执行 bootstrap.sql)
+#include <cerrno>
+#include <charconv>
+#include <chrono>
+#include <csignal>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <string_view>
 #include <system_error>
+#include <thread>
+
+#include <poll.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <sys/un.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include "log/log.h"
 #include "config/config.h"
@@ -23,6 +38,10 @@ port = 8123
 
 // initdb 失败时日志的保留路径
 constexpr char kFailedLogPath[] = "/tmp/simple.log";
+
+// bootstrap 阶段各等待上限(秒): 端口行读取 / server 退出
+constexpr int kPortLineTimeoutSec = 10;
+constexpr int kServerStopTimeoutSec = 10;
 
 // 在指定路径写入默认配置文件, 已存在或写入失败返回 false 并填充错误描述
 bool write_default_conf(const std::string& path, std::string& error)
@@ -79,6 +98,241 @@ bool prepare_data_dir(const std::string& dir, bool& created, std::string& error)
     return true;
 }
 
+// 定位与 initdb 同目录的伴生文件, 缺失或不可访问返回 false 并填充错误描述
+bool companion_path(const char* name, std::string& path, std::string& error)
+{
+    char buf[4096];
+    ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (n <= 0) {
+        error = "无法获取可执行文件路径(/proc/self/exe)";
+        return false;
+    }
+    buf[static_cast<size_t>(n)] = '\0';
+    path = (std::filesystem::path(buf).parent_path() / name).string();
+    std::error_code ec;
+    const bool present = std::filesystem::exists(path, ec);
+    if (ec) {
+        error = "无法访问伴生文件: " + path;
+        return false;
+    }
+    if (!present) {
+        error = "缺少伴生文件: " + path;
+        return false;
+    }
+    if (!std::filesystem::is_regular_file(path, ec) || ec) {
+        error = "无法访问伴生文件: " + path;
+        return false;
+    }
+    return true;
+}
+
+// 从管道读 server 输出, 匹配端口行 bootstrap_port=<端口>; EOF/超时/格式非法返回 false 并填充错误描述
+bool read_port_line(int fd, int& port, std::string& error)
+{
+    constexpr std::string_view kPrefix = "bootstrap_port=";
+    std::string buf;
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(kPortLineTimeoutSec);
+    for (;;) {
+        size_t nl = buf.find('\n');
+        while (nl != std::string::npos) {
+            std::string line = buf.substr(0, nl);
+            buf.erase(0, nl + 1);
+            if (line.starts_with(kPrefix)) {
+                std::string_view num(line.data() + kPrefix.size(), line.size() - kPrefix.size());
+                int value = 0;
+                auto res = std::from_chars(num.data(), num.data() + num.size(), value);
+                if (res.ec != std::errc() || res.ptr != num.data() + num.size() || value <= 0) {
+                    error = "端口行格式非法: " + line;
+                    return false;
+                }
+                port = value;
+                return true;
+            }
+            nl = buf.find('\n');
+        }
+        auto remain_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                deadline - std::chrono::steady_clock::now()).count();
+        if (remain_ms <= 0) {
+            error = "等待 bootstrap 端口行超时";
+            return false;
+        }
+        struct pollfd pfd;
+        pfd.fd = fd;
+        pfd.events = POLLIN;
+        int pret = poll(&pfd, 1, static_cast<int>(remain_ms));
+        if (pret < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            error = "poll 失败";
+            return false;
+        }
+        if (pret == 0) {
+            error = "等待 bootstrap 端口行超时";
+            return false;
+        }
+        char chunk[256];
+        ssize_t n = read(fd, chunk, sizeof(chunk));
+        if (n < 0) {
+            error = "读取 server 输出失败";
+            return false;
+        }
+        if (n == 0) {
+            error = "server 启动失败(进程提前退出, 详细错误见控制台)";
+            return false;
+        }
+        buf.append(chunk, static_cast<size_t>(n));
+    }
+}
+
+// 经控制通道发送 shutdown 并确认回复 OK
+bool control_shutdown(const std::string& sock_path, std::string& error)
+{
+    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    if (fd < 0) {
+        error = "创建控制 socket 失败";
+        return false;
+    }
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    if (sock_path.size() >= sizeof(addr.sun_path)) {
+        error = "控制 socket 路径过长: " + sock_path;
+        close(fd);
+        return false;
+    }
+    strncpy(addr.sun_path, sock_path.c_str(), sizeof(addr.sun_path) - 1);
+    if (connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
+        error = "连接控制 socket 失败: " + sock_path;
+        close(fd);
+        return false;
+    }
+    struct timeval tv;
+    tv.tv_sec = 3;
+    tv.tv_usec = 0;
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));  // 读侧超时, 防挂死
+    std::string cmd = "shutdown\n";
+    if (send(fd, cmd.data(), cmd.size(), 0) < 0) {
+        error = "发送 shutdown 失败";
+        close(fd);
+        return false;
+    }
+    std::string reply;
+    char rbuf[64];
+    for (;;) {
+        ssize_t n = read(fd, rbuf, sizeof(rbuf));
+        if (n > 0) {
+            reply.append(rbuf, static_cast<size_t>(n));
+            continue;
+        }
+        if (n == 0) {
+            break;  // EOF: 回复结束
+        }
+        error = "读取控制回复失败";
+        close(fd);
+        return false;
+    }
+    close(fd);
+    if (reply != "OK") {
+        error = "shutdown 回复异常: " + reply;
+        return false;
+    }
+    return true;
+}
+
+// 等待子进程退出(带超时), 已退出返回 true 并写入 status
+bool wait_child(pid_t pid, int& status, std::string& error)
+{
+    auto deadline = std::chrono::steady_clock::now()
+            + std::chrono::seconds(kServerStopTimeoutSec);
+    while (std::chrono::steady_clock::now() < deadline) {
+        pid_t r = waitpid(pid, &status, WNOHANG);
+        if (r == pid) {
+            return true;
+        }
+        if (r < 0) {
+            error = "waitpid 失败";
+            return false;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    error = "等待 server 退出超时";
+    return false;
+}
+
+// 失败路径收尾: 尽力经控制通道关闭, 仍不退出则 SIGKILL, 保证收尸
+void best_effort_stop(pid_t pid, const std::string& sock_path)
+{
+    std::string ignore;
+    control_shutdown(sock_path, ignore);  // server 可能已退出或未就绪, 失败不报
+    int status = 0;
+    if (!wait_child(pid, status, ignore)) {
+        kill(pid, SIGKILL);
+        waitpid(pid, &status, 0);
+    }
+}
+
+// bootstrap 阶段: 拉起同目录 server --bootstrap(前台, stdout 接管道), 读到端口行后
+// 直接经控制通道关闭并等其退出; 任一步失败时已尽力收尾子进程
+bool run_bootstrap_stage(const std::string& dir, std::string& error)
+{
+    std::string server_bin;
+    if (!companion_path("server", server_bin, error)) {
+        return false;
+    }
+    std::string ctl_sock = (std::filesystem::path(dir) / "server.sock").string();
+
+    int pipe_fds[2];
+    if (pipe(pipe_fds) != 0) {
+        error = "创建管道失败";
+        return false;
+    }
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(pipe_fds[0]);
+        close(pipe_fds[1]);
+        error = "fork 失败";
+        return false;
+    }
+    if (pid == 0) {
+        // 子进程: stdout 接管道, stderr 保留透传启动期报错
+        close(pipe_fds[0]);
+        dup2(pipe_fds[1], STDOUT_FILENO);
+        close(pipe_fds[1]);
+        execl(server_bin.c_str(), "server", "-D", dir.c_str(), "--bootstrap",
+              static_cast<char*>(nullptr));
+        std::cerr << "启动 server 失败: " << strerror(errno) << std::endl;
+        _exit(1);
+    }
+    close(pipe_fds[1]);
+
+    int port = 0;
+    if (!read_port_line(pipe_fds[0], port, error)) {
+        best_effort_stop(pid, ctl_sock);
+        close(pipe_fds[0]);
+        return false;
+    }
+    if (!control_shutdown(ctl_sock, error)) {
+        best_effort_stop(pid, ctl_sock);
+        close(pipe_fds[0]);
+        return false;
+    }
+    int status = 0;
+    if (!wait_child(pid, status, error)) {
+        kill(pid, SIGKILL);
+        waitpid(pid, &status, 0);
+        close(pipe_fds[0]);
+        return false;
+    }
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        error = "server 异常退出";
+        close(pipe_fds[0]);
+        return false;
+    }
+    close(pipe_fds[0]);
+    return true;
+}
+
 }  // namespace
 
 int main(int argc, char* argv[])
@@ -132,6 +386,15 @@ int main(int argc, char* argv[])
     } catch (const std::exception& e) {
         const bool log_kept = rollback();
         std::cerr << e.what() << std::endl;
+        if (log_kept) {
+            std::cerr << "详细信息可查看 " << kFailedLogPath << std::endl;
+        }
+        return 1;
+    }
+    // bootstrap 阶段: 拉起 server --bootstrap 后直接关闭, 不执行 bootstrap.sql
+    if (!run_bootstrap_stage(dir, error)) {
+        const bool log_kept = rollback();
+        std::cerr << error << std::endl;
         if (log_kept) {
             std::cerr << "详细信息可查看 " << kFailedLogPath << std::endl;
         }
