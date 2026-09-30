@@ -117,6 +117,15 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt)
     }
     case pl::PlanKind::Project:
         return run_select(db, static_cast<const pl::ProjectPlan&>(*plan));
+    case pl::PlanKind::Set: {
+        const auto& p = static_cast<const pl::SetPlan&>(*plan);
+        switch (p.var) {
+        case ana::SetVar::TableId:
+            db.set_bootstrap_table_id(p.value);
+            break;
+        }
+        return tag_result(proto::CommandTag::Set, 0);
+    }
     default:
         break;  // SeqScan/Filter 不作为根计划出现
     }

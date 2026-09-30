@@ -291,6 +291,7 @@ enum class StmtKind {
     Insert,
     Delete,
     Select,
+    Set,
 };
 
 // SQL 语句基类
@@ -482,6 +483,25 @@ public:
     }
 
     StmtKind kind() const override { return StmtKind::Select; }
+};
+
+// SET 变量 = 值(bootstrap 自举专用, 正常模式由 analyzer 拒绝)
+class SetStmt : public SQLStatement {
+    std::string var_;
+    long long value_;
+public:
+    SetStmt(std::string var, long long value) : var_(std::move(var)), value_(value) {}
+
+    const std::string& var_name() const { return var_; }
+    long long value() const { return value_; }
+
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "Set: " << var_ << " = "
+           << value_ << std::endl;
+    }
+
+    StmtKind kind() const override { return StmtKind::Set; }
 };
 
 #endif  // PARSER_AST_HH

@@ -111,6 +111,7 @@ add_sql_case(sql_where_char      where     where_char)
 add_sql_case(sql_reserved        reserved  reserved)
 add_sql_case(sql_semantic_insert semantic  semantic_insert)
 add_sql_case(sql_semantic_select semantic  semantic_select)
+add_sql_case(sql_semantic_set    semantic  semantic_set)
 add_sql_case(sql_lexer_comment   lexer     lexer_comment)
 add_sql_case(sql_lexer_string    lexer     lexer_string)
 

@@ -35,7 +35,7 @@ constexpr const char* kSystemSchemaName = "system";
 // 元数据以 db_table/db_column/db_schema 三张表为唯一事实来源, 查找实时扫描, 无目录文件与内存缓存
 class Catalog {
 public:
-    explicit Catalog(std::string dir);
+    explicit Catalog(std::string dir, bool bootstrap_mode = false);
 
     Catalog(const Catalog&) = delete;
     Catalog& operator=(const Catalog&) = delete;
@@ -65,6 +65,11 @@ public:
     size_t row_count(const std::string& table);
     // 按表名取表元数据(实时扫描元数据表), 表不存在当场报错
     st::TableMeta table_meta(const std::string& name);
+
+    // bootstrap 模式标志(server --bootstrap 启动时传入): 管 SET 语句门禁等
+    bool bootstrap_mode() const { return bootstrap_mode_; }
+    // SET table_id 变量: 指定下一条 create table 使用的 table_id, 0 表示未 set, 用后不清零
+    void set_bootstrap_table_id(uint64_t v) { bootstrap_table_id_ = v; }
 
 private:
     // 建表公共路径(须持锁): 校验后按指定 table_id 建数据文件、写元数据行, file_id 内部分配
@@ -97,6 +102,8 @@ private:
     std::atomic<uint64_t> next_file_id_{0};   // 下一个 file_id, open() 扫 db_table 取最大值+1 初始化
     std::atomic<uint64_t> next_table_id_{0};   // 下一个 table_id, open() 扫 db_table 取最大值+1 初始化, 不低于 kFirstUserTableId
     std::atomic<uint64_t> next_schema_id_{0};  // 下一个 schema_id, open() 扫 db_schema 取最大值+1 初始化
+    bool bootstrap_mode_ = false;        // bootstrap 模式标志, 构造时由 server --bootstrap 传入
+    uint64_t bootstrap_table_id_ = 0;    // SET table_id 变量, 0 表示未 set, 与 next_table_id_ 分配器无关
 };
 
 }  // namespace ct

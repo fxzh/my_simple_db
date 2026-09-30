@@ -35,6 +35,7 @@ enum class ErrCode {
     RecordTooLong,  // 记录超长
     ArithError,     // 算术溢出/除零(表达式求值)
     UnknownColumn,  // 引用了不存在的列
+    UnknownVar,     // SET 引用了不存在的变量
     UnknownStmt,    // 未知语句种类(执行层不变量违反)
     NotImplemented, // 功能未实现(语法已接入, 执行暂缺)
     Internal,       // 内部不变量违反(缓冲池记账等)
@@ -61,6 +62,7 @@ constexpr std::string_view errCodeName(ErrCode code) noexcept
         case ErrCode::RecordTooLong:  return "RECORD_TOO_LONG";
         case ErrCode::ArithError:     return "ARITH_ERROR";
         case ErrCode::UnknownColumn:  return "UNKNOWN_COLUMN";
+        case ErrCode::UnknownVar:     return "UNKNOWN_VAR";
         case ErrCode::UnknownStmt:    return "UNKNOWN_STMT";
         case ErrCode::NotImplemented: return "NOT_IMPLEMENTED";
         case ErrCode::Internal:       return "INTERNAL";

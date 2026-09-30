@@ -1,0 +1,20 @@
+SET table_id = 4;
+ERROR: SET 仅 bootstrap 模式可用
+set table_id = 4;
+ERROR: SET 仅 bootstrap 模式可用
+SeT TABLE_ID = 4;
+ERROR: SET 仅 bootstrap 模式可用
+SET table_id = -1;
+ERROR: SET 仅 bootstrap 模式可用
+SET schema_id = 1;
+ERROR: SET 仅 bootstrap 模式可用
+SET unknown_var = 0;
+ERROR: SET 仅 bootstrap 模式可用
+SET table_id;
+ERROR: 1.13: syntax error, unexpected ';', expecting EQ
+SET table_id = ;
+ERROR: 1.16: syntax error, unexpected ';', expecting INTEGER or '+' or '-'
+SET = 4;
+ERROR: 1.5: syntax error, unexpected EQ, expecting IDENTIFIER
+CREATE TABLE set (a int);
+ERROR: 1.14-16: syntax error, unexpected SET, expecting IDENTIFIER

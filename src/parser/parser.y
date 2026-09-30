@@ -57,7 +57,7 @@
 %token TOK_ERROR
 %token CREATE TABLE DROP SCHEMA INSERT INTO VALUES DELETE FROM
 %token INT BIGINT FLOAT CHAR VARCHAR DOUBLE
-%token SELECT AS NULL_T WHERE AND OR NOT IS
+%token SELECT AS NULL_T WHERE AND OR NOT IS SET
 %token EQ NE LE GE
 
 %token <long long> INTEGER
@@ -79,7 +79,7 @@
 %right UMINUS
 
 // 类型声明
-%type <std::unique_ptr<SQLStatement>> statement create_statement drop_statement insert_statement delete_statement create_table_statement drop_table_statement create_schema_statement drop_schema_statement select_statement
+%type <std::unique_ptr<SQLStatement>> statement create_statement drop_statement insert_statement delete_statement create_table_statement drop_table_statement create_schema_statement drop_schema_statement select_statement set_statement
 %type <std::vector<ColumnDef>> column_definitions
 %type <ColumnDef> column_definition
 %type <TypeInfo> type_specifier
@@ -87,6 +87,7 @@
 %type <std::vector<std::vector<std::unique_ptr<Expr>>>> values_rows
 %type <std::unique_ptr<Expr>> value expression where_opt
 %type <bool> null_not_opt not_null_opt
+%type <long long> set_value
 %type <std::vector<SelectItem>> select_list select_items
 %type <SelectItem> select_item
 %type <std::string> alias_opt
@@ -115,6 +116,7 @@ statement:
     |   insert_statement  { $$ = std::move($1); }
     |   delete_statement  { $$ = std::move($1); }
     |   select_statement  { $$ = std::move($1); }
+    |   set_statement     { $$ = std::move($1); }
     ;
 
 // create table / create schema ...
@@ -199,6 +201,21 @@ select_statement:
             $$ = std::make_unique<SelectStmt>(std::move($4), false, std::move($2), std::move($5),
                                              std::vector<OrderItem>{}, std::nullopt, std::nullopt);
         }
+    ;
+
+// set 变量 = 值(bootstrap 自举专用, 正常模式由 analyzer 拒绝)
+set_statement:
+        SET IDENTIFIER EQ set_value
+        {
+            $$ = std::make_unique<SetStmt>(std::move($2), $4);
+        }
+    ;
+
+// set 值: 可带正负号的整数字面量, 值域不在语法层校验
+set_value:
+        INTEGER      { $$ = $1; }
+    |   '-' INTEGER  { $$ = -$2; }
+    |   '+' INTEGER  { $$ = $2; }
     ;
 
 // 可选 where 子句: 空时语义值为空指针

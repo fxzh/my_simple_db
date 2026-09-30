@@ -20,7 +20,7 @@ struct ProjCol {
 
 // 绑定语句种类, 供执行层按类型分派
 enum class BoundKind {
-    CreateTable, DropTable, CreateSchema, DropSchema, Insert, Delete, Select,
+    CreateTable, DropTable, CreateSchema, DropSchema, Insert, Delete, Select, Set,
 };
 
 // 绑定语句基类: 表达式为绑定树, 由语句对象持有
@@ -74,6 +74,16 @@ struct BoundSelect : BoundStmt {
     std::vector<ProjCol> projs;
     std::unique_ptr<BoundExpr> where;
     BoundKind kind() const override { return BoundKind::Select; }
+};
+
+// bootstrap SET 变量种类(按对象类型独立命名)
+enum class SetVar : uint8_t { TableId };
+
+// SET: 变量已知名绑定, 值经 uint64 转换不做域校验(bootstrap.sql 为受控文件)
+struct BoundSet : BoundStmt {
+    SetVar var;
+    uint64_t value;
+    BoundKind kind() const override { return BoundKind::Set; }
 };
 
 }  // namespace ana

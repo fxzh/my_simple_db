@@ -84,6 +84,13 @@ std::unique_ptr<PlanNode> build(ana::BoundStmt& bound)
     }
     case ana::BoundKind::Select:
         return build_select(static_cast<ana::BoundSelect&>(bound));
+    case ana::BoundKind::Set: {
+        const auto& bs = static_cast<const ana::BoundSet&>(bound);
+        auto p = std::make_unique<SetPlan>();
+        p->var = bs.var;
+        p->value = bs.value;
+        return p;
+    }
     }
     // 不可达: 全部绑定语句种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::PLANNER, "planner: 未知绑定语句种类");

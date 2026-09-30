@@ -1,0 +1,10 @@
+SET table_id = 4;
+set table_id = 4;
+SeT TABLE_ID = 4;
+SET table_id = -1;
+SET schema_id = 1;
+SET unknown_var = 0;
+SET table_id;
+SET table_id = ;
+SET = 4;
+CREATE TABLE set (a int);

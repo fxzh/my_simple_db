@@ -142,8 +142,8 @@ int main(int argc, char* argv[])
         return -1;
     }
 
-    // 打开数据目录(存储引擎), 所有客户端线程共享这一个实例
-    ct::Catalog db(data_dir);
+    // 打开数据目录(存储引擎), 所有客户端线程共享这一个实例; bootstrap 标志随构造传入
+    ct::Catalog db(data_dir, bootstrap_mode);
     try {
         db.open();
     } catch (const db::DbError& e) {

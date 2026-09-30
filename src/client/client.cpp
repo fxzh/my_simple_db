@@ -84,6 +84,8 @@ std::string command_display(proto::CommandTag tag, uint64_t count)
         return "INSERT " + std::to_string(count);
     case proto::CommandTag::Delete:
         return "DELETE " + std::to_string(count);
+    case proto::CommandTag::Set:
+        return "SET";
     case proto::CommandTag::Empty:
         return "";
     }

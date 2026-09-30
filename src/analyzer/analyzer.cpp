@@ -492,6 +492,22 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt)
         b->projs = build_projs(ss, meta, schema);
         return b;
     }
+    case StmtKind::Set: {
+        const auto& ss = static_cast<const SetStmt&>(stmt);
+        if (!db.bootstrap_mode()) {
+            DB_RAISE(db::ErrCode::NotImplemented, LogModule::ANALYZER, "SET 仅 bootstrap 模式可用");
+        }
+        auto b = std::make_unique<BoundSet>();
+        if (ss.var_name() == "table_id") {
+            b->var = SetVar::TableId;
+        } else {
+            DB_RAISE(db::ErrCode::UnknownVar, LogModule::ANALYZER, "未知 SET 变量: {}",
+                     ss.var_name());
+        }
+        // 值经 uint64 转换, 不做域校验(bootstrap.sql 为受控文件)
+        b->value = static_cast<uint64_t>(ss.value());
+        return b;
+    }
     }
     // 不可达: 全部语句种类已在上方穷尽
     DB_RAISE(db::ErrCode::UnknownStmt, LogModule::ANALYZER, "analyzer: 未知语句种类");

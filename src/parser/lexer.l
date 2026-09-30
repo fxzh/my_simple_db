@@ -72,6 +72,7 @@ WS       [ \t\r]
 "or"       { return yy::parser::token::OR; }
 "not"      { return yy::parser::token::NOT; }
 "is"       { return yy::parser::token::IS; }
+"set"      { return yy::parser::token::SET; }
 
 {DIGIT}+"."{DIGIT}*|"."{DIGIT}+ {
     yylval->build<double>(std::stod(yytext));

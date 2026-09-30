@@ -101,8 +101,8 @@ std::pair<int64_t, st::ColumnSpec> parse_column_row(const std::vector<st::Value>
 
 // ==================== Catalog ====================
 
-Catalog::Catalog(std::string dir)
-        : dir_(dir), engine_(std::move(dir)) {}
+Catalog::Catalog(std::string dir, bool bootstrap_mode)
+        : dir_(dir), engine_(std::move(dir)), bootstrap_mode_(bootstrap_mode) {}
 
 void Catalog::create()
 {
