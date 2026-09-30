@@ -157,6 +157,40 @@ void render_result_set(const proto::ResultSet& rs)
     std::cout << "(" << rs.rows.size() << " 行)" << std::endl;
 }
 
+// 结果集流式接收: 头帧后的批次帧物化累积, 结束帧校验总行数; 流中 Error 帧丢弃已收行
+bool recv_result_stream(proto::ResultSet& rs)
+{
+    for (;;) {
+        proto::MsgType t;
+        std::string b;
+        if (!proto::recv_frame(sock, 0, t, b)) {
+            std::cerr << "服务器连接已断开" << std::endl;
+            return false;
+        }
+        if (t == proto::MsgType::ResultSetBatch) {
+            if (!proto::decode_rs_batch(b, static_cast<uint32_t>(rs.cols.size()), rs)) {
+                std::cerr << "错误: 结果集解码失败" << std::endl;
+                return false;
+            }
+        } else if (t == proto::MsgType::ResultSetEnd) {
+            uint64_t total = 0;
+            if (!proto::decode_rs_end(b, total) || total != rs.rows.size()) {
+                std::cerr << "错误: 结果集解码失败" << std::endl;
+                return false;
+            }
+            return true;
+        } else if (t == proto::MsgType::Error) {
+            // 语句中途失败, 已收部分行不展示
+            std::cout << "ERROR: " << b << std::endl;
+            return false;
+        } else {
+            std::cerr << "错误: 收到未实现的消息类型: "
+                      << static_cast<unsigned int>(t) << std::endl;
+            return false;
+        }
+    }
+}
+
 void send_to_server()
 {
     if (sql_overflow) {
@@ -187,7 +221,7 @@ void send_to_server()
         return;
     }
 
-    // Error 补前缀打印, Ok 解码命令标签后打印(空语句无输出), ResultSet 渲染为表格
+    // Error 补前缀打印, Ok 解码命令标签后打印(空语句无输出), ResultSetHead 起三帧流式接收
     if (type == proto::MsgType::Error) {
         sql_failed = true;
         std::cout << "ERROR: " << body << std::endl;
@@ -200,13 +234,15 @@ void send_to_server()
         } else if (tag != proto::CommandTag::Empty) {
             std::cout << command_display(tag, count) << std::endl;
         }
-    } else if (type == proto::MsgType::ResultSet) {
+    } else if (type == proto::MsgType::ResultSetHead) {
         proto::ResultSet rs;
-        if (!proto::decode_result_set(body, rs)) {
+        if (!proto::decode_rs_head(body, rs.cols)) {
             std::cerr << "错误: 结果集解码失败" << std::endl;
             sql_failed = true;
-        } else {
+        } else if (recv_result_stream(rs)) {
             render_result_set(rs);
+        } else {
+            sql_failed = true;
         }
     } else {
         std::cerr << "错误: 收到未实现的消息类型: "

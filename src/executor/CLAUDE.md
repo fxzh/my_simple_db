@@ -1,5 +1,5 @@
 # executor
-执行层：语句先经 ana::analyze 绑定、pl::build 生成计划，查询子树经迭代子算子(open/next/close)逐节点拉取执行，叶子计划(DDL/INSERT)直接转 catalog 调用，返回命令标签或结果集
+执行层：语句先经 ana::analyze 绑定、pl::build 生成计划，查询子树经迭代子算子(open/next/close)逐节点拉取执行，叶子计划(DDL/INSERT)直接转 catalog 调用，返回命令标签或流式结果集(SELECT 返回已 open 的算子，由调用方逐行拉取后 close)
 
 - 算子工厂(operator.cpp)是执行器唯一的节点类型分派点；执行器不感知计划形态，形态由 planner 决定
 - 隐式契约：谓词/投影的列下标语义 = 其子节点的输出行(单表阶段即基表行)；接入 Join 前需在 analyzer 层按节点输出 schema 绑定下标

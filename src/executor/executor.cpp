@@ -29,24 +29,19 @@ ExecResult tag_result(proto::CommandTag tag, uint64_t count)
 
 // ==================== SELECT 执行 ====================
 
-// SELECT 执行: 拉取投影算子逐行物化
-ExecResult run_select(ct::Catalog& db, const pl::ProjectPlan& pp)
+// SELECT 执行: 建算子并 open, 计划树随行携带(算子引用其中数据), 行由调用方经 next 逐行拉取
+ExecResult run_select(ct::Catalog& db, std::unique_ptr<pl::PlanNode> plan)
 {
+    const auto& pp = static_cast<const pl::ProjectPlan&>(*plan);
     ExecResult result;
     result.is_result_set = true;
     result.col_names.reserve(pp.projs.size());
     for (const ana::ProjCol& p : pp.projs) {
         result.col_names.push_back(p.name);
     }
-
-    // 物化期: 逐行拉取算子树, 投影求值在投影算子内完成
-    std::unique_ptr<Operator> op = make_operator(db, pp);
-    op->open();
-    st::Row row;
-    while (op->next(&row)) {
-        result.rows.push_back(std::move(row.values));
-    }
-    op->close();
+    result.plan = std::move(plan);
+    result.stream = make_operator(db, pp);
+    result.stream->open();
     return result;
 }
 
@@ -116,7 +111,7 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt)
         return tag_result(proto::CommandTag::Delete, n);
     }
     case pl::PlanKind::Project:
-        return run_select(db, static_cast<const pl::ProjectPlan&>(*plan));
+        return run_select(db, std::move(plan));
     case pl::PlanKind::Set: {
         const auto& p = static_cast<const pl::SetPlan&>(*plan);
         switch (p.var) {

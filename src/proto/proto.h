@@ -24,10 +24,12 @@ constexpr uint32_t MAX_REQUEST_PAYLOAD = 10240;
 
 // 消息类型: Query 为请求方向, 其余为响应方向
 enum class MsgType : uint8_t {
-    Query = 1,      // body: SQL 原文
-    Ok = 2,         // body: 命令标签(编码见下方命令标签部分)
-    Error = 3,      // body: 错误文案
-    ResultSet = 4,  // body: 结果集(编码见下方 ResultSet 部分)
+    Query = 1,          // body: SQL 原文
+    Ok = 2,             // body: 命令标签(编码见下方命令标签部分)
+    Error = 3,          // body: 错误文案
+    ResultSetHead = 4,  // body: 结果集列名(编码见下方结果集部分)
+    ResultSetBatch = 5, // body: 一批结果行
+    ResultSetEnd = 6,   // body: 总行数 u64
 };
 
 // 命令完成标签: 非结果集语句的执行语义, 展示格式由 client 决定
@@ -113,16 +115,19 @@ inline bool send_frame(int fd, MsgType type, const std::string& body)
     return send_exact(fd, frame.data(), frame.size());
 }
 
-// ==================== 结果集(ResultSet body 编解码) ====================
+// ==================== 结果集(Head/Batch/End 三帧编解码) ====================
 
 // 结果集单元格值(与 st::Value 同构, proto 层独立定义避免依赖)
 using CellVal = std::variant<std::monostate, int64_t, double, std::string>;
 
-// 结果集: 列名 + 行值
+// 客户端物化结果集: 列名(来自 Head) + 行值(累积自 Batch)
 struct ResultSet {
     std::vector<std::string> cols;
     std::vector<std::vector<CellVal>> rows;
 };
+
+// 单批最大行数: 发送侧攒批上限, 接收侧不感知
+constexpr uint32_t RS_BATCH_MAX_ROWS = 256;
 
 // 单元格编码 tag
 constexpr uint8_t CELL_NULL = 0;
@@ -151,143 +156,199 @@ inline void append_u64(std::string& out, uint64_t v)
     }
 }
 
-// body 布局(大端网络序): [列数 u32] 每列[列名长度 u16][列名] [行数 u32]
-// 每行每列一个单元格 [tag u8][payload]: 0=NULL 无 payload, 1=int64 8B,
-// 2=double 8B(位模式按 u64), 3=string[长度 u16][字节]
-inline std::string encode_result_set(const ResultSet& rs)
+// 单元格编码追加: [tag u8][payload]
+inline void append_cell(std::string& out, const CellVal& cell)
+{
+    if (const auto* i = std::get_if<int64_t>(&cell)) {
+        out.push_back(static_cast<char>(CELL_INT));
+        append_u64(out, static_cast<uint64_t>(*i));
+    } else if (const auto* d = std::get_if<double>(&cell)) {
+        uint64_t bits = 0;
+        std::memcpy(&bits, d, sizeof(bits));
+        out.push_back(static_cast<char>(CELL_DOUBLE));
+        append_u64(out, bits);
+    } else if (const auto* s = std::get_if<std::string>(&cell)) {
+        out.push_back(static_cast<char>(CELL_STRING));
+        append_u16(out, static_cast<uint16_t>(s->size()));
+        out.append(*s);
+    } else {
+        out.push_back(static_cast<char>(CELL_NULL));
+    }
+}
+
+// Head body 布局(大端网络序): [列数 u32] 每列[列名长度 u16][列名]
+inline std::string encode_rs_head(const std::vector<std::string>& cols)
 {
     std::string body;
-    append_u32(body, static_cast<uint32_t>(rs.cols.size()));
-    for (const std::string& col : rs.cols) {
+    append_u32(body, static_cast<uint32_t>(cols.size()));
+    for (const std::string& col : cols) {
         append_u16(body, static_cast<uint16_t>(col.size()));
         body.append(col);
     }
-    append_u32(body, static_cast<uint32_t>(rs.rows.size()));
-    for (const std::vector<CellVal>& row : rs.rows) {
+    return body;
+}
+
+// Batch body 布局: [行数 u32] 每行每列一个单元格 [tag u8][payload]:
+// 0=NULL 无 payload, 1=int64 8B, 2=double 8B(位模式按 u64), 3=string[长度 u16][字节]
+inline std::string encode_rs_batch(const std::vector<std::vector<CellVal>>& rows)
+{
+    std::string body;
+    append_u32(body, static_cast<uint32_t>(rows.size()));
+    for (const std::vector<CellVal>& row : rows) {
         for (const CellVal& cell : row) {
-            if (const auto* i = std::get_if<int64_t>(&cell)) {
-                body.push_back(static_cast<char>(CELL_INT));
-                append_u64(body, static_cast<uint64_t>(*i));
-            } else if (const auto* d = std::get_if<double>(&cell)) {
-                uint64_t bits = 0;
-                std::memcpy(&bits, d, sizeof(bits));
-                body.push_back(static_cast<char>(CELL_DOUBLE));
-                append_u64(body, bits);
-            } else if (const auto* s = std::get_if<std::string>(&cell)) {
-                body.push_back(static_cast<char>(CELL_STRING));
-                append_u16(body, static_cast<uint16_t>(s->size()));
-                body.append(*s);
-            } else {
-                body.push_back(static_cast<char>(CELL_NULL));
-            }
+            append_cell(body, cell);
         }
     }
     return body;
 }
 
-// ResultSet body 解回; 长度或结构非法(截断/未知 tag/尾部冗余)返回 false
-inline bool decode_result_set(std::string_view body, ResultSet& out)
+// End body 布局: [总行数 u64]
+inline std::string encode_rs_end(uint64_t row_count)
 {
-    out.cols.clear();
-    out.rows.clear();
+    std::string body;
+    append_u64(body, row_count);
+    return body;
+}
+
+// 读取游标族: 长度不足返回 false
+inline bool take_u16(std::string_view body, std::size_t& off, uint16_t& v)
+{
+    if (off + 2 > body.size()) {
+        return false;
+    }
+    v = static_cast<uint16_t>(static_cast<unsigned char>(body[off]) << 8)
+      | static_cast<unsigned char>(body[off + 1]);
+    off += 2;
+    return true;
+}
+
+inline bool take_u32(std::string_view body, std::size_t& off, uint32_t& v)
+{
+    if (off + 4 > body.size()) {
+        return false;
+    }
+    v = 0;
+    for (std::size_t i = 0; i < 4; ++i) {
+        v = (v << 8) | static_cast<unsigned char>(body[off + i]);
+    }
+    off += 4;
+    return true;
+}
+
+inline bool take_u64(std::string_view body, std::size_t& off, uint64_t& v)
+{
+    if (off + 8 > body.size()) {
+        return false;
+    }
+    v = 0;
+    for (std::size_t i = 0; i < 8; ++i) {
+        v = (v << 8) | static_cast<unsigned char>(body[off + i]);
+    }
+    off += 8;
+    return true;
+}
+
+inline bool take_bytes(std::string_view body, std::size_t& off, std::size_t n, std::string_view& v)
+{
+    if (off + n > body.size()) {
+        return false;
+    }
+    v = body.substr(off, n);
+    off += n;
+    return true;
+}
+
+// 单元格解码; 长度不足或未知 tag 返回 false
+inline bool take_cell(std::string_view body, std::size_t& off, CellVal& out)
+{
+    std::string_view one;
+    if (!take_bytes(body, off, 1, one)) {
+        return false;
+    }
+    const auto tag = static_cast<unsigned char>(one.front());
+    if (tag == CELL_INT) {
+        uint64_t bits = 0;
+        if (!take_u64(body, off, bits)) {
+            return false;
+        }
+        out = static_cast<int64_t>(bits);
+    } else if (tag == CELL_DOUBLE) {
+        uint64_t bits = 0;
+        if (!take_u64(body, off, bits)) {
+            return false;
+        }
+        double d = 0.0;
+        std::memcpy(&d, &bits, sizeof(d));
+        out = d;
+    } else if (tag == CELL_STRING) {
+        uint16_t len = 0;
+        std::string_view text;
+        if (!take_u16(body, off, len) || !take_bytes(body, off, len, text)) {
+            return false;
+        }
+        out = std::string(text);
+    } else if (tag == CELL_NULL) {
+        out = std::monostate{};
+    } else {
+        return false;  // 未知 tag
+    }
+    return true;
+}
+
+// Head 解码; 长度或结构非法(截断/尾部冗余)返回 false
+inline bool decode_rs_head(std::string_view body, std::vector<std::string>& cols)
+{
+    cols.clear();
     std::size_t off = 0;
-
-    // 读取游标: 长度不足返回 false
-    const auto take_u16 = [&](uint16_t& v) -> bool {
-        if (off + 2 > body.size()) {
-            return false;
-        }
-        v = static_cast<uint16_t>(static_cast<unsigned char>(body[off]) << 8)
-          | static_cast<unsigned char>(body[off + 1]);
-        off += 2;
-        return true;
-    };
-    const auto take_u32 = [&](uint32_t& v) -> bool {
-        if (off + 4 > body.size()) {
-            return false;
-        }
-        v = 0;
-        for (std::size_t i = 0; i < 4; ++i) {
-            v = (v << 8) | static_cast<unsigned char>(body[off + i]);
-        }
-        off += 4;
-        return true;
-    };
-    const auto take_u64 = [&](uint64_t& v) -> bool {
-        if (off + 8 > body.size()) {
-            return false;
-        }
-        v = 0;
-        for (std::size_t i = 0; i < 8; ++i) {
-            v = (v << 8) | static_cast<unsigned char>(body[off + i]);
-        }
-        off += 8;
-        return true;
-    };
-    const auto take_bytes = [&](std::size_t n, std::string_view& v) -> bool {
-        if (off + n > body.size()) {
-            return false;
-        }
-        v = body.substr(off, n);
-        off += n;
-        return true;
-    };
-
     uint32_t col_count = 0;
-    if (!take_u32(col_count)) {
+    if (!take_u32(body, off, col_count)) {
         return false;
     }
     for (uint32_t c = 0; c < col_count; ++c) {
         uint16_t len = 0;
         std::string_view name;
-        if (!take_u16(len) || !take_bytes(len, name)) {
+        if (!take_u16(body, off, len) || !take_bytes(body, off, len, name)) {
             return false;
         }
-        out.cols.push_back(std::string(name));
+        cols.push_back(std::string(name));
     }
+    return off == body.size();
+}
+
+// Batch 解码: 行按 col_count 分格, 行值追加进 out.rows; 非法返回 false
+inline bool decode_rs_batch(std::string_view body, uint32_t col_count, ResultSet& out)
+{
+    std::size_t off = 0;
     uint32_t row_count = 0;
-    if (!take_u32(row_count)) {
+    if (!take_u32(body, off, row_count)) {
         return false;
     }
     for (uint32_t r = 0; r < row_count; ++r) {
         std::vector<CellVal> row;
-        row.reserve(out.cols.size());
+        row.reserve(col_count);
         for (uint32_t c = 0; c < col_count; ++c) {
-            std::string_view one;
-            if (!take_bytes(1, one)) {
+            CellVal cell;
+            if (!take_cell(body, off, cell)) {
                 return false;
             }
-            const auto tag = static_cast<unsigned char>(one.front());
-            if (tag == CELL_INT) {
-                uint64_t bits = 0;
-                if (!take_u64(bits)) {
-                    return false;
-                }
-                row.push_back(static_cast<int64_t>(bits));
-            } else if (tag == CELL_DOUBLE) {
-                uint64_t bits = 0;
-                if (!take_u64(bits)) {
-                    return false;
-                }
-                double d = 0.0;
-                std::memcpy(&d, &bits, sizeof(d));
-                row.push_back(d);
-            } else if (tag == CELL_STRING) {
-                uint16_t len = 0;
-                std::string_view text;
-                if (!take_u16(len) || !take_bytes(len, text)) {
-                    return false;
-                }
-                row.push_back(std::string(text));
-            } else if (tag == CELL_NULL) {
-                row.emplace_back();
-            } else {
-                return false;  // 未知 tag
-            }
+            row.push_back(std::move(cell));
         }
         out.rows.push_back(std::move(row));
     }
     return off == body.size();
+}
+
+// End 解码; 长度不为 8 返回 false
+inline bool decode_rs_end(std::string_view body, uint64_t& row_count)
+{
+    if (body.size() != 8) {
+        return false;
+    }
+    row_count = 0;
+    for (std::size_t i = 0; i < 8; ++i) {
+        row_count = (row_count << 8) | static_cast<unsigned char>(body[i]);
+    }
+    return true;
 }
 
 // ==================== 命令标签(Ok body 编解码) ====================

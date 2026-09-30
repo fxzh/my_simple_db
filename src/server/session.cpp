@@ -53,6 +53,47 @@ const char* tag_log_name(proto::CommandTag tag)
     return "";
 }
 
+// 结果集流式发送: 头帧 + 逐行攒批帧 + 结束帧(总行数); 发送失败返回 false(对端已断)
+bool send_result_stream(int sock, exec::ExecResult& result, int client_id)
+{
+    if (!proto::send_frame(sock, proto::MsgType::ResultSetHead,
+                           proto::encode_rs_head(result.col_names))) {
+        return false;
+    }
+    // st::Value 与 CellVal 同构, 逐行拉取逐格搬运, 攒满一批发一帧
+    uint64_t total = 0;
+    std::vector<std::vector<proto::CellVal>> batch;
+    st::Row row;
+    while (result.stream->next(&row)) {
+        std::vector<proto::CellVal> cells;
+        cells.reserve(row.values.size());
+        for (const st::Value& v : row.values) {
+            cells.push_back(std::visit([](const auto& x) { return proto::CellVal{x}; }, v));
+        }
+        batch.push_back(std::move(cells));
+        ++total;
+        if (batch.size() >= proto::RS_BATCH_MAX_ROWS) {
+            if (!proto::send_frame(sock, proto::MsgType::ResultSetBatch,
+                                   proto::encode_rs_batch(batch))) {
+                return false;
+            }
+            batch.clear();
+        }
+    }
+    result.stream->close();
+    if (!batch.empty() && !proto::send_frame(sock, proto::MsgType::ResultSetBatch,
+                                             proto::encode_rs_batch(batch))) {
+        return false;
+    }
+    if (!proto::send_frame(sock, proto::MsgType::ResultSetEnd, proto::encode_rs_end(total))) {
+        return false;
+    }
+    std::string exec_log = "ID:" + std::to_string(client_id) + " SQL执行结果: 返回 "
+                         + std::to_string(total) + " 行";
+    LOG(INFO, EXECUTOR, "%s", exec_log.c_str());
+    return true;
+}
+
 }  // namespace
 
 // 处理单个客户端的函数
@@ -97,24 +138,10 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
             if (stmt) {
                 exec::ExecResult result = exec::execute(*db, *stmt);
                 if (result.is_result_set) {
-                    // st::Value 与 CellVal 同构, 逐格搬运成结果集帧
-                    proto::ResultSet rs;
-                    rs.cols = result.col_names;
-                    rs.rows.reserve(result.rows.size());
-                    for (const std::vector<st::Value>& row : result.rows) {
-                        std::vector<proto::CellVal> cells;
-                        cells.reserve(row.size());
-                        for (const st::Value& v : row) {
-                            cells.push_back(std::visit(
-                                [](const auto& x) { return proto::CellVal{x}; }, v));
-                        }
-                        rs.rows.push_back(std::move(cells));
+                    if (!send_result_stream(client_socket, result, client_id)) {
+                        // 发送失败即对端已断, 结束会话(算子经析构释放页 pin)
+                        break;
                     }
-                    std::string exec_log = "ID:" + std::to_string(client_id) + " SQL执行结果: 返回 "
-                                         + std::to_string(result.rows.size()) + " 行";
-                    LOG(INFO, EXECUTOR, "%s", exec_log.c_str());
-                    proto::send_frame(client_socket, proto::MsgType::ResultSet,
-                                      proto::encode_result_set(rs));
                 } else {
                     std::string exec_log = "ID:" + std::to_string(client_id)
                                          + " SQL执行结果: " + tag_log_name(result.tag);
