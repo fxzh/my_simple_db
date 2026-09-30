@@ -149,6 +149,9 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
                         exec_log += " " + std::to_string(result.count);
                     }
                     LOG(INFO, EXECUTOR, "%s", exec_log.c_str());
+                    // 语句提交点: fsync WAL 之后才回 Ok, 客户端看到的成功
+                    // 一律掉电不丢(SELECT 不改页, 无须提交)
+                    db->sync();
                     proto::send_frame(client_socket, proto::MsgType::Ok,
                                       proto::encode_command(result.tag, result.count));
                 }

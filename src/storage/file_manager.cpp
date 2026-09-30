@@ -154,6 +154,20 @@ void FileManager::flush_all()
     }
 }
 
+void FileManager::flush_dir()
+{
+    const int dfd = ::open(dir_.c_str(), O_RDONLY | O_DIRECTORY);
+    if (dfd < 0) {
+        throw_errno("打开数据目录失败 ", errno);
+    }
+    if (::fsync(dfd) != 0) {
+        const int err = errno;
+        ::close(dfd);
+        throw_errno("fsync 数据目录失败 ", err);
+    }
+    ::close(dfd);
+}
+
 void FileManager::close_all()
 {
     for (auto& [file_id, fd] : fds_) {

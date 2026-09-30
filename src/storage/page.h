@@ -50,6 +50,9 @@ void init_page(char* page, uint32_t magic, PageType type);
 // 计算页校验和(checksum 字段按 0 参与计算)
 uint32_t page_checksum(const char* page);
 
+// 通用 CRC32(IEEE 802.3 多项式), 页校验与 WAL 记录校验共用
+uint32_t crc32(const char* data, size_t len);
+
 // 校验页: 魔数与校验和同时正确
 bool page_valid(const char* page, uint32_t magic);
 

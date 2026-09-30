@@ -9,13 +9,15 @@
 #include "config/config.h"
 #include "log/log.h"
 #include "page.h"
+#include "recovery.h"
 
 namespace st {
 
 // ==================== Engine ====================
 
 Engine::Engine(std::string dir)
-        : dir_(std::move(dir)), files_(dir_), pool_(config::cfg.buffer_pool_frames) {}
+        : dir_(std::move(dir)), files_(dir_), wal_(dir_ + "/wal.log"),
+          pool_(config::cfg.buffer_pool_frames, wal_) {}
 
 Engine::~Engine()
 {
@@ -26,24 +28,38 @@ Engine::~Engine()
 
 void Engine::open()
 {
+    // 崩溃恢复: 进入运行状态前重放 wal.log 并顺势完成检查点(清空日志),
+    // 此时缓冲池仍为空, 重放直接落盘不经过池(见 recovery.cpp 头注释)
+    recover(files_, wal_);
     pool_.invalidate_all();
     tail_pages_.clear();
     trees_.clear();
     open_ = true;
 }
 
-void Engine::flush_all()
+// 检查点: 三段顺序是 WAL 持久性语义的关键——页字节写入前补丁已记入
+// wal.log(mark_dirty 保证), 此处先 fsync 日志、再 fsync 数据文件与目录,
+// 保证数据文件持久化的每个字节都有已持久的日志兜底, 掉电后 torn 页也能
+// 靠重放修复; 全部落定后清空日志, 重放起点归零
+void Engine::checkpoint()
 {
     pool_.flush_all(files_);
+    wal_.sync();
     files_.flush_all();
+    files_.flush_dir();
+    wal_.reset();
 }
 
 void Engine::close()
 {
-    pool_.flush_all(files_);
-    files_.flush_all();
+    checkpoint();
     files_.close_all();
     open_ = false;
+}
+
+void Engine::sync_wal()
+{
+    wal_.sync();
 }
 
 bool Engine::table_file_exists(uint64_t fid) const
@@ -56,10 +72,11 @@ void Engine::init_table_file(uint64_t fid)
 {
     files_.create_table_file(fid);
 
-    // 初始化并落盘文件头页
+    // 初始化并落盘文件头页(mark_dirty 把初始化记成补丁, 落盘前先入 WAL)
     const PageId pid0 = PageId{fid, 0};
     char* h = pool_.allocate(pid0, files_);
     init_page(h, MAGIC_FILE_HEADER, PageType::FileHeader);
+    pool_.mark_dirty(h);
     pool_.unpin(h);
     pool_.flush(pid0, files_);
 }
@@ -67,6 +84,12 @@ void Engine::init_table_file(uint64_t fid)
 // 物理删表(须持锁): 删数据文件并清缓冲与尾页跟踪
 void Engine::remove_table_file(uint64_t fid)
 {
+    // 删文件记录先入 WAL 并 fsync, 再 unlink: 崩溃时要么记录已持久(重放补删,
+    // 幂等), 要么 unlink 未生效, 不出现"文件没了而日志也没有"的半损坏状态
+    char payload[sizeof(uint64_t)];
+    wal_put_u64(payload, fid);
+    wal_.append(WalOp::DropFile, payload, sizeof(payload));
+    wal_.sync();
     files_.remove_table_file(fid);
     pool_.drop_table(fid);
     tail_pages_.erase(fid);
@@ -80,6 +103,7 @@ uint32_t Engine::link_header_to_first_data_page(uint64_t file_id)
     const uint32_t new_no = 1;
     char* np = pool_.allocate(PageId{file_id, new_no}, files_);
     init_page(np, MAGIC_HEAP, PageType::Heap);
+    pool_.mark_dirty(np);
     pool_.unpin(np);
 
     PageHeader* hh = header(h);
@@ -139,6 +163,7 @@ RowId Engine::insert_row(uint64_t file_id, const std::vector<ColumnSpec>& cols,
         const uint32_t new_no = std::max(files_.page_count(file_id), tail + 1);
         char* np = pool_.allocate(PageId{file_id, new_no}, files_);
         init_page(np, MAGIC_HEAP, PageType::Heap);
+        pool_.mark_dirty(np);
         pool_.unpin(np);
         ph->next_page = new_no;
         ph->checksum = page_checksum(pg);
@@ -289,9 +314,13 @@ void Engine::init_index_file(uint64_t fid)
     pool_.flush(PageId{fid, 1}, files_);
 }
 
-// 删索引文件(须持锁): 删文件并清缓冲与树跟踪
+// 删索引文件(须持锁): 删文件记录先入 WAL 并 fsync 再删文件(同 remove_table_file)
 void Engine::remove_index_file(uint64_t fid)
 {
+    char payload[sizeof(uint64_t)];
+    wal_put_u64(payload, fid);
+    wal_.append(WalOp::DropFile, payload, sizeof(payload));
+    wal_.sync();
     files_.remove_table_file(fid);
     pool_.drop_table(fid);
     trees_.erase(fid);

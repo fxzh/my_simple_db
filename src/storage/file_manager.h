@@ -36,6 +36,8 @@ public:
     // fsync 指定表文件
     void flush(uint64_t file_id);
     void flush_all();
+    // fsync 数据目录本身: 新建/删除文件的目录项(文件名)持久化, fsync 文件不覆盖它
+    void flush_dir();
 
     // 关闭并释放所有文件描述符
     void close_all();

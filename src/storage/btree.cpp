@@ -273,6 +273,7 @@ void BTree::create()
     pool.mark_dirty(h0);
     pool.unpin(h0);
     pool.flush(pid0, files);
+    pool.mark_dirty(root);
     pool.unpin(root);
     root_page = 1;
     next_page_hint = 2;

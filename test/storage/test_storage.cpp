@@ -1,9 +1,16 @@
-// test_storage.cpp: 存储引擎 M1 冒烟测试(页删除整理/增删扫/重开持久化)
+// test_storage.cpp: 存储引擎冒烟测试(页删除整理/增删扫/重开持久化/WAL 崩溃恢复)
+#include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <functional>
 #include <stdexcept>
 #include <string>
+#include <system_error>
 #include <vector>
+
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include <gtest/gtest.h>
 
@@ -12,6 +19,7 @@
 #include "log/log.h"
 #include "catalog.h"
 #include "page.h"
+#include "wal.h"
 
 using namespace st;
 using namespace ct;
@@ -248,5 +256,150 @@ TEST_F(StorageDb, CreateTwiceFails)
         FAIL() << "重复 create 应报错";
     } catch (const db::DbError& e) {
         EXPECT_EQ(e.code(), db::ErrCode::CatalogExists);
+    }
+}
+
+// ==================== WAL ====================
+
+// 引导数据目录(元数据表 + db_version 完成标记)后干净关闭, 供 WAL 测试起步
+static void bootstrap_version_marker(const std::string& path)
+{
+    Catalog db(path, true);
+    db.create();
+    db.open();
+    db.set_bootstrap_table_id(5);
+    db.create_table(kVersionMetaName, {{"version", ColType::BigInt, 0, true}});
+    db.close();
+}
+
+// fork 出子进程执行 fn 后 _exit(0): 析构全部跳过, 等价于进程在缓冲池还持有
+// 脏页的任意时刻被 kill -9(进程内存全丢, 已 write/fsync 的文件内容幸存)。
+// 子进程内只用成功路径(不触发 LOG, 避免与 fork 只保留调用线程的日志写线程交互)
+static void run_crashed(const std::function<void(Catalog&)>& fn, const std::string& path)
+{
+    const pid_t pid = fork();
+    ASSERT_GE(pid, 0);
+    if (pid == 0) {
+        try {
+            Catalog db(path);
+            db.open();
+            fn(db);
+            _exit(0);
+        } catch (...) {
+            _exit(1);
+        }
+    }
+    int status = 0;
+    ASSERT_EQ(waitpid(pid, &status, 0), pid);
+    ASSERT_TRUE(WIFEXITED(status)) << "子进程应正常 _exit";
+    ASSERT_EQ(WEXITSTATUS(status), 0) << "崩溃前工作应全部成功";
+}
+
+// WAL 记录往返: append 的记录经 WalReader 读回字段一致; 尾部半条记录按截断处理
+TEST(WalLog, RecordRoundTripAndTailTruncation)
+{
+    tcommon::TempDir dir;
+    std::string error;
+    ASSERT_TRUE(dir.create("msdb_storage_wal", error)) << error;
+    const std::string path = dir.path + "/wal.log";
+
+    {
+        Wal wal(path);
+        char drop_payload[8];
+        wal_put_u64(drop_payload, 42);
+        EXPECT_EQ(wal.append(WalOp::DropFile, drop_payload, sizeof(drop_payload)), uint64_t{1});
+
+        char patch[WAL_PATCH_HEADER_SIZE + 8] = {0};
+        wal_put_u64(patch, 7);
+        wal_put_u32(patch + 8, 3);
+        wal_put_u32(patch + 12, 24);
+        wal_put_u32(patch + 16, 8);
+        std::memcpy(patch + WAL_PATCH_HEADER_SIZE, "abcdefgh", 8);
+        EXPECT_EQ(wal.append(WalOp::PagePatch, patch, sizeof(patch)), uint64_t{2});
+    }
+
+    {
+        WalReader reader(path);
+        WalRecord rec;
+        ASSERT_TRUE(reader.next(&rec));
+        EXPECT_EQ(rec.lsn, uint64_t{1});
+        EXPECT_EQ(rec.op, WalOp::DropFile);
+        ASSERT_EQ(rec.payload.size(), size_t{8});
+        EXPECT_EQ(wal_get_u64(rec.payload.data()), uint64_t{42});
+        ASSERT_TRUE(reader.next(&rec));
+        EXPECT_EQ(rec.lsn, uint64_t{2});
+        EXPECT_EQ(rec.op, WalOp::PagePatch);
+        ASSERT_EQ(rec.payload.size(), size_t{WAL_PATCH_HEADER_SIZE + 8});
+        EXPECT_EQ(wal_get_u32(rec.payload.data() + 12), uint32_t{24});
+        EXPECT_EQ(std::memcmp(rec.payload.data() + WAL_PATCH_HEADER_SIZE, "abcdefgh", 8), 0);
+        EXPECT_FALSE(reader.next(&rec));
+        EXPECT_EQ(reader.valid_bytes(),
+                  uint64_t{(WAL_HEADER_SIZE + 8) + (WAL_HEADER_SIZE + WAL_PATCH_HEADER_SIZE + 8)});
+    }
+
+    // 尾部追加半条垃圾(模拟崩溃时记录只写了一部分): 合法记录照常读出, 垃圾后停
+    {
+        std::string junk(10, 'x');
+        FILE* f = std::fopen(path.c_str(), "ab");
+        ASSERT_NE(f, nullptr);
+        ASSERT_EQ(std::fwrite(junk.data(), 1, junk.size(), f), junk.size());
+        std::fclose(f);
+
+        WalReader reader(path);
+        WalRecord rec;
+        EXPECT_TRUE(reader.next(&rec));
+        EXPECT_TRUE(reader.next(&rec));
+        EXPECT_FALSE(reader.next(&rec));
+        EXPECT_EQ(reader.valid_bytes(),
+                  uint64_t{(WAL_HEADER_SIZE + 8) + (WAL_HEADER_SIZE + WAL_PATCH_HEADER_SIZE + 8)});
+    }
+}
+
+// 崩溃后已提交数据幸存: 子进程插行并 sync 后 _exit 模拟崩溃, 父进程重开经
+// WAL 重放恢复全部数据; 干净关闭后 WAL 被检查点清空
+TEST_F(StorageDb, WalRecoverInsertAfterCrash)
+{
+    bootstrap_version_marker(dir.path);
+
+    run_crashed([](Catalog& db) {
+        db.create_table("t", {{"id", ColType::Int, 0, true}});
+        for (int i = 1; i <= 50; ++i) {
+            db.insert("t", {Value{int64_t{i}}});
+        }
+        db.sync();
+    }, dir.path);
+
+    {
+        Catalog db(dir.path);
+        db.open();
+        EXPECT_EQ(db.row_count("t"), size_t{50});
+        db.close();
+        // 干净关闭做了检查点: WAL 应已清空, 下次启动零重放
+        std::error_code ec;
+        EXPECT_EQ(std::filesystem::file_size(dir.path + "/wal.log", ec), uintmax_t{0});
+    }
+}
+
+// 崩溃后 DDL 幸存: 子进程 drop 表并 sync 后崩溃, 父进程重开后表经重放消失
+TEST_F(StorageDb, WalRecoverDropAfterCrash)
+{
+    bootstrap_version_marker(dir.path);
+
+    run_crashed([](Catalog& db) {
+        db.create_table("t", {{"id", ColType::Int, 0, true}});
+        db.insert("t", {Value{int64_t{1}}});
+        db.sync();
+    }, dir.path);
+
+    run_crashed([](Catalog& db) {
+        db.drop_table("t");
+        db.sync();
+    }, dir.path);
+
+    {
+        Catalog db(dir.path);
+        db.open();
+        EXPECT_THROW(db.row_count("t"), std::runtime_error);
+        db.close();
     }
 }

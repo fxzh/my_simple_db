@@ -9,6 +9,6 @@ log      日志静态库：单例 + 异步写线程，输出 simple.log
 common    跨层错误库：DbError + DB_RAISE，源头报错记日志并抛结构化异常
 config    配置静态库：db.conf 逐项解析写入全局变量 cfg，零依赖
 proto    帧协议头文件(header-only)：长度前缀+消息类型，client 与 server 共用，无链接依赖
-storage  文件引擎静态库：堆页追加+全表扫描+二级索引原语(页/文件/缓冲池/编解码/B+树)，后续 WAL
+storage  文件引擎静态库：堆页追加+全表扫描+二级索引原语+WAL 崩溃恢复(页/文件/缓冲池/编解码/B+树/WAL)
 catalog  目录层静态库(catalog)：元数据表(db_table/db_column)逻辑与名字型门面，持全局锁组合引擎原语
 tool     独立工具

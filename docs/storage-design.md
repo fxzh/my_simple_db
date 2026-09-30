@@ -70,7 +70,7 @@ Scan*   scan(std::string_view table);
 
 ## 3. 文件布局
 
-数据目录（运行时参数指定，如 `./data`）：元数据表文件 t_1/t_2/t_3.dat（见 §6）、每表/每索引一个数据文件 t_<file_id>.dat（4KB 页流，页号从 0 起、文件内偏移 = 页号 × 页大小，第 0 页为文件头页）、wal.log（M4，所有表与索引共享）。表文件与索引文件同构：表文件头页存 rowid 计数器，索引文件头页存 B+ 树根页号（§8）。文件级读写原语已实现（src/storage/file_manager.h）。
+数据目录（运行时参数指定，如 `./data`）：元数据表文件 t_1/t_2/t_3.dat（见 §6）、每表/每索引一个数据文件 t_<file_id>.dat（4KB 页流，页号从 0 起、文件内偏移 = 页号 × 页大小，第 0 页为文件头页）、wal.log（M4 已实现，所有表与索引共享）。表文件与索引文件同构：表文件头页存 rowid 计数器，索引文件头页存 B+ 树根页号（§8）。文件级读写原语已实现（src/storage/file_manager.h）。
 
 **每表/每索引独立文件**：DROP = 直接删文件；页分配只看本地文件长度，当前为文件尾追加。空闲页链表（释放页标记 FREE 挂回链表、链头记录在文件头页）为后续设计，接入后删除空间才可按页回收；单文件设计（SQLite/InnoDB tablespace）留给将来可选。
 
@@ -96,7 +96,7 @@ M3 新增 db_index(table_id, index_name, col_ordinal, file_id): 每索引一行,
 
 已实现（src/storage/buffer_pool.h）：定长帧数组（帧数经 db.conf 的 buffer_pool_frames 配置，默认 8192）+ 哈希页表（PageId→帧下标，unpin/mark_dirty 经数据指针换算帧下标）+ Clock 淘汰 + pin 引用计数，read/allocate/unpin/mark_dirty/flush 原语；pin > 0 的帧不可淘汰；数据页校验失败按尾部截断重建空页，文件头页校验失败报错；内部不加锁，串行化由上层全局锁保证（§10）。
 
-M4 接入 WAL 时帧增加 page_lsn，脏页落盘前确认覆盖该 LSN 的日志已 fsync（write-ahead 不变量，见 §9）。
+M4 已接入 WAL：帧增加 before 基线快照（页内容最近一次与"已记日志状态"一致时的副本，只在页新进池/write_back 落盘后/mark_dirty 记完补丁后更新，read 命中已缓存帧时不动，否则两次 pin 之间的修改会漏出 diff）；mark_dirty 以 8 字节字长粒度 diff(before, data) 产生 OP_PAGE_PATCH（write-ahead 不变量，见 §9）；write_back 落盘前断言 before 与 data 一致，存在未记日志的修改当场报错。
 
 ## 8. B+ 树（二级索引）
 
@@ -131,52 +131,51 @@ M4 接入 WAL 时帧增加 page_lsn，脏页落盘前确认覆盖该 LSN 的日�
 
 性能预期（学习目标，非优化目标）：等值查找 O(log n) 页 IO + 每命中行回表 1 页；范围查询页 IO ∝ 命中条目数；全表扫描走堆页链，不经索引。
 
-## 9. WAL 与崩溃恢复
+## 9. WAL 与崩溃恢复（M4 已实现）
 
 WHY: B+ 树原地改写页 + 缓冲池延迟写盘（性能），若不做日志，崩溃点数据页处于任意中间状态 -> 丢失且不可判定。WAL 让"允许延迟刷脏页"与"绝不丢失已确认数据"同时成立。
 
-**写前不变量**：任何页落盘前，必须已经 fsync 过覆盖该页 `page_lsn` 的 WAL。实现：缓冲池全局维护 `flushed_lsn`（WAL 已 fsync 到哪），flush 脏页前 `fsync 到 max(flushed_lsn, 页.lsn)`。
+实现为**物理 redo-only**：记录是页字节补丁（after-image），无 undo（自动提交、无回滚语句）、无 txn_id（单语句自动提交，写者经 catalog 全局锁串行）。原理性教学注释见 src/storage/wal.h 与 recovery.cpp 文件头。
 
-所有共享一个 `wal.log`。记录格式：
+**write-ahead 不变量**（任何页字节落盘前，描述它的日志已写入 wal.log）由三点保证：
 
-```
-[记录头 20B][LSN uint64][len uint16][op uint8][txn_id int64][page_id uint64]...
-体:
-  OP_PAGE_PATCH   [offset uint32][len uint16][字节]   # 物理重做, 直接补页区域
-  OP_CREATE_TABLE [name 长度前缀 + name][schema...]
-  OP_DROP_TABLE   [file_id uint64]
-  OP_CREATE_INDEX [name 长度前缀 + name][table_id][col_ordinal][file_id]
-  OP_DROP_INDEX   [file_id uint64]
-  OP_CHECKPOINT   (仅出现在日志头部位置)
-```
+1. mark_dirty 在置脏前先 diff 帧内 before 基线，把补丁记入 WAL（所有修改点以"就地改字节 + mark_dirty"收尾，元数据表页/B+树页/堆页统一覆盖）；
+2. write_back 落盘前断言 before 与 data 一致（防漏调 mark_dirty 的代码路径，当场报错）；
+3. flush/close 的落盘顺序：刷脏页 -> fsync WAL -> fsync 数据文件 -> fsync 数据目录。
 
-`LSN` 全局单调递增（每个记录 +len+20）。页头届时新增 `page_lsn` 字段 = 对该页最后一条日志的 LSN。
+页头不加 page_lsn、帧只存 before 基线不存 LSN：补丁重放幂等（重放=字节覆盖，应用 0/1/N 次结果一致），无须"该补丁是否已应用"判定；写者串行使记日志与写页的先后即代码顺序。torn 页被恢复重放无害化（重放不校验页，直接覆盖后整页重写）。
 
-**提交语义**（M4 之前无显式事务，每条 SQL 视为单语句自动提交事务）：
+所有表与索引共享一个 `wal.log`，记录流式追加：
 
 ```
-insert:
-  1) 以 txn_id 组装 OP_PAGE_PATCH(涉及多个页就多条)
-  2) fsync WAL 至该 txn 的 LSN → 此时可回复客户端"成功"
-  3) 后台/淘汰时刷脏页, 无需即刻
++---------+---------+-------+---------+----------------------+
+| len u32 | lsn u64 | op u8 | crc u32 | payload (len 字节)   |
++---------+---------+-------+---------+----------------------+
+
+PagePatch(页补丁): [file_id u64][page_no u32][offset u32][len u32][len 字节页内容]
+DropFile(删文件):  [file_id u64]
 ```
 
-**检查点**（checkpoint）：定时/按体积触发——flush 全部脏页（每个先保证 WAL 刷过），fsync 数据文件，然后重写 wal.log 头部 `start_lsn` 并把文件截断到一条新的 OP_CHECKPOINT 记录。
+- LSN 全局单调递增从 1 起，检查点清空文件不回退计数器
+- 建表/建索引无专门记录：文件头页初始化本身就是补丁，重放经 fd_for 的 O_CREAT 隐式重建文件；元数据行插删（db_table/db_column/db_schema/db_index 也是堆页）同样由补丁覆盖，无需逻辑 DDL 记录
+- 删表/删索引先记 DropFile 并 fsync 再 unlink：崩溃时要么记录已持久（重放补删，幂等），要么 unlink 未生效，不出现"文件没了而日志也没有"的半损坏状态
 
-**启动恢复流程**（recovery.cpp）：
+**提交语义**（无显式事务，每条 SQL 为单语句自动提交）：session 层在非结果集语句执行成功后调 `Catalog::sync()`（fsync WAL）再回 Ok，SELECT 不调。fsync 返回即持久性边界，此前 append 只在 OS 缓冲。异常语句的部分修改保留（与 M1 一致），其持久化时机随下一语句的 sync。
 
-1. 读取元数据表
-2. 打开 wal.log；若头部 `start_lsn` 有效且日志非空 → 从该 LSN 起顺序扫描重放：
-   - OP_CREATE_TABLE / OP_DROP_TABLE / OP_CREATE_INDEX / OP_DROP_INDEX：重放元数据行变化
-   - OP_PAGE_PATCH：读页，若 `页.page_lsn < 记录LSN` 且页当前存在（表未被后续 DROP）→ 应用字节补丁、置 page_lsn，标记脏
-   - 日志尾部不完整（无 OP_PAGE_PATCH 全长）→ 截断丢弃，属正常崩溃边界
-3. 回放结束后 flush 脏页、写检查点、清空日志
+**检查点**（checkpoint）：干净关闭（Engine::close）与恢复重放完成后执行——刷全部脏页、fsync WAL、fsync 数据文件与目录、清空 wal.log，下次启动零重放。运行中定时/按体积触发检查点未实现（无后台线程基建，长运行进程的 WAL 会持续增长，属已知限制）。
+
+**启动恢复**（recovery.cpp，Engine::open 进入运行状态前）：
+
+1. WalReader 从文件头顺序解析记录：尾部半条记录（长度/CRC 不完整）即截断点，其后字节丢弃——被丢弃的必然是尚未 fsync（未确认）的修改
+2. 逐条重放：PagePatch 读原页（不校验，短读补零，文件不存在则 O_CREAT 隐式建）覆盖补丁字节后整页写回；DropFile 存在则删；记录语义非法（区间越界/长度不符）当场报错
+3. 重放绕过缓冲池直接 pread/pwrite：恢复期间不产生新 WAL 记录，结束后池仍为空，与新启动进程无异
+4. 收尾顺序与检查点一致：fsync 数据文件 -> fsync 目录 -> 清空 WAL
 
 注意事项：
 
-- 文件扩展产生的"空洞页"没进 WAL：恢复时将未触及的文件区域视为全零页，合法空页
-- 页校验和：每次写盘前算，读盘后校验，防错位/坏块
-- 首次 fsync 前崩溃 → 数据文件保持旧状态，与元数据半新状态由下一条规则处理：DDL 的 WAL 记录在 fsync 后再写元数据行，二者成对回放，不会出现"元数据有新表但数据文件没有/反过来"
+- 文件扩展产生的"空洞页"没进 WAL：恢复读页时短读部分补零，补丁覆盖后合法
+- 页校验和随补丁字节一起重放恢复，torn 页无需单独处理
+- DDL 崩溃窗口：建表若崩溃在补丁 fsync 前，重放后无此表（未确认）；ftruncate 已建的空文件残留为孤儿文件，file_id 复用时被 ftruncate 覆盖，无害
 
 ## 10. 并发控制（分阶段）
 
@@ -202,7 +201,7 @@ insert:
 | M1 | types/codec/page 布局；file_manager 按页读写；buffer_pool；元数据表引导；heap 追加写 + 全扫描(无索引)；重启读回 | CREATE/DROP/INSERT 持久化，重启数据还在 |
 | M2 | 删除(墓碑标记)；页 checksum 校验读盘 | DELETE 行 |
 | M3 | 存储层二级索引：db_index 元数据表、索引文件生命周期、insert 双写、等值/范围查找与回表、建索引回填；键限 int/bigint/float/double 定长编码 | 存储层可建/维护/查询索引 |
-| M4 | WAL + checkpoint + recovery，接入 buffer_pool 刷盘判定（含索引页补丁与索引 DDL 记录） | 抗崩溃，事务提交语义 |
+| M4 | WAL + checkpoint + recovery，接入 buffer_pool 刷盘判定（含索引页补丁与索引 DDL 记录）。已实现：物理 redo 补丁、检查点、启动重放 | 抗崩溃，事务提交语义 |
 | M5 | SQL 链路：CREATE/DROP INDEX 文法与绑定、planner 索引选择、IndexScan 执行、UNIQUE 索引（见 §11） | 客户端可建/用索引 |
 | M6 | 索引全类型键（char/varchar 变长编码，节点单元格布局）；条目删除与下溢合并；空闲页链表与 vacuum | varchar 索引、空间回收 |
 | M7(可选) | 表级锁 → 页闩锁 → MVCC | 并发读/写正确性 |
@@ -214,7 +213,8 @@ insert:
 - 超长行（>约 4000B）不支持，varchar(n) 需 n ≤ 4000
 - 索引键首期限 int/bigint/float/double 定长编码，char/varchar 变长键 M6
 - 索引条目删除未实现：DELETE 只做堆墓碑，索引条目滞留靠回表校验过滤；物理清理与下溢合并 M6
-- M4（WAL）之前堆与索引双写无崩溃原子性：崩溃可致索引缺条目（等值查询漏行，堆链全表扫描不受影响）或悬空条目（回表按页损坏报错），重建索引可修复
+- M4（WAL）之前堆与索引双写无崩溃原子性：崩溃可致索引缺条目（等值查询漏行，堆链全表扫描不受影响）或悬空条目（回表按页损坏报错），重建索引可修复；M4 起补丁统一覆盖堆页与树页，双写崩溃一致性由重放保证
+- 运行中定时检查点未实现：长运行不重启的进程 WAL 持续增长，重启恢复时间随之变长（干净关闭即截断）
 - 仅单列索引，多列复合索引后续里程碑
 - 无显式主键/唯一约束；rowid 照常分配但不参与定位，PRIMARY KEY/UNIQUE 于 M5 经索引落地
 - 事务仅自动提交；无 MVCC

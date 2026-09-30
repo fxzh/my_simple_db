@@ -110,8 +110,8 @@ void Catalog::create()
         DB_RAISE(db::ErrCode::CatalogExists, LogModule::CATALOG, "数据目录已初始化: {}", dir_);
     }
     bootstrap_meta_tables();
-    // create 不进入打开状态, 落盘脏页与文件后再返回
-    engine_.flush_all();
+    // create 不进入打开状态, 检查点收尾(含清空 WAL)后返回, bootstrap 阶段从零日志起步
+    engine_.checkpoint();
 }
 
 void Catalog::open()
@@ -158,6 +158,11 @@ void Catalog::close()
 {
     std::lock_guard<std::mutex> lock(mutex_);
     engine_.close();
+}
+
+void Catalog::sync()
+{
+    engine_.sync_wal();
 }
 
 st::TableMeta Catalog::table_meta(const std::string& name)

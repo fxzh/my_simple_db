@@ -28,6 +28,16 @@ const std::array<uint32_t, 256>& crc_table()
 
 }  // namespace
 
+uint32_t crc32(const char* data, size_t len)
+{
+    const auto& table = crc_table();
+    uint32_t crc = 0xffffffffu;
+    for (size_t i = 0; i < len; ++i) {
+        crc = table[(crc ^ static_cast<uint8_t>(data[i])) & 0xffu] ^ (crc >> 8);
+    }
+    return ~crc;
+}
+
 uint32_t page_checksum(const char* page)
 {
     const auto& table = crc_table();

@@ -9,6 +9,7 @@
 
 #include "file_manager.h"
 #include "types.h"
+#include "wal.h"
 
 namespace st {
 
@@ -20,6 +21,11 @@ struct PageFrame {
     bool ref = false;    // Clock 引用位
     uint16_t pin = 0;    // 被使用者持有的帧数, 0 才可被淘汰
     char data[PAGE_SIZE];
+    // WAL diff 基线: 页内容最近一次与"已记日志状态"一致时的快照, mark_dirty
+    // 据此算出补丁。只在 data 与磁盘/WAL 一致的时刻更新——页新进池、
+    // write_back 落盘后、mark_dirty 记完补丁后; read 命中已缓存帧时不动,
+    // 否则两次 pin 之间的修改会从 diff 里漏掉(详见 wal.h 头注释)
+    char before[PAGE_SIZE];
 };
 
 // PageId 哈希: file_id 与 page_no 折叠混合
@@ -36,7 +42,7 @@ struct PageIdHash {
 // 并发由上层(Storage)的全局互斥锁保证, 内部不加锁
 class BufferPool {
 public:
-    explicit BufferPool(size_t capacity);
+    explicit BufferPool(size_t capacity, Wal& wal);
     ~BufferPool() = default;
 
     BufferPool(const BufferPool&) = delete;
@@ -74,10 +80,13 @@ private:
     size_t frame_index(char* data) const;
     size_t evict(FileManager& files);
     void write_back(PageFrame& f, FileManager& files);
+    // 把 f.data 相对 f.before 的差异区间记成 WAL 页补丁, 并把基线推进到当前内容
+    void log_page_diff(PageFrame& f);
 
     std::vector<PageFrame> frames_;
     std::unordered_map<PageId, size_t, PageIdHash> page_table_;  // 有效帧的页表
     size_t clock_hand_ = 0;
+    Wal& wal_;  // 预写日志, 脏页修改先记日志后落盘, Engine 构造时注入
 };
 
 }  // namespace st

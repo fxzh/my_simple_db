@@ -12,6 +12,7 @@
 #include "buffer_pool.h"
 #include "file_manager.h"
 #include "types.h"
+#include "wal.h"
 
 namespace st {
 
@@ -51,12 +52,15 @@ public:
     Engine(const Engine&) = delete;
     Engine& operator=(const Engine&) = delete;
 
-    // 重置缓冲池与尾页跟踪, 进入打开状态
+    // 重置缓冲池与尾页跟踪, 进入打开状态; 打开前先重放 WAL 完成崩溃恢复
     void open();
-    // 脏页与文件全部落盘
-    void flush_all();
-    // 落盘并关闭全部文件
+    // 检查点: 刷全部脏页并按 WAL 先于数据文件的顺序落盘, 然后清空日志,
+    // 下次启动零重放; 干净关闭与目录初始化完成时调用
+    void checkpoint();
+    // 落盘并关闭全部文件, 收尾做检查点: 清空 WAL, 下次启动零重放
     void close();
+    // 语句提交点: fsync WAL, 此前修改掉电不丢(由 session 层在回 Ok 前调用)
+    void sync_wal();
     bool table_file_exists(uint64_t fid) const;
 
     // 建表文件并初始化落盘文件头页
@@ -103,6 +107,7 @@ private:
 
     std::string dir_;
     FileManager files_;
+    Wal wal_;                                            // 预写日志, 须先于 pool_ 声明(池持其引用)
     BufferPool pool_;
     std::unordered_map<uint64_t, uint32_t> tail_pages_;  // 文件 -> 最高页号(含仅存内存的页)
     std::unordered_map<uint64_t, BTree> trees_;          // 索引文件 -> 树(根页号与页分配跟踪)
