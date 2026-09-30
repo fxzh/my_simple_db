@@ -1,8 +1,8 @@
-# initdb: 复用 config(db.conf 路径推导)与 catalog(生成元数据表), 不链接 sql_parser/executor/readline
+# initdb: 复用 config(db.conf 路径推导)、catalog(生成元数据表)与 utils
 add_executable(initdb
     initdb.cpp
 )
-target_link_libraries(initdb PRIVATE catalog config)
+target_link_libraries(initdb PRIVATE catalog config utils)
 set_target_properties(initdb PROPERTIES
     OUTPUT_NAME "initdb"
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin

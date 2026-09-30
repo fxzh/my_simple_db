@@ -1,34 +1,17 @@
 // serverctl: server 控制工具, 子命令 start/stop/status
 #include <iostream>
 #include <string>
-#include <cstring>
 #include <cstdlib>
 #include <fstream>
 #include <filesystem>
 #include <chrono>
 #include <thread>
-#include <sys/socket.h>
-#include <sys/un.h>
-#include <sys/time.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include "config/config.h"
+#include "utils/utils.h"
 
 namespace {
-
-// TODO: 与 config.cpp::exe_dir 重复, 后续统一迁移到 src/utils
-bool exe_dir(std::string& dir, std::string& error)
-{
-    char buf[4096];
-    ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
-    if (n <= 0) {
-        error = "无法获取可执行文件路径(/proc/self/exe)";
-        return false;
-    }
-    buf[static_cast<size_t>(n)] = '\0';
-    dir = std::filesystem::path(buf).parent_path().string();
-    return true;
-}
 
 // 控制通道路径解析: 与 server 启动解析规则保持一致
 std::string control_socket_path(const std::string& data_dir)
@@ -39,72 +22,19 @@ std::string control_socket_path(const std::string& data_dir)
     return (std::filesystem::path(data_dir) / "server.sock").string();
 }
 
-// 一次控制连接: 发一条命令, 收全部回复直到 EOF
-bool control_send_recv(const std::string& socket_path, const std::string& cmd,
-                       std::string& reply, std::string& error)
-{
-    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (fd < 0) {
-        error = "创建控制 socket 失败";
-        return false;
-    }
-    struct sockaddr_un addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
-    if (socket_path.size() >= sizeof(addr.sun_path)) {
-        error = "控制 socket 路径过长: " + socket_path;
-        close(fd);
-        return false;
-    }
-    strncpy(addr.sun_path, socket_path.c_str(), socket_path.size());
-
-    if (connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-        error = "连接控制 socket 失败: " + socket_path;
-        close(fd);
-        return false;
-    }
-    // 读侧超时: server 无响应时不永久挂死
-    struct timeval tv;
-    tv.tv_sec = 3;
-    tv.tv_usec = 0;
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-
-    if (send(fd, cmd.c_str(), cmd.size(), MSG_NOSIGNAL) < 0) {
-        error = "发送控制命令失败";
-        close(fd);
-        return false;
-    }
-    char buf[1024];
-    for (;;) {
-        ssize_t n = read(fd, buf, sizeof(buf));
-        if (n > 0) {
-            reply.append(buf, static_cast<size_t>(n));
-            continue;
-        }
-        if (n == 0) {
-            break;  // EOF: 回复结束
-        }
-        error = "读取控制回复失败";
-        close(fd);
-        return false;
-    }
-    close(fd);
-    return true;
-}
-
 int cmd_start(const std::string& data_dir, const std::string& sock_path, const std::string& pidfile_path)
 {
     // 已运行检测: 控制 socket 可连即视为在跑
     {
         std::string reply, error;
-        if (control_send_recv(sock_path, "ping\n", reply, error)) {
+        if (utils::control_send_recv(sock_path, "ping\n", reply, error)) {
             std::cerr << "服务器已在运行" << std::endl;
             return 2;
         }
     }
 
     std::string dir, error;
-    if (!exe_dir(dir, error)) {
+    if (!utils::exe_dir(dir, error)) {
         std::cerr << error << std::endl;
         return 2;
     }
@@ -135,7 +65,7 @@ int cmd_start(const std::string& data_dir, const std::string& sock_path, const s
     auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
     while (std::chrono::steady_clock::now() < deadline) {
         std::string reply, err;
-        if (control_send_recv(sock_path, "ping\n", reply, err) && reply == "PONG") {
+        if (utils::control_send_recv(sock_path, "ping\n", reply, err) && reply == "PONG") {
             ready = true;
             break;
         }
@@ -163,7 +93,7 @@ int cmd_start(const std::string& data_dir, const std::string& sock_path, const s
 int cmd_stop(const std::string& sock_path)
 {
     std::string reply, error;
-    if (!control_send_recv(sock_path, "shutdown\n", reply, error)) {
+    if (!utils::control_send_recv(sock_path, "shutdown\n", reply, error)) {
         std::cerr << "服务器未运行" << std::endl;
         return 1;
     }
@@ -187,7 +117,7 @@ int cmd_stop(const std::string& sock_path)
 int cmd_status(const std::string& sock_path)
 {
     std::string reply, error;
-    if (!control_send_recv(sock_path, "status\n", reply, error)) {
+    if (!utils::control_send_recv(sock_path, "status\n", reply, error)) {
         std::cerr << "服务器未运行" << std::endl;
         return 1;
     }

@@ -14,15 +14,13 @@
 #include <thread>
 
 #include <poll.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <sys/un.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include "log/log.h"
 #include "config/config.h"
 #include "catalog.h"
+#include "utils/utils.h"
 
 namespace {
 
@@ -98,34 +96,6 @@ bool prepare_data_dir(const std::string& dir, bool& created, std::string& error)
     return true;
 }
 
-// 定位与 initdb 同目录的伴生文件, 缺失或不可访问返回 false 并填充错误描述
-bool companion_path(const char* name, std::string& path, std::string& error)
-{
-    char buf[4096];
-    ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
-    if (n <= 0) {
-        error = "无法获取可执行文件路径(/proc/self/exe)";
-        return false;
-    }
-    buf[static_cast<size_t>(n)] = '\0';
-    path = (std::filesystem::path(buf).parent_path() / name).string();
-    std::error_code ec;
-    const bool present = std::filesystem::exists(path, ec);
-    if (ec) {
-        error = "无法访问伴生文件: " + path;
-        return false;
-    }
-    if (!present) {
-        error = "缺少伴生文件: " + path;
-        return false;
-    }
-    if (!std::filesystem::is_regular_file(path, ec) || ec) {
-        error = "无法访问伴生文件: " + path;
-        return false;
-    }
-    return true;
-}
-
 // 从管道读 server 输出, 匹配端口行 bootstrap_port=<端口>; EOF/超时/格式非法返回 false 并填充错误描述
 bool read_port_line(int fd, int& port, std::string& error)
 {
@@ -185,61 +155,6 @@ bool read_port_line(int fd, int& port, std::string& error)
     }
 }
 
-// 经控制通道发送 shutdown 并确认回复 OK
-bool control_shutdown(const std::string& sock_path, std::string& error)
-{
-    int fd = socket(AF_UNIX, SOCK_STREAM, 0);
-    if (fd < 0) {
-        error = "创建控制 socket 失败";
-        return false;
-    }
-    struct sockaddr_un addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
-    if (sock_path.size() >= sizeof(addr.sun_path)) {
-        error = "控制 socket 路径过长: " + sock_path;
-        close(fd);
-        return false;
-    }
-    strncpy(addr.sun_path, sock_path.c_str(), sizeof(addr.sun_path) - 1);
-    if (connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
-        error = "连接控制 socket 失败: " + sock_path;
-        close(fd);
-        return false;
-    }
-    struct timeval tv;
-    tv.tv_sec = 3;
-    tv.tv_usec = 0;
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));  // 读侧超时, 防挂死
-    std::string cmd = "shutdown\n";
-    if (send(fd, cmd.data(), cmd.size(), 0) < 0) {
-        error = "发送 shutdown 失败";
-        close(fd);
-        return false;
-    }
-    std::string reply;
-    char rbuf[64];
-    for (;;) {
-        ssize_t n = read(fd, rbuf, sizeof(rbuf));
-        if (n > 0) {
-            reply.append(rbuf, static_cast<size_t>(n));
-            continue;
-        }
-        if (n == 0) {
-            break;  // EOF: 回复结束
-        }
-        error = "读取控制回复失败";
-        close(fd);
-        return false;
-    }
-    close(fd);
-    if (reply != "OK") {
-        error = "shutdown 回复异常: " + reply;
-        return false;
-    }
-    return true;
-}
-
 // 等待子进程退出(带超时), 已退出返回 true 并写入 status
 bool wait_child(pid_t pid, int& status, std::string& error)
 {
@@ -293,7 +208,7 @@ bool run_client_file(const std::string& client_bin, int port, const std::string&
 void best_effort_stop(pid_t pid, const std::string& sock_path)
 {
     std::string ignore;
-    control_shutdown(sock_path, ignore);  // server 可能已退出或未就绪, 失败不报
+    utils::control_shutdown(sock_path, ignore);  // server 可能已退出或未就绪, 失败不报
     int status = 0;
     if (!wait_child(pid, status, ignore)) {
         kill(pid, SIGKILL);
@@ -308,8 +223,9 @@ bool run_bootstrap_stage(const std::string& dir, std::string& error)
     std::string server_bin;
     std::string client_bin;
     std::string bootstrap_sql;
-    if (!companion_path("server", server_bin, error) || !companion_path("client", client_bin, error)
-        || !companion_path("bootstrap.sql", bootstrap_sql, error)) {
+    if (!utils::companion_path("server", server_bin, error)
+        || !utils::companion_path("client", client_bin, error)
+        || !utils::companion_path("bootstrap.sql", bootstrap_sql, error)) {
         return false;
     }
     std::string ctl_sock = (std::filesystem::path(dir) / "server.sock").string();
@@ -349,7 +265,7 @@ bool run_bootstrap_stage(const std::string& dir, std::string& error)
         close(pipe_fds[0]);
         return false;
     }
-    if (!control_shutdown(ctl_sock, error)) {
+    if (!utils::control_shutdown(ctl_sock, error)) {
         best_effort_stop(pid, ctl_sock);
         close(pipe_fds[0]);
         return false;
