@@ -72,10 +72,10 @@ SELECT col_name, ordinal, type, length, not_null FROM db_column;
  not_null    | 5       | 1    | 0      | 1
  schema_id   | 0       | 2    | 0      | 1
  schema_name | 1       | 4    | 64     | 1
- index_id    | 0       | 2    | 0      | 1
+ table_id    | 0       | 2    | 0      | 1
  index_name  | 1       | 4    | 64     | 1
- table_id    | 2       | 2    | 0      | 1
- ordinal     | 3       | 1    | 0      | 1
+ col_ordinal | 2       | 1    | 0      | 1
+ file_id     | 3       | 2    | 0      | 1
  version     | 0       | 2    | 0      | 1
  id          | 0       | 1    | 0      | 0
 (18 行)
@@ -85,7 +85,7 @@ SELECT * FROM db_schema;
  1         | system
 (1 行)
 SELECT * FROM db_index;
- index_id | index_name | table_id | ordinal
+ table_id | index_name | col_ordinal | file_id
 (0 行)
 SELECT * FROM db_version;
  version
