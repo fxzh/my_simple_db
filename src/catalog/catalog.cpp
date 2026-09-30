@@ -116,17 +116,33 @@ void Catalog::create()
 
 void Catalog::open()
 {
-    if (!engine_.table_file_exists(kTableMetaId) || !engine_.table_file_exists(kColumnMetaId)
-        || !engine_.table_file_exists(kSchemaMetaId)) {
-        DB_RAISE(db::ErrCode::CatalogMissing, LogModule::CATALOG, "数据目录未初始化: {}", dir_);
+    if (bootstrap_mode_) {
+        // bootstrap 模式: 目录刚由 initdb 引导, 检查三张自举表文件存在
+        if (!engine_.table_file_exists(kTableMetaId) || !engine_.table_file_exists(kColumnMetaId)
+            || !engine_.table_file_exists(kSchemaMetaId)) {
+            DB_RAISE(db::ErrCode::CatalogMissing, LogModule::CATALOG, "数据目录未初始化: {}", dir_);
+        }
+    } else if (!engine_.table_file_exists(kTableMetaId)) {
+        // 正常模式: db_table 文件缺失无法扫描, 完成标记检查在下方扫 db_table 时按名进行
+        DB_RAISE(db::ErrCode::CatalogMissing, LogModule::CATALOG,
+                 "数据目录未初始化或初始化未完成: {}", dir_);
     }
     engine_.open();
     // 此处先于客户端线程, 不持锁; 扫 db_table 取现存最大 file_id/table_id, 扫 db_schema 取现存最大 schema_id 作分配起点
     int64_t max_fid = 0;
     int64_t max_tid = 0;
+    bool has_version = false;
     for (const std::vector<st::Value>& row : engine_.read_rows(kTableMetaId, table_meta_cols())) {
         max_fid = std::max(max_fid, row_int(row, 2));
         max_tid = std::max(max_tid, row_int(row, 0));
+        if (row_str(row, 1) == kVersionMetaName) {
+            has_version = true;
+        }
+    }
+    // 完成标记: db_version 行存在代表 bootstrap.sql 全部执行成功, 仅正常模式要求
+    if (!bootstrap_mode_ && !has_version) {
+        DB_RAISE(db::ErrCode::CatalogMissing, LogModule::CATALOG, "数据目录未初始化或初始化未完成: {}",
+                 dir_);
     }
     next_file_id_.store(static_cast<uint64_t>(max_fid) + 1);
     next_table_id_.store(static_cast<uint64_t>(
@@ -153,6 +169,18 @@ st::TableMeta Catalog::table_meta(const std::string& name)
 uint64_t Catalog::create_table(const std::string& name, const std::vector<st::ColumnSpec>& cols)
 {
     std::lock_guard<std::mutex> lock(mutex_);
+    // bootstrap 模式: 用 SET 的显式 table_id 建表, 未 set 与重复 id 报错; 正常模式自动分配
+    if (bootstrap_mode_) {
+        if (bootstrap_table_id_ == 0) {
+            DB_RAISE(db::ErrCode::InvalidDdl, LogModule::CATALOG,
+                     "bootstrap 模式 create table 前须 SET table_id");
+        }
+        if (has_table_id(bootstrap_table_id_)) {
+            DB_RAISE(db::ErrCode::TableExists, LogModule::CATALOG, "table_id 已被占用: {}",
+                     bootstrap_table_id_);
+        }
+        return create_table_impl(name, cols, bootstrap_table_id_);
+    }
     return create_table_impl(name, cols, alloc_table_id());
 }
 
@@ -318,6 +346,17 @@ bool Catalog::has_table_name(const std::string& name)
 {
     for (const std::vector<st::Value>& row : engine_.read_rows(kTableMetaId, table_meta_cols())) {
         if (row_str(row, 1) == name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// table_id 是否已被占用(须持锁): 全扫 db_table 匹配, bootstrap 显式 id 建表查重
+bool Catalog::has_table_id(uint64_t tid)
+{
+    for (const std::vector<st::Value>& row : engine_.read_rows(kTableMetaId, table_meta_cols())) {
+        if (row_int(row, 0) == static_cast<int64_t>(tid)) {
             return true;
         }
     }

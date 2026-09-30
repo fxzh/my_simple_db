@@ -373,11 +373,12 @@ std::vector<std::unique_ptr<BoundExpr>> bind_insert_row(
     return row;
 }
 
-// 保留表名拦截: 元数据表禁止 drop/insert/delete
+// 保留表名拦截: 系统元数据表禁止 drop/insert/delete
 // (select 可查元数据, create 由存储层按表已存在拒绝)
 void check_reserved_table(const std::string& name)
 {
-    if (name == ct::kTableMetaName || name == ct::kColumnMetaName || name == ct::kSchemaMetaName) {
+    if (name == ct::kTableMetaName || name == ct::kColumnMetaName || name == ct::kSchemaMetaName
+        || name == ct::kIndexMetaName || name == ct::kVersionMetaName) {
         DB_RAISE(db::ErrCode::ProtectedTable, LogModule::ANALYZER, "保留表名禁止使用: {}", name);
     }
 }

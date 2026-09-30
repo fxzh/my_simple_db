@@ -22,6 +22,22 @@ DELETE FROM db_column;
 ERROR: 保留表名禁止使用: db_column
 DELETE FROM db_schema;
 ERROR: 保留表名禁止使用: db_schema
+CREATE TABLE db_index (id int);
+ERROR: 表已存在: db_index
+CREATE TABLE db_version (id int);
+ERROR: 表已存在: db_version
+DROP TABLE db_index;
+ERROR: 保留表名禁止使用: db_index
+DROP TABLE db_version;
+ERROR: 保留表名禁止使用: db_version
+INSERT INTO db_index VALUES (1);
+ERROR: 保留表名禁止使用: db_index
+INSERT INTO db_version VALUES (1);
+ERROR: 保留表名禁止使用: db_version
+DELETE FROM db_index;
+ERROR: 保留表名禁止使用: db_index
+DELETE FROM db_version;
+ERROR: 保留表名禁止使用: db_version
 CREATE TABLE t_reserved (id int);
 CREATE
 INSERT INTO t_reserved VALUES (7);
@@ -37,8 +53,10 @@ SELECT table_name, schema_id FROM db_table;
  db_table   | 1
  db_column  | 1
  db_schema  | 1
+ db_index   | 1
+ db_version | 1
  t_reserved | 1
-(4 行)
+(6 行)
 SELECT col_name, ordinal, type, length, not_null FROM db_column;
  col_name    | ordinal | type | length | not_null
 -------------+---------+------+--------+----------
@@ -54,13 +72,24 @@ SELECT col_name, ordinal, type, length, not_null FROM db_column;
  not_null    | 5       | 1    | 0      | 1
  schema_id   | 0       | 2    | 0      | 1
  schema_name | 1       | 4    | 64     | 1
+ index_id    | 0       | 2    | 0      | 1
+ index_name  | 1       | 4    | 64     | 1
+ table_id    | 2       | 2    | 0      | 1
+ ordinal     | 3       | 1    | 0      | 1
+ version     | 0       | 2    | 0      | 1
  id          | 0       | 1    | 0      | 0
-(13 行)
+(18 行)
 SELECT * FROM db_schema;
  schema_id | schema_name
 -----------+-------------
  1         | system
 (1 行)
+SELECT * FROM db_index;
+ index_id | index_name | table_id | ordinal
+(0 行)
+SELECT * FROM db_version;
+ version
+(0 行)
 DROP TABLE t_reserved;
 DROP
 SELECT table_name, schema_id FROM db_table;
@@ -69,4 +98,6 @@ SELECT table_name, schema_id FROM db_table;
  db_table   | 1
  db_column  | 1
  db_schema  | 1
-(3 行)
+ db_index   | 1
+ db_version | 1
+(5 行)

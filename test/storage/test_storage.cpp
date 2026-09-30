@@ -80,8 +80,16 @@ struct StorageDb : ::testing::Test {
 TEST_F(StorageDb, ReopenLifecycle)
 {
     {
-        Catalog db(dir.path);
+        // bootstrap 模式建 db_version 完成标记(模拟 bootstrap.sql 结尾), 之后各阶段走正常模式
+        Catalog db(dir.path, true);
         db.create();
+        db.open();
+        db.set_bootstrap_table_id(5);
+        db.create_table(kVersionMetaName, {{"version", ColType::BigInt, 0, true}});
+        db.close();
+    }
+    {
+        Catalog db(dir.path);
         db.open();
 
         std::vector<ColumnSpec> cols = {
@@ -207,6 +215,23 @@ TEST_F(StorageDb, OpenWithoutCreateFails)
         FAIL() << "未初始化目录 open 应报错";
     } catch (const db::DbError& e) {
         EXPECT_EQ(e.code(), db::ErrCode::CatalogMissing);
+    }
+}
+
+// 自举表齐备但缺 db_version 完成标记时正常模式 open 报 CatalogMissing
+TEST_F(StorageDb, OpenWithoutVersionMarkerFails)
+{
+    {
+        Catalog db(dir.path, true);
+        db.create();
+    }
+    Catalog db(dir.path);
+    try {
+        db.open();
+        FAIL() << "缺完成标记的目录 open 应报错";
+    } catch (const db::DbError& e) {
+        EXPECT_EQ(e.code(), db::ErrCode::CatalogMissing);
+        EXPECT_NE(std::string(e.what()).find("初始化未完成"), std::string::npos);
     }
 }
 

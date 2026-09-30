@@ -58,6 +58,9 @@ TEST(Initdb, Ok)
     EXPECT_TRUE(std::filesystem::is_regular_file(std::filesystem::path(data) / "t_1.dat"));
     EXPECT_TRUE(std::filesystem::is_regular_file(std::filesystem::path(data) / "t_2.dat"));
     EXPECT_TRUE(std::filesystem::is_regular_file(std::filesystem::path(data) / "t_3.dat"));
+    // bootstrap.sql 经 client 执行后新增 db_index(t_4) 与 db_version(t_5)
+    EXPECT_TRUE(std::filesystem::is_regular_file(std::filesystem::path(data) / "t_4.dat"));
+    EXPECT_TRUE(std::filesystem::is_regular_file(std::filesystem::path(data) / "t_5.dat"));
     std::ifstream in(conf);
     std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     EXPECT_NE(content.find("port = 8123"), std::string::npos);

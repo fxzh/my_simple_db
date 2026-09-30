@@ -1,5 +1,5 @@
 // initdb: 初始化工具, 在 -D 指定的数据目录内生成默认配置文件 db.conf 与元数据表 db_table/db_column/db_schema,
-// 并拉起同目录 server --bootstrap 读到端口行后直接经控制通道关闭(暂不执行 bootstrap.sql)
+// 再拉起同目录 server --bootstrap, 经 client 执行伴生 bootstrap.sql 建系统表后经控制通道关闭
 #include <cerrno>
 #include <charconv>
 #include <chrono>
@@ -260,6 +260,35 @@ bool wait_child(pid_t pid, int& status, std::string& error)
     return false;
 }
 
+// 拉起 client 执行 bootstrap.sql: 输出直透当前终端, 退出码非零即有失败语句
+bool run_client_file(const std::string& client_bin, int port, const std::string& sql_path,
+                     std::string& error)
+{
+    pid_t pid = fork();
+    if (pid < 0) {
+        error = "fork 失败";
+        return false;
+    }
+    if (pid == 0) {
+        const std::string port_str = std::to_string(port);
+        execl(client_bin.c_str(), "client", "-p", port_str.c_str(), "-f", sql_path.c_str(),
+              static_cast<char*>(nullptr));
+        std::cerr << "启动 client 失败: " << strerror(errno) << std::endl;
+        _exit(1);
+    }
+    int status = 0;
+    if (!wait_child(pid, status, error)) {
+        kill(pid, SIGKILL);
+        waitpid(pid, &status, 0);
+        return false;
+    }
+    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+        error = "client 执行 bootstrap.sql 失败";
+        return false;
+    }
+    return true;
+}
+
 // 失败路径收尾: 尽力经控制通道关闭, 仍不退出则 SIGKILL, 保证收尸
 void best_effort_stop(pid_t pid, const std::string& sock_path)
 {
@@ -273,11 +302,14 @@ void best_effort_stop(pid_t pid, const std::string& sock_path)
 }
 
 // bootstrap 阶段: 拉起同目录 server --bootstrap(前台, stdout 接管道), 读到端口行后
-// 直接经控制通道关闭并等其退出; 任一步失败时已尽力收尾子进程
+// 经 client 执行伴生 bootstrap.sql, 再经控制通道关闭并等 server 退出; 任一步失败时已尽力收尾子进程
 bool run_bootstrap_stage(const std::string& dir, std::string& error)
 {
     std::string server_bin;
-    if (!companion_path("server", server_bin, error)) {
+    std::string client_bin;
+    std::string bootstrap_sql;
+    if (!companion_path("server", server_bin, error) || !companion_path("client", client_bin, error)
+        || !companion_path("bootstrap.sql", bootstrap_sql, error)) {
         return false;
     }
     std::string ctl_sock = (std::filesystem::path(dir) / "server.sock").string();
@@ -308,6 +340,11 @@ bool run_bootstrap_stage(const std::string& dir, std::string& error)
 
     int port = 0;
     if (!read_port_line(pipe_fds[0], port, error)) {
+        best_effort_stop(pid, ctl_sock);
+        close(pipe_fds[0]);
+        return false;
+    }
+    if (!run_client_file(client_bin, port, bootstrap_sql, error)) {
         best_effort_stop(pid, ctl_sock);
         close(pipe_fds[0]);
         return false;
@@ -391,7 +428,7 @@ int main(int argc, char* argv[])
         }
         return 1;
     }
-    // bootstrap 阶段: 拉起 server --bootstrap 后直接关闭, 不执行 bootstrap.sql
+    // bootstrap 阶段: 拉起 server --bootstrap 执行 bootstrap.sql 后关闭
     if (!run_bootstrap_stage(dir, error)) {
         const bool log_kept = rollback();
         std::cerr << error << std::endl;

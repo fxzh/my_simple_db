@@ -27,6 +27,13 @@ constexpr const char* kTableMetaName = "db_table";
 constexpr const char* kColumnMetaName = "db_column";
 constexpr const char* kSchemaMetaName = "db_schema";
 
+// bootstrap.sql 创建的系统表(文档性 id 与文件内 set table_id 值一致), 列定义唯一事实来源在 bootstrap.sql
+constexpr uint64_t kIndexMetaId = 4;
+constexpr const char* kIndexMetaName = "db_index";
+
+// bootstrap.sql 末尾创建的完成标记表: 行存在即代表初始化全程成功, 正常模式 open() 按名检查
+constexpr const char* kVersionMetaName = "db_version";
+
 // system schema 固定 id: 引导写入 db_schema 首行, 现阶段所有表的 schema_id 均挂其名下
 constexpr uint64_t kSystemSchemaId = 1;
 constexpr const char* kSystemSchemaName = "system";
@@ -42,11 +49,12 @@ public:
 
     // 初始化数据目录: 引导两张元数据表, 目录须已存在且未初始化, 不进入打开状态
     void create();
-    // 打开已初始化的数据目录(以元数据表文件存在为准), 元数据表缺失当场报错
+    // 打开已初始化的数据目录, 缺失当场报错: 正常模式按名检查 db_version 完成标记, bootstrap 模式检查三张自举表文件
     void open();
     // 刷盘并关闭
     void close();
 
+    // 建表: bootstrap 模式用 SET 的显式 table_id(未 set/重复 id 报错), 正常模式自动分配
     uint64_t create_table(const std::string& name, const std::vector<st::ColumnSpec>& cols);
     // 删表, 保留段表拒绝删除
     void drop_table(const std::string& name);
@@ -87,6 +95,8 @@ private:
     st::TableMeta find_table_meta(const std::string& name);
     // 表名是否已存在(须持锁): 全扫 db_table 匹配
     bool has_table_name(const std::string& name);
+    // table_id 是否已被占用(须持锁): 全扫 db_table 匹配, bootstrap 显式 id 建表查重
+    bool has_table_id(uint64_t tid);
     // schema 名是否已存在(须持锁): 全扫 db_schema 匹配
     bool has_schema_name(const std::string& name);
     // 用户段 table_id 分配: 原子自增返回, 依赖 open() 扫描初始化(不低于 kFirstUserTableId)
