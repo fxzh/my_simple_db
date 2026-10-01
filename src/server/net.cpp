@@ -4,6 +4,7 @@
 #include <sys/un.h>
 #include <sys/time.h>
 #include <sys/stat.h>
+#include <fcntl.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <arpa/inet.h>
@@ -53,6 +54,14 @@ int create_tcp_listener(bool bootstrap_mode, int& listen_port)
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) {
         LOG(CRITICAL, NETWORK, "Socket创建失败");
+        return -1;
+    }
+
+    // 非阻塞: poll 唤醒与 accept 之间队列被清空时返回 EAGAIN, 不挂起主循环
+    int sock_flags = fcntl(server_fd, F_GETFL, 0);
+    if (sock_flags < 0 || fcntl(server_fd, F_SETFL, sock_flags | O_NONBLOCK) < 0) {
+        close(server_fd);
+        LOG(CRITICAL, NETWORK, "设置监听 socket 非阻塞失败");
         return -1;
     }
 
@@ -107,6 +116,14 @@ int create_control_listener(const std::string& ctl_sock)
     int control_fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (control_fd < 0) {
         LOG(CRITICAL, NETWORK, "控制 socket 创建失败");
+        return -1;
+    }
+
+    // 非阻塞: poll 唤醒与 accept 之间队列被清空时返回 EAGAIN, 不挂起主循环
+    int ctl_flags = fcntl(control_fd, F_GETFL, 0);
+    if (ctl_flags < 0 || fcntl(control_fd, F_SETFL, ctl_flags | O_NONBLOCK) < 0) {
+        close(control_fd);
+        LOG(CRITICAL, NETWORK, "设置监听 socket 非阻塞失败");
         return -1;
     }
     struct sockaddr_un ctl_addr;

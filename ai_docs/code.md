@@ -12,7 +12,7 @@
 
 结构体要求：使用 struct 而不是 class, 直接访问结构体成员而不是通过一个函数间接访问
 
-日志要求：所有代码在 报critical/报error/报warning/报其他等级日志 时，必须使用 LOG/LOGCPP/LOG_*/DB_RAISE 宏，禁止直接throw std::runtime_error等行为（client代码，tool代码除外），如确实不能使用这些宏，必须在总结时说明
+日志要求：所有代码在 报critical/报error/报warning/报其他等级日志 时，必须使用 LOG/LOGCPP/LOG_*/DB_RAISE 宏，禁止直接throw std::runtime_error, _exit等行为（client代码，tool代码除外），如确实不能使用这些宏，必须在总结时说明
 
 报错要求：有错立刻就报，禁止储存错误信息延后报错，如确实需要延后报错设计，必须在总结时说明
 

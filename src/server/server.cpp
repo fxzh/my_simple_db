@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <cerrno>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <vector>
@@ -39,14 +40,15 @@ void usage()
     std::cerr << "用法: server -D <数据目录> [--daemon] [--bootstrap]" << std::endl;
 }
 
-// 截断重写 pidfile 内容
-void write_pid_file(int pid_fd, pid_t pid)
+// 截断重写 pidfile 内容, 失败报 CRITICAL 并返回 false
+bool write_pid_file(int pid_fd, pid_t pid)
 {
     std::string pid_str = std::to_string(pid);
-    if (ftruncate(pid_fd, 0) != 0 ||
-        pwrite(pid_fd, pid_str.data(), pid_str.size(), 0) < 0) {
-        std::cerr << "写入 pidfile 失败" << std::endl;
+    if (ftruncate(pid_fd, 0) != 0 || pwrite(pid_fd, pid_str.data(), pid_str.size(), 0) < 0) {
+        LOG(CRITICAL, SYSTEM, "写入 pidfile 失败: %s", std::strerror(errno));
+        return false;
     }
+    return true;
 }
 
 // 服务器主函数
@@ -161,7 +163,11 @@ int main(int argc, char* argv[])
         }
         if (daemon_pid > 0) {
             // 父进程: 写 pidfile(子进程 pid) 后立即退出
-            write_pid_file(pid_fd, daemon_pid);
+            if (!write_pid_file(pid_fd, daemon_pid)) {
+                kill(daemon_pid, SIGTERM);  // 终止刚 fork 的 daemon, 避免留下孤儿进程
+                Logger::cleanup();  // _exit 无静态析构, 手动排空日志队列
+                _exit(1);
+            }
             _exit(0);
         }
         // 子进程(daemon): 脱离会话与控制终端
@@ -179,7 +185,9 @@ int main(int argc, char* argv[])
         }
     } else {
         // 前台: 写 pidfile(自身 pid)
-        write_pid_file(pid_fd, getpid());
+        if (!write_pid_file(pid_fd, getpid())) {
+            return -1;
+        }
     }
 
     // 打开数据目录(含崩溃恢复重放): 须在 daemon fork 之后, 恢复日志在子进程内构造 Logger
