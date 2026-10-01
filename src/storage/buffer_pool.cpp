@@ -60,7 +60,8 @@ void BufferPool::write_back(PageFrame& f, FileManager& files)
 // 到达磁盘之前其日志必然已写入。
 // diff 以 8 字节字长为粒度: 差异字聚成区间, 相邻区间间隔不超过一个字长时
 // 合并以免碎片化; 每个区间一条 OP_PAGE_PATCH, 载荷为区间内的当前字节
-// (after-image)。补丁只写入 wal.log 的 OS 缓冲, 持久化由语句提交点的
+// (after)与基线字节(before)双向, before 侧同时追加进事务 undo 列表, 使同一
+// 记录兼作 redo 与 undo。补丁只写入 wal.log 的 OS 缓冲, 持久化由事务提交点的
 // Wal::sync() 完成, 与页的刷盘时机解耦
 void BufferPool::log_page_diff(PageFrame& f)
 {
@@ -72,7 +73,7 @@ void BufferPool::log_page_diff(PageFrame& f)
     };
     constexpr size_t kWord = sizeof(uint64_t);
     const size_t words = PAGE_SIZE / kWord;
-    char payload[WAL_PATCH_HEADER_SIZE + PAGE_SIZE];
+    char payload[WAL_PATCH_HEADER_SIZE + 2 * PAGE_SIZE];
     for (size_t w = 0; w < words;) {
         if (load(f.before + w * kWord) == load(f.data + w * kWord)) {
             ++w;
@@ -95,7 +96,11 @@ void BufferPool::log_page_diff(PageFrame& f)
         wal_put_u32(payload + 12, off);
         wal_put_u32(payload + 16, len);
         std::memcpy(payload + WAL_PATCH_HEADER_SIZE, f.data + off, len);
-        wal_.append(WalOp::PagePatch, payload, WAL_PATCH_HEADER_SIZE + len);
+        std::memcpy(payload + WAL_PATCH_HEADER_SIZE + len, f.before + off, len);
+        wal_.append(WalOp::PagePatch, txn_->txn_id, payload, WAL_PATCH_HEADER_SIZE + 2 * len);
+        txn_->undo.push_back(UndoEntry{f.page.file_id, f.page.page_no, off, len,
+                                       std::vector<char>(f.before + off, f.before + off + len)});
+        txn_->wrote = true;
     }
     // 基线推进: 此后的修改将以当前内容为起点做增量 diff
     std::memcpy(f.before, f.data, PAGE_SIZE);
@@ -199,9 +204,32 @@ void BufferPool::mark_dirty(char* data)
     if (idx == frames_.size()) {
         raise_error(db::ErrCode::Internal, "mark_dirty 未命中的页");
     }
+    if (txn_ == nullptr) {
+        raise_error(db::ErrCode::Internal, "页修改须在活动事务内");
+    }
     // 先把本次修改记成补丁再置脏: 补丁先于任何可能的落盘(write-ahead)
     log_page_diff(frames_[idx]);
     frames_[idx].dirty = true;
+}
+
+// 回滚恢复一个字节区间: 页在缓存则直接改帧内容并同步推进基线(不记新补丁,
+// 否则回滚会向 WAL 追加本事务新记录形成自反馈); 页不在缓存(事务期间被淘汰
+// 落盘)则改磁盘页。帧内/盘上是事务后内容, before 覆写后回到事务前状态
+void BufferPool::restore_region(PageId page, uint32_t off, uint32_t len, const char* before,
+                                FileManager& files)
+{
+    const size_t idx = find(page);
+    if (idx == frames_.size()) {
+        char buf[PAGE_SIZE];
+        files.read_page(page.file_id, page.page_no, buf);
+        std::memcpy(buf + off, before, len);
+        files.write_page(page.file_id, page.page_no, buf);
+        return;
+    }
+    PageFrame& f = frames_[idx];
+    std::memcpy(f.data + off, before, len);
+    std::memcpy(f.before + off, before, len);
+    f.dirty = true;
 }
 
 void BufferPool::flush(PageId page, FileManager& files)

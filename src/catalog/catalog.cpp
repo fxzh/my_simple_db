@@ -110,7 +110,10 @@ void Catalog::create()
     if (engine_.table_file_exists(kTableMetaId)) {
         DB_RAISE(db::ErrCode::CatalogExists, LogModule::CATALOG, "数据目录已初始化: {}", dir_);
     }
+    // 自举全程一个事务: 引擎落盘性原语须在活动事务内调用
+    begin_txn();
     bootstrap_meta_tables();
+    commit_txn();
     // create 不进入打开状态, 检查点收尾(含清空 WAL)后返回, bootstrap 阶段从零日志起步
     engine_.checkpoint();
 }
@@ -157,38 +160,59 @@ void Catalog::open()
 
 void Catalog::close()
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     engine_.close();
 }
 
-void Catalog::sync()
+// 开启事务: 全局锁长持至事务结束, 事务内门面方法同线程递归重入
+void Catalog::begin_txn()
 {
-    // 运行期检查点: WAL 自上次清空累计字节达到阈值时, 取锁做检查点(内含 WAL
-    // fsync 与清空, 本语句持久性不受影响)。计数锁外读, 拿到锁后重查一次,
-    // 竞争者已抢先完成时落回普通 fsync
-    if (engine_.wal_bytes_since_reset() >= config::cfg.wal_checkpoint_bytes) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        const uint64_t bytes = engine_.wal_bytes_since_reset();
-        if (bytes >= config::cfg.wal_checkpoint_bytes) {
-            engine_.checkpoint();
-            LOG_INFO(LogModule::CATALOG,
-                     "运行期检查点: WAL 自上次清空累计 %llu 字节达到阈值, 已刷脏页并清空日志",
-                     static_cast<unsigned long long>(bytes));
-            return;
+    mutex_.lock();
+    std::unique_lock<std::recursive_mutex> lock(mutex_, std::adopt_lock);
+    engine_.begin_txn();
+    lock.release();
+}
+
+// 提交事务: Engine 侧追加 Commit 并 fsync(持久化边界), 之后 WAL 自上次清空累计
+// 字节达到阈值则做运行期检查点——此刻事务记录已结束、锁仍持有, 检查点不可能
+// 打断进行中的事务; 守卫保证任意退出路径都解除全局锁
+void Catalog::commit_txn()
+{
+    std::unique_lock<std::recursive_mutex> lock(mutex_, std::adopt_lock);
+    try {
+        engine_.commit_txn();
+    } catch (...) {
+        // 提交失败: 残留引擎事务按回滚清理, 异常原样上抛
+        if (engine_.in_txn()) {
+            engine_.rollback_txn();
         }
+        throw;
     }
-    engine_.sync_wal();
+    const uint64_t bytes = engine_.wal_bytes_since_reset();
+    if (bytes >= config::cfg.wal_checkpoint_bytes) {
+        engine_.checkpoint();
+        LOG_INFO(LogModule::CATALOG,
+                 "运行期检查点: WAL 自上次清空累计 %llu 字节达到阈值, 已刷脏页并清空日志",
+                 static_cast<unsigned long long>(bytes));
+    }
+}
+
+// 回滚事务: Engine 侧按 undo 逆序复原已发生的修改, 守卫保证异常路径也解除全局锁
+void Catalog::rollback_txn()
+{
+    std::unique_lock<std::recursive_mutex> lock(mutex_, std::adopt_lock);
+    engine_.rollback_txn();
 }
 
 st::TableMeta Catalog::table_meta(const std::string& name)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     return find_table_meta(name);
 }
 
 uint64_t Catalog::create_table(const std::string& name, const std::vector<st::ColumnSpec>& cols)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     // bootstrap 模式: 用 SET 的显式 table_id 建表, 未 set 与重复 id 报错; 正常模式自动分配
     if (bootstrap_mode_) {
         if (bootstrap_table_id_ == 0) {
@@ -206,7 +230,7 @@ uint64_t Catalog::create_table(const std::string& name, const std::vector<st::Co
 
 void Catalog::create_schema(const std::string& name)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     if (name.empty()) {
         DB_RAISE(db::ErrCode::InvalidDdl, LogModule::CATALOG, "schema 名为空");
     }
@@ -414,7 +438,7 @@ uint64_t Catalog::alloc_schema_id()
 
 void Catalog::drop_table(const std::string& name)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const st::TableMeta meta = find_table_meta(name);
     if (meta.table_id <= kReservedMaxTableId) {
         DB_RAISE(db::ErrCode::ProtectedTable, LogModule::CATALOG, "保留表禁止删除: {}", name);
@@ -425,7 +449,7 @@ void Catalog::drop_table(const std::string& name)
 
 void Catalog::drop_schema(const std::string& name)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     // 定位 schema 行: 扫 db_schema 按名匹配取 id 与行引用
     st::TableMeta meta;
     meta.table_id = kSchemaMetaId;
@@ -458,7 +482,7 @@ void Catalog::drop_schema(const std::string& name)
 
 st::RowId Catalog::insert(const std::string& table, const std::vector<st::Value>& values)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const st::TableMeta meta = find_table_meta(table);
     st::RowRef ref;
     return engine_.insert_row(meta.file_id, meta.cols, values, &ref);
@@ -466,7 +490,7 @@ st::RowId Catalog::insert(const std::string& table, const std::vector<st::Value>
 
 size_t Catalog::delete_by_ref(const st::RowRef& ref)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     if (ref.page == st::INVALID_PAGE) {
         DB_RAISE(db::ErrCode::Internal, LogModule::CATALOG, "删除引用缺少页位置");
     }
@@ -479,7 +503,7 @@ size_t Catalog::delete_by_ref(const st::RowRef& ref)
 
 size_t Catalog::delete_all(const std::string& table)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const st::TableMeta meta = find_table_meta(table);
     return engine_.delete_all_rows(meta.file_id);
 }
@@ -491,7 +515,7 @@ std::unique_ptr<st::Scanner> Catalog::scan(const std::string& table)
 
 size_t Catalog::row_count(const std::string& table)
 {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     const st::TableMeta meta = find_table_meta(table);
     return engine_.row_count(meta.file_id);
 }

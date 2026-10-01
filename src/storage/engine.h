@@ -59,15 +59,24 @@ public:
     void checkpoint();
     // 落盘并关闭全部文件, 收尾做检查点: 清空 WAL, 下次启动零重放
     void close();
-    // 语句提交点: fsync WAL, 此前修改掉电不丢(由 session 层在回 Ok 前调用)
-    void sync_wal();
-    // WAL 自上次清空以来的累计写入字节数, 提交点的运行期检查点阈值判断用
+    // WAL 自上次清空以来的累计写入字节数, 提交路径的运行期检查点阈值判断用
     uint64_t wal_bytes_since_reset() const;
     bool table_file_exists(uint64_t fid) const;
 
+    // 开启活动事务: 分配事务号并建立 undo 上下文; 已有活动事务则报错
+    void begin_txn();
+    // 提交: 有记录则追加 Commit 并 fsync(持久化边界), 之后统一 unlink
+    // pending_drops 登记的文件, 清除事务上下文
+    void commit_txn();
+    // 回滚: 按 undo 列表逆序把 before 字节覆写回磁盘页, 有记录则追加 Abort,
+    // 取消 pending_drops(不删文件), 清除事务上下文
+    void rollback_txn();
+    // 是否存在活动事务
+    bool in_txn() const { return txn_ != nullptr; }
+
     // 建表文件并初始化落盘文件头页
     void init_table_file(uint64_t fid);
-    // 删表文件并清缓冲与尾页跟踪
+    // 删表文件: 记 DropFile 并清缓冲与尾页跟踪, unlink 延迟到提交后(pending_drops)
     void remove_table_file(uint64_t fid);
     // 插行: 值合法性由调用方保证, 编码追加并分配 rowid, ref 输出新行物理位置, 用户插行与元数据表引导共用
     RowId insert_row(uint64_t fid, const std::vector<ColumnSpec>& cols,
@@ -79,14 +88,14 @@ public:
     bool read_row(const RowRef& ref, const std::vector<ColumnSpec>& cols, Row* out);
     // 删除单行(按物理位置), 已删/槽位越界返回 0, 无效引用当场报错
     size_t delete_row(const RowRef& ref);
-    // 清空指定表全部行, 返回删除行数
+    // 清空指定表全部行(逐行墓碑), 返回删除行数
     size_t delete_all_rows(uint64_t fid);
     // 存活行数统计
     size_t row_count(uint64_t fid);
 
     // 建索引文件并初始化空树: 文件头页与空叶根落盘
     void init_index_file(uint64_t fid);
-    // 删索引文件并清缓冲与树跟踪
+    // 删索引文件: 记 DropFile 并清缓冲与树跟踪, unlink 延迟到提交后(同删表)
     void remove_index_file(uint64_t fid);
     // 索引条目插入: (键, 行定位) 唯一性由调用方保证
     void index_insert(uint64_t fid, const IndexKey& key, const RowRef& ref);
@@ -102,6 +111,9 @@ private:
     friend class Scanner;
     // 取指定索引的树: 未跟踪时打开已有索引文件
     BTree& tree_for(uint64_t fid);
+    // 落盘性原语调用前提校验: 活动事务存在; fid 非零时还要求该文件不在本事务
+    // 待删列表(同事务内先删后建同 fid 会触发 ftruncate 截断, 回滚不可撤销)
+    void check_txn(uint64_t fid = 0) const;
     // 建首个数据页(页号 1)并链到文件头页, 返回新页号
     uint32_t link_header_to_first_data_page(uint64_t file_id);
     // 校验行引用页位置: 缺页位置/页 0/页号越界当场报错
@@ -113,6 +125,7 @@ private:
     BufferPool pool_;
     std::unordered_map<uint64_t, uint32_t> tail_pages_;  // 文件 -> 最高页号(含仅存内存的页)
     std::unordered_map<uint64_t, BTree> trees_;          // 索引文件 -> 树(根页号与页分配跟踪)
+    std::unique_ptr<TxnContext> txn_;                    // 活动事务上下文, 至多一个
     bool open_ = false;
 };
 

@@ -22,15 +22,16 @@
 //
 // wal.log 是记录的顺序字节流, 每条记录自带长度与 CRC, 从文件头到尾依次为:
 //
-//   +---------+---------+-------+---------+----------------------+
-//   | len u32 | lsn u64 | op u8 | crc u32 | payload (len 字节)   |
-//   +---------+---------+-------+---------+----------------------+
-//   |<-- 记录头 17B ------>|<-- CRC 覆盖 lsn+op+payload -------->|
+//   +---------+---------+---------+-------+---------+----------------------+
+//   | len u32 | lsn u64 | txn u64 | op u8 | crc u32 | payload (len 字节)  |
+//   +---------+---------+---------+-------+---------+----------------------+
+//   |<-- 记录头 25B ------------->|<-- CRC 覆盖 lsn+txn+op+payload ------>|
 //
 //   len : payload 长度(不含记录头), 恢复时据此切分记录边界
 //   lsn : 本条记录的日志序列号(Log Sequence Number), 全局单调递增, 从 1 起
+//   txn : 记录所属事务号, 由 Wal 每次进程运行从 1 递增分配, 不持久化
 //   op  : 操作类型, 见 WalOp
-//   crc : CRC32(lsn + op + payload), 检测记录字节损坏
+//   crc : CRC32(lsn + txn + op + payload), 检测记录字节损坏
 //
 // 崩溃可能发生在任意字节处, 日志尾部因此可能是半条记录(长度头都在但 payload
 // 不全, 或长度头本身被截断)。恢复时读到"长度不完整"或"CRC 校验失败"即认为
@@ -39,16 +40,24 @@
 //
 // ============ 记录种类与 payload 布局 ============
 //
-//   PagePatch(页补丁, 物理重做):
-//     [file_id u64][page_no u32][offset u32][len u32][len 字节的页内容]
-//     语义: 把 len 字节"修改后"的内容覆盖到 t_<file_id>.dat 第 page_no 页的
-//     offset 处。补丁携带的是 after-image(修改后的字节), 因此重放是幂等的:
-//     同一补丁应用多少次结果都一样, 恢复时无须判断"这条是否已经应用过"。
+//   PagePatch(页补丁, 物理重做/撤销):
+//     [file_id u64][page_no u32][offset u32][len u32][after len B][before len B]
+//     语义: 同一记录兼作 redo 与 undo——重放已提交事务时把 after(修改后字节)
+//     覆盖到 t_<file_id>.dat 第 page_no 页 offset 处; 撤销崩溃中止事务时覆盖
+//     before(修改前字节)。字节覆盖幂等: 同一半段应用多少次结果都一样, 恢复时
+//     无须判断"这条是否已经应用过"。
 //
 //   DropFile(删数据文件):
 //     [file_id u64]
 //     语义: 删除 t_<file_id>.dat。文件删除无法用"页字节补丁"表达, 所以单独
-//     记录; 重放时文件不存在则跳过(幂等)。
+//     记录; 重放时文件不存在则跳过(幂等)。unlink 延迟到提交之后(见下)。
+//
+//   Commit(提交) / Abort(中止):
+//     空 payload, 事务号在记录头。Commit 是事务的持久化边界, 恢复据此判定
+//     事务存活, 只重放出现过 Commit 的事务; Abort 标记运行期回滚已完成,
+//     恢复跳过该事务全部记录(其 undo 已应用至磁盘)。只读事务不追加 Commit,
+//     空回滚不追加 Abort; Abort 不 fsync, 崩溃丢失时按崩溃中止处理, 恢复期
+//     重放 undo 幂等无害。
 //
 // 建表不设对应记录: 新文件头页的初始化本身就是 PagePatch, 重放补丁时读写页
 // 会经由 FileManager 的 O_CREAT 语义自动把文件建出来。元数据表(db_table 等)
@@ -56,9 +65,11 @@
 //
 // ============ 提交与检查点 ============
 //
-//   提交: 每条 SQL 是一个自动提交事务。session 层在语句执行成功后调用
-//   Catalog::sync() -> Wal::sync() fsync 日志, 之后才向客户端回 Ok。fsync
-//   返回后, 此前 append 的全部记录掉电不丢, 语句的持久性由此保证。
+//   提交: commit_txn 内先 append(Commit) 再 Wal::sync() fsync 日志, 之后才
+//   向客户端回 Ok。fsync 返回后, 此前 append 的全部记录(含 Commit 本身)
+//   掉电不丢, 事务的持久性由此保证。自动提交语句即单语句事务, 行为等价。
+//   删文件的 unlink 只能发生在 Commit 记录 fsync 之后: 之前崩溃则恢复视为
+//   未提交(DropFile 跳过, 文件从未被删), 之后崩溃则重放补删(幂等)。
 //
 //   检查点(checkpoint): 把全部脏页刷盘并 fsync 数据文件后, 磁盘数据已经完整,
 //   wal.log 的历史使命结束, 用 Wal::reset() 清空。这样下次启动恢复的工作量
@@ -88,12 +99,14 @@ namespace st {
 
 // WAL 记录操作类型
 enum class WalOp : uint8_t {
-    PagePatch = 1,  // 页补丁: after-image 字节覆盖到指定页的指定区间
+    PagePatch = 1,  // 页补丁: after/before 双向字节覆盖到指定页的指定区间
     DropFile = 2,   // 删数据文件: 重放时删除 t_<file_id>.dat
+    Commit = 3,     // 提交: 事务持久化边界, 恢复据此判定事务存活
+    Abort = 4,      // 中止: 运行期回滚完成标记, 恢复跳过该事务全部记录
 };
 
-// 记录头长度: [len u32][lsn u64][op u8][crc u32]
-constexpr uint32_t WAL_HEADER_SIZE = 17;
+// 记录头长度: [len u32][lsn u64][txn u64][op u8][crc u32]
+constexpr uint32_t WAL_HEADER_SIZE = 25;
 
 // 一条补丁记录 payload 里定位信息的定长前缀: [file_id][page_no][offset][len]
 constexpr uint32_t WAL_PATCH_HEADER_SIZE = 20;
@@ -123,9 +136,11 @@ struct Wal {
     Wal(const Wal&) = delete;
     Wal& operator=(const Wal&) = delete;
 
-    // 追加一条记录并返回其 LSN。
+    // 追加一条记录并返回其 LSN, txn 为所属事务号。
     // 只 ::write 进 OS 缓冲不落盘, 掉电可能丢——需要持久化时调 sync()。
-    uint64_t append(WalOp op, const char* payload, uint32_t len);
+    uint64_t append(WalOp op, uint64_t txn, const char* payload, uint32_t len);
+    // 分配事务号: 每次进程运行从 1 递增, 不持久化(WAL 启动恢复后必然清空)
+    uint64_t alloc_txn_id() { return next_txn_id_++; }
     // 提交: fsync 日志文件, 此前 append 的全部记录掉电不丢
     void sync();
     // 检查点收尾: 清空日志文件并回到文件头。
@@ -135,6 +150,7 @@ struct Wal {
     const std::string path_;
     int fd_ = -1;
     uint64_t next_lsn_ = 1;  // 下一条记录的 LSN, reset 不回退(见 .cpp 注释)
+    uint64_t next_txn_id_ = 1;  // 下一个事务号, 单调递增不重置(仅运行期唯一即可)
     // 自上次清空以来的写入字节数(含记录头), 提交点的运行期检查点阈值判断用;
     // append 持锁累加, reset 清零, sync 锁外读, 故 atomic
     std::atomic<uint64_t> bytes_since_reset_ = 0;
@@ -143,6 +159,7 @@ struct Wal {
 // 一条从日志文件解析出的记录(payload 为 op 对应的原始字节)
 struct WalRecord {
     uint64_t lsn = 0;
+    uint64_t txn = 0;
     WalOp op = WalOp::PagePatch;
     std::vector<char> payload;
 };

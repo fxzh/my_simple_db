@@ -22,8 +22,8 @@ namespace st {
 
 namespace {
 
-// 记录 payload 的长度上限: 补丁记录 20B 定位头 + 一整页, 超过必是数据损坏
-constexpr uint32_t WAL_PAYLOAD_MAX = WAL_PATCH_HEADER_SIZE + PAGE_SIZE;
+// 记录 payload 的长度上限: 补丁记录 20B 定位头 + 双向一整页, 超过必是数据损坏
+constexpr uint32_t WAL_PAYLOAD_MAX = WAL_PATCH_HEADER_SIZE + 2 * PAGE_SIZE;
 
 // 记 ERROR 日志并抛 DbError, 供编译期确认调用点终止
 [[noreturn]] void raise_io(const std::string& what, int err)
@@ -51,21 +51,26 @@ Wal::~Wal()
     }
 }
 
-uint64_t Wal::append(WalOp op, const char* payload, uint32_t len)
+uint64_t Wal::append(WalOp op, uint64_t txn, const char* payload, uint32_t len)
 {
-    // 记录布局: [len u32][lsn u64][op u8][crc u32][payload]
-    // crc 覆盖 lsn+op+payload(不含 len 与 crc 自身), len 由整条写入的边界保证
+    // 记录布局: [len u32][lsn u64][txn u64][op u8][crc u32][payload]
+    // crc 覆盖 lsn+txn+op+payload(不含 len 与 crc 自身), len 由整条写入的边界保证
     char buf[WAL_HEADER_SIZE + WAL_PAYLOAD_MAX];
     const uint64_t lsn = next_lsn_;
     wal_put_u32(buf, len);
     wal_put_u64(buf + 4, lsn);
-    buf[12] = static_cast<char>(op);
-    std::memcpy(buf + WAL_HEADER_SIZE, payload, len);
+    wal_put_u64(buf + 12, txn);
+    buf[20] = static_cast<char>(op);
+    if (len > 0) {
+        std::memcpy(buf + WAL_HEADER_SIZE, payload, len);
+    }
 
-    char crc_src[sizeof(uint64_t) + 1 + WAL_PAYLOAD_MAX];
-    std::memcpy(crc_src, buf + 4, sizeof(uint64_t) + 1);
-    std::memcpy(crc_src + sizeof(uint64_t) + 1, payload, len);
-    wal_put_u32(buf + 13, crc32(crc_src, sizeof(uint64_t) + 1 + len));
+    char crc_src[2 * sizeof(uint64_t) + 1 + WAL_PAYLOAD_MAX];
+    std::memcpy(crc_src, buf + 4, 2 * sizeof(uint64_t) + 1);
+    if (len > 0) {
+        std::memcpy(crc_src + 2 * sizeof(uint64_t) + 1, payload, len);
+    }
+    wal_put_u32(buf + 21, crc32(crc_src, 2 * sizeof(uint64_t) + 1 + len));
 
     // 整条记录一次 write: 记录边界要么完整出现在日志里, 要么整条缺失,
     // 配合长度+CRC 让恢复端能精确识别崩溃截断点
@@ -171,15 +176,16 @@ bool WalReader::next(WalRecord* out)
         }
     }
     const char* rec = buf_.data();
-    // 3) CRC 校验: lsn + op + payload
-    char crc_src[sizeof(uint64_t) + 1 + WAL_PAYLOAD_MAX];
-    std::memcpy(crc_src, rec + 4, sizeof(uint64_t) + 1);
-    std::memcpy(crc_src + sizeof(uint64_t) + 1, rec + WAL_HEADER_SIZE, len);
-    if (crc32(crc_src, sizeof(uint64_t) + 1 + len) != wal_get_u32(rec + 13)) {
+    // 3) CRC 校验: lsn + txn + op + payload
+    char crc_src[2 * sizeof(uint64_t) + 1 + WAL_PAYLOAD_MAX];
+    std::memcpy(crc_src, rec + 4, 2 * sizeof(uint64_t) + 1);
+    std::memcpy(crc_src + 2 * sizeof(uint64_t) + 1, rec + WAL_HEADER_SIZE, len);
+    if (crc32(crc_src, 2 * sizeof(uint64_t) + 1 + len) != wal_get_u32(rec + 21)) {
         return false;  // 记录字节损坏(掉电写坏): 丢弃其后全部
     }
     out->lsn = wal_get_u64(rec + 4);
-    out->op = static_cast<WalOp>(rec[12]);
+    out->txn = wal_get_u64(rec + 12);
+    out->op = static_cast<WalOp>(rec[20]);
     out->payload.assign(rec + WAL_HEADER_SIZE, rec + WAL_HEADER_SIZE + len);
     // 4) 消费本条, 记账安全截断点
     buf_.erase(buf_.begin(),

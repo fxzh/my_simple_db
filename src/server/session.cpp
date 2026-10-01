@@ -137,7 +137,17 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
             std::string ok_log = "SQL解析成功 ID:" + std::to_string(client_id) + ": " + msg_str;
             LOG(INFO, PARSER, "%s", ok_log.c_str());
             if (stmt) {
-                exec::ExecResult result = exec::execute(*db, *stmt);
+                // 语句级自动提交事务: 失败回滚半途修改后异常上抛, 成功提交即持久化
+                // 边界(SELECT 只读无记录, 在算子 open 后提交释放锁, 结果集锁外流式拉取)
+                db->begin_txn();
+                exec::ExecResult result;
+                try {
+                    result = exec::execute(*db, *stmt);
+                } catch (...) {
+                    db->rollback_txn();
+                    throw;
+                }
+                db->commit_txn();
                 if (result.is_result_set) {
                     if (!send_result_stream(client_socket, result, client_id)) {
                         // 发送失败即对端已断, 结束会话(算子经析构释放页 pin)
@@ -150,9 +160,6 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
                         exec_log += " " + std::to_string(result.count);
                     }
                     LOG(INFO, EXECUTOR, "%s", exec_log.c_str());
-                    // 语句提交点: fsync WAL 之后才回 Ok, 客户端看到的成功
-                    // 一律掉电不丢(SELECT 不改页, 无须提交)
-                    db->sync();
                     proto::send_frame(client_socket, proto::MsgType::Ok,
                                       proto::encode_command(result.tag, result.count));
                 }

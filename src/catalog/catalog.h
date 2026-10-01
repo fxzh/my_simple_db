@@ -53,9 +53,14 @@ public:
     void open();
     // 刷盘并关闭
     void close();
-    // 语句提交点: fsync WAL, 已确认修改掉电不丢(session 层回 Ok 前调用); WAL 自
-    // 上次清空累计字节达到阈值时改为取锁做运行期检查点, 其余情况锁外 fsync
-    void sync();
+    // 开启事务: 全局锁由本事务长持至 commit_txn/rollback_txn, 事务内门面方法
+    // 同线程递归重入, 其他会话的语句阻塞在锁上
+    void begin_txn();
+    // 提交事务: 有记录则追加 Commit 并 fsync(持久化边界), WAL 自上次清空累计
+    // 字节达到阈值时做运行期检查点, 解除全局锁
+    void commit_txn();
+    // 回滚事务: 按 undo 逆序复原本事务已发生的修改后解除全局锁
+    void rollback_txn();
 
     // 建表: bootstrap 模式用 SET 的显式 table_id(未 set/重复 id 报错), 正常模式自动分配
     uint64_t create_table(const std::string& name, const std::vector<st::ColumnSpec>& cols);
@@ -111,7 +116,7 @@ private:
 
     std::string dir_;
     st::Engine engine_;   // 文件引擎, 原语经本类持锁调用
-    std::mutex mutex_;   // 序列化所有复合操作(并发演化见存储设计文档 §10)
+    std::recursive_mutex mutex_;   // 序列化所有复合操作, 事务期间长持(并发演化见存储设计文档 §10)
     std::atomic<uint64_t> next_file_id_{0};   // 下一个 file_id, open() 扫 db_table 取最大值+1 初始化
     std::atomic<uint64_t> next_table_id_{0};   // 下一个 table_id, open() 扫 db_table 取最大值+1 初始化, 不低于 kFirstUserTableId
     std::atomic<uint64_t> next_schema_id_{0};  // 下一个 schema_id, open() 扫 db_schema 取最大值+1 初始化

@@ -43,6 +43,9 @@ void Engine::open()
 // 靠重放修复; 全部落定后清空日志, 重放起点归零
 void Engine::checkpoint()
 {
+    if (txn_) {
+        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "检查点不能在活动事务内执行");
+    }
     pool_.flush_all(files_);
     wal_.sync();
     files_.flush_all();
@@ -57,14 +60,73 @@ void Engine::close()
     open_ = false;
 }
 
-void Engine::sync_wal()
-{
-    wal_.sync();
-}
-
 uint64_t Engine::wal_bytes_since_reset() const
 {
     return wal_.bytes_since_reset_.load();
+}
+
+// 落盘性原语调用前提校验(须持锁): 无活动事务即报错
+void Engine::check_txn(uint64_t fid) const
+{
+    if (!txn_) {
+        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "落盘性原语须在活动事务内调用");
+    }
+    for (uint64_t pending : txn_->pending_drops) {
+        if (pending == fid) {
+            DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
+                     "同事务内已登记删除的文件禁止再修改: fid={}", fid);
+        }
+    }
+}
+
+void Engine::begin_txn()
+{
+    if (txn_) {
+        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "已有活动事务");
+    }
+    txn_ = std::make_unique<TxnContext>();
+    txn_->txn_id = wal_.alloc_txn_id();
+    pool_.set_txn(txn_.get());
+}
+
+void Engine::commit_txn()
+{
+    if (!txn_) {
+        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "无活动事务");
+    }
+    pool_.set_txn(nullptr);
+    if (txn_->wrote) {
+        wal_.append(WalOp::Commit, txn_->txn_id, nullptr, 0);
+        // 持久化边界: Commit 记录 fsync 之后事务才算提交, 之后才允许 unlink
+        wal_.sync();
+    }
+    for (uint64_t fid : txn_->pending_drops) {
+        files_.remove_table_file(fid);
+    }
+    if (!txn_->pending_drops.empty()) {
+        files_.flush_dir();
+    }
+    txn_.reset();
+}
+
+void Engine::rollback_txn()
+{
+    if (!txn_) {
+        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "无活动事务");
+    }
+    pool_.set_txn(nullptr);
+    // 逆序恢复: 同页多次修改的 before 链式相依, 正向应用会以后写的 before 覆盖
+    // 先写的 before。页在缓存则帧内覆写——上一事务已提交未落盘的修改只存在于
+    // 帧内, 不可弃帧; before 是内容覆盖, 幂等
+    for (auto it = txn_->undo.rbegin(); it != txn_->undo.rend(); ++it) {
+        pool_.restore_region(PageId{it->fid, it->page_no}, it->off, it->len, it->before.data(),
+                             files_);
+    }
+    // Abort 不 fsync: 崩溃丢失时按崩溃中止处理, 恢复期重放 undo 幂等无害
+    if (txn_->wrote) {
+        wal_.append(WalOp::Abort, txn_->txn_id, nullptr, 0);
+    }
+    txn_.reset();
 }
 
 bool Engine::table_file_exists(uint64_t fid) const
@@ -72,9 +134,10 @@ bool Engine::table_file_exists(uint64_t fid) const
     return files_.table_file_exists(fid);
 }
 
-// 物理建表(须持锁): 建数据文件并初始化落盘文件头页
+// 物理建表(须持锁且在事务内): 建数据文件并初始化落盘文件头页
 void Engine::init_table_file(uint64_t fid)
 {
+    check_txn(fid);
     files_.create_table_file(fid);
 
     // 初始化并落盘文件头页(mark_dirty 把初始化记成补丁, 落盘前先入 WAL)
@@ -86,18 +149,19 @@ void Engine::init_table_file(uint64_t fid)
     pool_.flush(pid0, files_);
 }
 
-// 物理删表(须持锁): 删数据文件并清缓冲与尾页跟踪
+// 物理删表(须持锁且在事务内): 记 DropFile、清缓冲与尾页跟踪并登记 pending_drops;
+// unlink 延迟到提交后——Commit fsync 之前崩溃则恢复视为未提交(DropFile 跳过,
+// 文件从未被删), 之后崩溃则重放补删(幂等)
 void Engine::remove_table_file(uint64_t fid)
 {
-    // 删文件记录先入 WAL 并 fsync, 再 unlink: 崩溃时要么记录已持久(重放补删,
-    // 幂等), 要么 unlink 未生效, 不出现"文件没了而日志也没有"的半损坏状态
+    check_txn();
     char payload[sizeof(uint64_t)];
     wal_put_u64(payload, fid);
-    wal_.append(WalOp::DropFile, payload, sizeof(payload));
-    wal_.sync();
-    files_.remove_table_file(fid);
+    wal_.append(WalOp::DropFile, txn_->txn_id, payload, sizeof(payload));
+    txn_->wrote = true;
     pool_.drop_table(fid);
     tail_pages_.erase(fid);
+    txn_->pending_drops.push_back(fid);
 }
 
 uint32_t Engine::link_header_to_first_data_page(uint64_t file_id)
@@ -119,10 +183,11 @@ uint32_t Engine::link_header_to_first_data_page(uint64_t file_id)
     return new_no;
 }
 
-// 插行(须持锁): 值合法性由调用方保证, 编码后追加并分配 rowid, ref 输出新行物理位置
+// 插行(须持锁且在事务内): 值合法性由调用方保证, 编码后追加并分配 rowid, ref 输出新行物理位置
 RowId Engine::insert_row(uint64_t file_id, const std::vector<ColumnSpec>& cols,
                          const std::vector<Value>& values, RowRef* ref)
 {
+    check_txn(file_id);
     std::vector<uint8_t> rec;
     if (!encode_row(cols, values, rec)) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "值与列类型不匹配");
@@ -249,9 +314,10 @@ bool Engine::read_row(const RowRef& ref, const std::vector<ColumnSpec>& cols, Ro
     return true;
 }
 
-// 删除单行(须持锁): 按物理位置打墓碑, 已删/槽位越界返回 0, 无效引用当场报错
+// 删除单行(须持锁且在事务内): 按物理位置打墓碑, 已删/槽位越界返回 0, 无效引用当场报错
 size_t Engine::delete_row(const RowRef& ref)
 {
+    check_txn(ref.page.file_id);
     check_row_ref(ref);
     char* pg = pool_.read(ref.page, MAGIC_HEAP, files_);
     const PageHeader* ph = header(pg);
@@ -265,13 +331,33 @@ size_t Engine::delete_row(const RowRef& ref)
     return 1;
 }
 
-// 清空指定表全部行(须持锁): 统计存活行数后删除并重建表文件
+// 清空指定表全部行(须持锁且在事务内): 沿页链收集全部存活槽后逐个墓碑删除。
+// 不用"删文件重建"——ftruncate 截掉的旧页字节不在任何 undo 补丁覆盖范围内,
+// 事务回滚会永久丢失已提交数据
 size_t Engine::delete_all_rows(uint64_t file_id)
 {
-    const size_t n = row_count(file_id);
-    remove_table_file(file_id);
-    init_table_file(file_id);
-    return n;
+    check_txn(file_id);
+    std::vector<RowRef> refs;
+    const PageId pid0 = PageId{file_id, 0};
+    char* h = pool_.read(pid0, MAGIC_FILE_HEADER, files_);
+    uint32_t pno = header(h)->next_page;
+    pool_.unpin(h);
+    while (pno != 0) {
+        const PageId pid = PageId{file_id, pno};
+        char* pg = pool_.read(pid, MAGIC_HEAP, files_);
+        const PageHeader* ph = header(pg);
+        for (uint16_t i = 0; i < ph->slot_count; ++i) {
+            if (!slot_tombstone(pg, i)) {
+                refs.push_back(RowRef{pid, i});
+            }
+        }
+        pno = ph->next_page;
+        pool_.unpin(pg);
+    }
+    for (const RowRef& ref : refs) {
+        delete_row(ref);
+    }
+    return refs.size();
 }
 
 // 存活行数统计(须持锁): 沿页链数非墓碑槽
@@ -310,30 +396,34 @@ BTree& Engine::tree_for(uint64_t fid)
     return it->second;
 }
 
-// 建索引文件(须持锁): 初始化空树, 空叶根落盘
+// 建索引文件(须持锁且在事务内): 初始化空树, 空叶根落盘
 void Engine::init_index_file(uint64_t fid)
 {
+    check_txn(fid);
     trees_.erase(fid);
     BTree& tree = trees_.try_emplace(fid, pool_, files_, fid).first->second;
     tree.create();
     pool_.flush(PageId{fid, 1}, files_);
 }
 
-// 删索引文件(须持锁): 删文件记录先入 WAL 并 fsync 再删文件(同 remove_table_file)
+// 删索引文件(须持锁且在事务内): 记 DropFile、清缓冲与树跟踪并登记 pending_drops,
+// unlink 延迟到提交后(同 remove_table_file)
 void Engine::remove_index_file(uint64_t fid)
 {
+    check_txn();
     char payload[sizeof(uint64_t)];
     wal_put_u64(payload, fid);
-    wal_.append(WalOp::DropFile, payload, sizeof(payload));
-    wal_.sync();
-    files_.remove_table_file(fid);
+    wal_.append(WalOp::DropFile, txn_->txn_id, payload, sizeof(payload));
+    txn_->wrote = true;
     pool_.drop_table(fid);
     trees_.erase(fid);
+    txn_->pending_drops.push_back(fid);
 }
 
-// 索引条目插入(须持锁): (键, 行定位) 唯一性由调用方保证
+// 索引条目插入(须持锁且在事务内): (键, 行定位) 唯一性由调用方保证
 void Engine::index_insert(uint64_t fid, const IndexKey& key, const RowRef& ref)
 {
+    check_txn(fid);
     tree_for(fid).insert(BTreeEntry{key, ref.page.page_no, ref.slot});
 }
 
@@ -344,10 +434,11 @@ std::unique_ptr<BTreeScanner> Engine::index_scan(uint64_t fid, std::optional<Ind
     return std::make_unique<BTreeScanner>(tree_for(fid), std::move(lo), std::move(hi));
 }
 
-// 建索引回填(须持锁): 全表扫描堆页, 逐行取指定列编码入树, 返回条目数
+// 建索引回填(须持锁且在事务内): 全表扫描堆页, 逐行取指定列编码入树, 返回条目数
 size_t Engine::build_index(uint64_t table_fid, const std::vector<ColumnSpec>& cols, uint16_t ordinal,
                            uint64_t index_fid)
 {
+    check_txn(index_fid);
     if (ordinal >= cols.size()) {
         DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "索引列序号越界: {}", ordinal);
     }

@@ -9,3 +9,4 @@
 - 元数据表自身 schema 永远用 create() 的硬编码定义，不从 db_column 读自己(自举问题)
 - create_table 先落盘表文件头页再写元数据行，drop_table 反向，避免"元数据有表但文件无效"
 - scan() 返回的游标不持锁(仅持页 pin)，并发 DDL 期间扫描是未定义行为；其余门面方法持全局锁
+- 落盘性门面(建删表/建删 schema/插删行)须在活动事务内调用(事务外报 Internal)，事务由调用方经 begin_txn/commit_txn/rollback_txn 门面包裹：锁随事务长持(mutex 为 recursive_mutex，门面方法同线程递归重入)，commit_txn 是唯一提交点(Commit 记录 fsync + WAL 阈值检查点)；调用方约定见 server 层——会话按语句级自动提交包裹，显式事务状态机随事务层后续里程碑接入

@@ -1,28 +1,29 @@
-// recovery.cpp: 崩溃恢复实现 —— 顺序重放页补丁, 幂等重建磁盘状态
+// recovery.cpp: 崩溃恢复实现 —— 三遍: 收集 / 重放已提交 / 撤销崩溃中止
 //
 // ============ 恢复算法 ============
 //
 // 崩溃后磁盘上的状态是"任意的中间态": 缓冲池里没来得及刷盘的修改丢了,
 // 刷了一半的页可能 torn(4KB 写入掉电时只落了一部分扇区), wal.log 尾部
-// 可能带着半条记录。恢复的目标是把数据库推到"所有已确认语句都生效"的
-// 最终状态, 算法因此出奇地简单:
+// 可能带着半条记录。缓冲池允许把未提交事务的脏页淘汰落盘(steal), 因此
+// 磁盘上还可能残留未提交修改的字节。恢复的目标是把数据库推到"所有已提交
+// 事务都生效、未提交事务无残留"的状态, 分三遍:
 //
-//   从头到尾顺序重放每一条合法的 WAL 记录, 不做任何条件判断。
+//   1. 收集: 全部合法记录读入内存, 按记录头事务号建立 committed(出现过
+//      Commit)与 aborted(出现过 Abort)两个集合;
+//   2. 重放: 按原顺序应用 committed 事务的补丁 after 半段与 DropFile;
+//   3. 撤销: 按 LSN 逆序应用"无 Commit 且无 Abort"事务的补丁 before 半段,
+//      清除崩溃中止事务残留磁盘的未提交字节。有 Abort 的事务跳过——其磁盘
+//      已在运行期回滚时复原, 重放 before 反而会覆盖其后已提交事务的字节
+//      (如同表插入改同一 slot_count), 破坏持久性。
 //
-// 之所以能这么简单, 依赖补丁记录的两个性质:
-//
-//   1. 幂等: 补丁携带 after-image(修改后的字节), 重放就是"把这段字节覆盖
-//      过去"。一条补丁无论应用 0 次、1 次还是多次, 页的最终内容都一样。
-//      所以不需要在页上记 page_lsn 来判断"这条是否已应用过"——崩溃时
-//      某页可能已经含某条补丁的效果, 直接再覆盖一遍即可。
-//
-//   2. 全序: 记录按修改发生的顺序写入, 重放按同序执行, 后写的补丁自然
-//      覆盖先写的。同一页的多次修改(如先插行后删行)重放后停在最后一次
-//      修改的状态。
+// 幂等性依旧成立: 补丁是内容覆盖, 应用 0/1/N 次结果一致, 无须 page_lsn。
+// 事务粒度串行保证 WAL 中不同事务的记录不交错, 崩溃中止事务必是日志中
+// 最后一个, 其 before 即此前全部已提交状态。Abort 未 fsync 而崩溃丢失时,
+// 该事务按崩溃中止处理, undo 幂等重放无副作用。
 //
 // torn 页在这里被无害化: 恢复读页不做魔数/校验和检查(检查也无意义——torn
 // 页本来就不合法), 直接把补丁字节覆盖上去, 整页重写。只要覆盖该页最后一
-// 次修改的补丁存在(它 fsync 过, 因为它所属语句已确认), 页就被完整重建,
+// 次修改的补丁存在(它 fsync 过, 因为它所属事务已提交), 页就被完整重建,
 // 校验和字段也随补丁字节一起恢复正确。
 //
 // ============ 恢复路径为什么绕开缓冲池 ============
@@ -34,7 +35,7 @@
 //
 // ============ 收尾顺序 ============
 //
-// 全部记录重放完后, 必须先让重放结果真正持久, 再丢弃日志, 顺序不能反:
+// 全部记录处理完后, 必须先让恢复结果真正持久, 再丢弃日志, 顺序不能反:
 //   1. files.flush_all()   —— fsync 全部数据文件, 补丁效果落盘;
 //   2. fsync 数据目录       —— 补丁可能新建了数据文件, 目录项(文件名)的
 //                              持久化需要单独 fsync 目录;
@@ -47,6 +48,8 @@
 
 #include <cstring>
 #include <string>
+#include <unordered_set>
+#include <vector>
 
 #include "common/err.h"
 #include "log/log.h"
@@ -63,8 +66,39 @@ namespace {
     DB_RAISE(db::ErrCode::CorruptData, LogModule::STORAGE, "WAL 记录非法: {}", what);
 }
 
-// 应用一条页补丁: 读原页(不校验, 短读补零) -> 覆盖补丁字节 -> 整页写回
-void apply_patch(FileManager& files, const WalRecord& rec)
+// 补丁记录语义校验: 定位字段与双向载荷长度合乎约定
+void validate_patch(const WalRecord& rec)
+{
+    const char* p = rec.payload.data();
+    const uint64_t file_id = wal_get_u64(p);
+    const uint32_t offset = wal_get_u32(p + 12);
+    const uint32_t len = wal_get_u32(p + 16);
+
+    if (file_id == 0) {
+        raise_corrupt("补丁 file_id 为 0");
+    }
+    if (offset > PAGE_SIZE || len == 0 || len > PAGE_SIZE - offset) {
+        raise_corrupt("补丁区间越界");
+    }
+    if (rec.payload.size() != WAL_PATCH_HEADER_SIZE + 2 * static_cast<size_t>(len)) {
+        raise_corrupt("补丁长度与 len 字段不符");
+    }
+}
+
+// 删文件记录语义校验
+void validate_drop(const WalRecord& rec)
+{
+    if (rec.payload.size() != sizeof(uint64_t)) {
+        raise_corrupt("删文件记录长度不符");
+    }
+    if (wal_get_u64(rec.payload.data()) == 0) {
+        raise_corrupt("删文件记录 file_id 为 0");
+    }
+}
+
+// 应用一条页补丁: 读原页(不校验, 短读补零) -> 覆盖指定半段字节 -> 整页写回。
+// undo 为真覆盖 before 半段(撤销), 否则覆盖 after 半段(重做)
+void apply_patch(FileManager& files, const WalRecord& rec, bool undo)
 {
     const char* p = rec.payload.data();
     const uint64_t file_id = wal_get_u64(p);
@@ -72,22 +106,12 @@ void apply_patch(FileManager& files, const WalRecord& rec)
     const uint32_t offset = wal_get_u32(p + 12);
     const uint32_t len = wal_get_u32(p + 16);
 
-    // 语义校验: CRC 只保证字节没坏, 这里保证字段值合乎约定
-    if (file_id == 0) {
-        raise_corrupt("补丁 file_id 为 0");
-    }
-    if (offset > PAGE_SIZE || len == 0 || len > PAGE_SIZE - offset) {
-        raise_corrupt("补丁区间越界");
-    }
-    if (rec.payload.size() != WAL_PATCH_HEADER_SIZE + len) {
-        raise_corrupt("补丁长度与 len 字段不符");
-    }
-
     char page[PAGE_SIZE];
     // 目标文件可能尚不存在(建表后尚未刷盘即崩溃): fd_for 的 O_CREAT 会
     // 建出空文件, read_page 短读部分补零, 补丁覆盖后整页写回即完成重建
     files.read_page(file_id, page_no, page);
-    std::memcpy(page + offset, p + WAL_PATCH_HEADER_SIZE, len);
+    const char* bytes = p + WAL_PATCH_HEADER_SIZE + (undo ? len : 0);
+    std::memcpy(page + offset, bytes, len);
     files.write_page(file_id, page_no, page);
 }
 
@@ -97,32 +121,63 @@ RecoveryStats recover(FileManager& files, Wal& wal)
 {
     RecoveryStats stats;
     WalReader reader(wal.path_);
+
+    // 第一遍(收集): 全部合法记录进内存, 建立 committed/aborted 集合
+    std::vector<WalRecord> records;
+    std::unordered_set<uint64_t> committed;
+    std::unordered_set<uint64_t> aborted;
+    uint64_t commit_abort_count = 0;
     WalRecord rec;
     while (reader.next(&rec)) {
         switch (rec.op) {
         case WalOp::PagePatch:
-            apply_patch(files, rec);
-            ++stats.patches;
+            validate_patch(rec);
+            records.push_back(std::move(rec));
             break;
-        case WalOp::DropFile: {
-            if (rec.payload.size() != sizeof(uint64_t)) {
-                raise_corrupt("删文件记录长度不符");
+        case WalOp::DropFile:
+            validate_drop(rec);
+            records.push_back(std::move(rec));
+            break;
+        case WalOp::Commit:
+        case WalOp::Abort:
+            if (!rec.payload.empty()) {
+                raise_corrupt("提交/中止记录带载荷");
             }
-            const uint64_t file_id = wal_get_u64(rec.payload.data());
-            if (file_id == 0) {
-                raise_corrupt("删文件记录 file_id 为 0");
-            }
+            (rec.op == WalOp::Commit ? committed : aborted).insert(rec.txn);
+            ++commit_abort_count;
+            break;
+        default:
+            raise_corrupt("未知操作码");
+        }
+    }
+    stats.replayed = records.size() + commit_abort_count;
+
+    // 第二遍(重放): 按原顺序应用已提交事务的补丁 after 与删文件
+    for (const WalRecord& r : records) {
+        if (committed.count(r.txn) == 0) {
+            continue;
+        }
+        if (r.op == WalOp::PagePatch) {
+            apply_patch(files, r, false);
+            ++stats.patches;
+        } else {
             // 幂等: 文件可能已被删除(删除已持久化但日志还在), 不存在即跳过
+            const uint64_t file_id = wal_get_u64(r.payload.data());
             if (files.table_file_exists(file_id)) {
                 files.remove_table_file(file_id);
                 ++stats.drops;
             }
-            break;
         }
-        default:
-            raise_corrupt("未知操作码");
+    }
+
+    // 第三遍(撤销): 逆序应用崩溃中止事务的补丁 before; 有 Abort 的事务磁盘
+    // 已在运行期回滚时复原, 跳过; 未提交的 DropFile 跳过(文件从未被删)
+    for (auto it = records.rbegin(); it != records.rend(); ++it) {
+        if (committed.count(it->txn) != 0 || aborted.count(it->txn) != 0 || it->op != WalOp::PagePatch) {
+            continue;
         }
-        ++stats.replayed;
+        apply_patch(files, *it, true);
+        ++stats.undone;
     }
 
     if (stats.replayed == 0) {
@@ -138,13 +193,14 @@ RecoveryStats recover(FileManager& files, Wal& wal)
         return stats;  // 无日志需恢复
     }
     LOG_INFO(LogModule::STORAGE,
-             "崩溃恢复: 重放 %llu 条记录(页补丁 %llu, 删文件 %llu), 日志有效长度 %llu 字节",
+             "崩溃恢复: 读到 %llu 条记录, 重放已提交(页补丁 %llu, 删文件 %llu), 撤销未提交补丁 %llu, 日志有效长度 %llu 字节",
              static_cast<unsigned long long>(stats.replayed),
              static_cast<unsigned long long>(stats.patches),
              static_cast<unsigned long long>(stats.drops),
+             static_cast<unsigned long long>(stats.undone),
              static_cast<unsigned long long>(reader.valid_bytes()));
 
-    // 收尾: 重放结果持久化(文件 -> 目录)之后才清空日志, 顺序见文件头注释
+    // 收尾: 恢复结果持久化(文件 -> 目录)之后才清空日志, 顺序见文件头注释
     files.flush_all();
     files.flush_dir();
     wal.reset();

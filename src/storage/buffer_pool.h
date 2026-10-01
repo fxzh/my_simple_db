@@ -28,6 +28,24 @@ struct PageFrame {
     char before[PAGE_SIZE];
 };
 
+// undo 条目: 一段补丁的 before 侧, 回滚时逆序覆写回磁盘
+struct UndoEntry {
+    uint64_t fid;
+    uint32_t page_no;
+    uint32_t off;
+    uint32_t len;
+    std::vector<char> before;
+};
+
+// 活动事务上下文: Engine 持有并注入缓冲池; log_page_diff 产出的补丁把 before 侧
+// 追加进 undo, 延迟 unlink 的 fid 登记进 pending_drops
+struct TxnContext {
+    uint64_t txn_id = 0;                  // Wal 分配的事务号
+    bool wrote = false;                   // 是否已产生 WAL 记录
+    std::vector<UndoEntry> undo;          // 回滚时逆序回放
+    std::vector<uint64_t> pending_drops;  // 已记 DropFile、待提交后 unlink 的 fid
+};
+
 // PageId 哈希: file_id 与 page_no 折叠混合
 struct PageIdHash {
     size_t operator()(const PageId& p) const
@@ -67,6 +85,13 @@ public:
     // 全部脏页写回
     void flush_all(FileManager& files);
 
+    // 设置活动事务上下文(Engine 在事务开始/结束时切换), null 表示无活动事务
+    void set_txn(TxnContext* txn) { txn_ = txn; }
+    // 回滚恢复一个字节区间: 页在缓存则直接覆写帧内容并同步推进帧内基线、置脏
+    // (不记新补丁); 页不在缓存(事务期间被淘汰落盘)则改磁盘页
+    void restore_region(PageId page, uint32_t off, uint32_t len, const char* before,
+                        FileManager& files);
+
     // 丢弃全部缓存帧(不写回, 用于重开/切换数据目录)
     void invalidate_all();
     // 丢弃某文件全部帧(表已删除)
@@ -86,7 +111,8 @@ private:
     std::vector<PageFrame> frames_;
     std::unordered_map<PageId, size_t, PageIdHash> page_table_;  // 有效帧的页表
     size_t clock_hand_ = 0;
-    Wal& wal_;  // 预写日志, 脏页修改先记日志后落盘, Engine 构造时注入
+    Wal& wal_;               // 预写日志, 脏页修改先记日志后落盘, Engine 构造时注入
+    TxnContext* txn_ = nullptr;  // 活动事务, 补丁记入 WAL 同时收集 undo
 };
 
 }  // namespace st
