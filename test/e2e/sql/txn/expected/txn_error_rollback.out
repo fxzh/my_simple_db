@@ -1,0 +1,38 @@
+CREATE TABLE t_err (id int, v varchar);
+CREATE
+BEGIN;
+BEGIN
+INSERT INTO t_err VALUES (1, 'a');
+INSERT 1
+INSERT INTO t_err VALUES (2, 'b');
+INSERT 1
+INSERT INTO t_err VALUES (1 / 0, 'c');
+ERROR: 整型除零, 事务已回滚
+SELECT * FROM t_err;
+ id | v
+(0 行)
+COMMIT;
+ERROR: COMMIT: 无活动事务
+SELECT * FROM t_err;
+ id | v
+(0 行)
+BEGIN;
+BEGIN
+INSERT INTO t_err VALUES (5, 'e'), (6, 'f'), (7 / 0, 'g');
+ERROR: 整型除零, 事务已回滚
+ROLLBACK;
+ERROR: ROLLBACK: 无活动事务
+SELECT * FROM t_err;
+ id | v
+(0 行)
+BEGIN;
+BEGIN
+INSERT INTO t_err VALUES (8, 'h');
+INSERT 1
+SELEC * FROM @;
+ERROR: 1.1-5: syntax error, unexpected IDENTIFIER, 事务已回滚
+SELECT * FROM t_err;
+ id | v
+(0 行)
+DROP TABLE t_err;
+DROP

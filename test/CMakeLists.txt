@@ -115,6 +115,17 @@ add_sql_case(sql_semantic_select semantic  semantic_select)
 add_sql_case(sql_semantic_set    semantic  semantic_set)
 add_sql_case(sql_lexer_comment   lexer     lexer_comment)
 add_sql_case(sql_lexer_string    lexer     lexer_string)
+add_sql_case(sql_txn_basic       txn       txn_basic)
+add_sql_case(sql_txn_error       txn       txn_error_rollback)
+add_sql_case(sql_txn_control_err txn       txn_control_error)
+
+# L2 e2e: 断连隐式回滚, 两次 client 连接接力验证(-f 脚本止于未提交事务)
+add_executable(test_txn_disconnect e2e/sql/txn/test_disconnect.cpp)
+target_link_libraries(test_txn_disconnect PRIVATE test_common GTest::gtest_main)
+target_compile_definitions(test_txn_disconnect PRIVATE MSDB_BIN_DIR="${PROJECT_BINARY_DIR}/bin")
+
+add_test(NAME sql_txn_disconnect COMMAND test_txn_disconnect)
+set_tests_properties(sql_txn_disconnect PROPERTIES FIXTURES_REQUIRED SRV_UP)
 
 # L2 e2e: client -f 文件执行入口, Ok 复用 lexer 用例与预期, 其余三项连接前报错无需 server
 add_executable(test_sqlfile e2e/sqlfile/test_sqlfile.cpp)

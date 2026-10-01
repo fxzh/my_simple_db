@@ -135,7 +135,7 @@ M4 已接入 WAL：帧增加 before 基线快照（页内容最近一次与"已�
 
 WHY: B+ 树原地改写页 + 缓冲池延迟写盘（性能），若不做日志，崩溃点数据页处于任意中间状态 -> 丢失且不可判定。WAL 让"允许延迟刷脏页"与"绝不丢失已确认数据"同时成立。
 
-实现为**物理 redo-only**：记录是页字节补丁（after-image），无 undo（自动提交、无回滚语句）、无 txn_id（单语句自动提交，写者经 catalog 全局锁串行）。原理性教学注释见 src/storage/wal.h 与 recovery.cpp 文件头。
+实现为**物理 redo+undo 补丁**：记录携带页字节补丁的 after/before 双向映像（兼作重做与撤销日志）与事务号（事务层引入，见 docs/transaction-design.md；写者经 catalog 全局锁串行）。原理性教学注释见 src/storage/wal.h 与 recovery.cpp 文件头。
 
 **write-ahead 不变量**（任何页字节落盘前，描述它的日志已写入 wal.log）由三点保证：
 
@@ -148,28 +148,30 @@ WHY: B+ 树原地改写页 + 缓冲池延迟写盘（性能），若不做日志
 所有表与索引共享一个 `wal.log`，记录流式追加：
 
 ```
-+---------+---------+-------+---------+----------------------+
-| len u32 | lsn u64 | op u8 | crc u32 | payload (len 字节)   |
-+---------+---------+-------+---------+----------------------+
++---------+---------+---------+-------+---------+----------------------+
+| len u32 | lsn u64 | txn u64 | op u8 | crc u32 | payload (len 字节)  |
++---------+---------+---------+-------+---------+----------------------+
 
-PagePatch(页补丁): [file_id u64][page_no u32][offset u32][len u32][len 字节页内容]
+PagePatch(页补丁): [file_id u64][page_no u32][offset u32][len u32][after len B][before len B]
 DropFile(删文件):  [file_id u64]
+Commit(提交) / Abort(中止): 空 payload
 ```
 
-- LSN 全局单调递增从 1 起，检查点清空文件不回退计数器
+- LSN 全局单调递增从 1 起，检查点清空文件不回退计数器；txn 号由 Wal 每次进程运行从 1 递增分配，不持久化
 - 建表/建索引无专门记录：文件头页初始化本身就是补丁，重放经 fd_for 的 O_CREAT 隐式重建文件；元数据行插删（db_table/db_column/db_schema/db_index 也是堆页）同样由补丁覆盖，无需逻辑 DDL 记录
-- 删表/删索引先记 DropFile 并 fsync 再 unlink：崩溃时要么记录已持久（重放补删，幂等），要么 unlink 未生效，不出现"文件没了而日志也没有"的半损坏状态
+- 删表/删索引记 DropFile 并登记 pending_drops，unlink 延迟到 Commit 记录 fsync 之后：崩溃在 fsync 前则恢复视为未提交（DropFile 跳过，文件从未被删），之后则重放补删（幂等）
 
-**提交语义**（无显式事务，每条 SQL 为单语句自动提交）：session 层在非结果集语句执行成功后调 `Catalog::sync()`（fsync WAL）再回 Ok，SELECT 不调。fsync 返回即持久性边界，此前 append 只在 OS 缓冲。异常语句的部分修改保留（与 M1 一致），其持久化时机随下一语句的 sync。
+**提交语义**（事务层 v1）：持久化边界是 `Catalog::commit_txn()`——有记录则追加 Commit 并 fsync 后才向客户端回 Ok，自动提交语句即单语句事务，行为等价。语句/事务失败的半途修改由 rollback 按 before 映像撤销，不残留。
 
-**检查点**（checkpoint）：干净关闭（Engine::close）与恢复重放完成后执行——刷全部脏页、fsync WAL、fsync 数据文件与目录、清空 wal.log，下次启动零重放。运行期按体量触发：Wal 累计自上次清空以来的写入字节（atomic 计数），提交点 `Catalog::sync()` 锁外发现达到配置阈值 `wal_checkpoint_bytes`（64KB~1GB，缺省 16MB）时取锁复查并执行检查点，长运行进程的 WAL 体量有界。
+**检查点**（checkpoint）：干净关闭（Engine::close）与恢复重放完成后执行——刷全部脏页、fsync WAL、fsync 数据文件与目录、清空 wal.log，下次启动零重放。运行期按体量触发：Wal 累计自上次清空以来的写入字节（atomic 计数），`Catalog::commit_txn` 发现达到配置阈值 `wal_checkpoint_bytes`（64KB~1GB，缺省 16MB）时执行检查点——此刻事务记录已结束、锁仍持有，检查点不会打断进行中的事务；单个大事务期间 WAL 可超阈值无上限。
 
 **启动恢复**（recovery.cpp，Engine::open 进入运行状态前）：
 
-1. WalReader 从文件头顺序解析记录：尾部半条记录（长度/CRC 不完整）即截断点，其后字节丢弃——被丢弃的必然是尚未 fsync（未确认）的修改
-2. 逐条重放：PagePatch 读原页（不校验，短读补零，文件不存在则 O_CREAT 隐式建）覆盖补丁字节后整页写回；DropFile 存在则删；记录语义非法（区间越界/长度不符）当场报错
-3. 重放绕过缓冲池直接 pread/pwrite：恢复期间不产生新 WAL 记录，结束后池仍为空，与新启动进程无异
-4. 收尾顺序与检查点一致：fsync 数据文件 -> fsync 目录 -> 清空 WAL
+1. 第一遍（收集）：WalReader 从文件头顺序解析全部合法记录进内存（尾部半条记录即截断点，其后字节丢弃——被丢弃的必然是尚未 fsync 的修改），建立 committed（出现过 Commit 的 txn）与 aborted（出现过 Abort 的 txn）集合
+2. 第二遍（重放）：按原顺序应用 committed 事务的记录——PagePatch 覆盖 after 字节（读原页不校验，短读补零，文件不存在则 O_CREAT 隐式建，覆盖后整页写回），DropFile 存在则删（幂等）；记录语义非法（区间越界/长度不符）当场报错
+3. 第三遍（撤销）：按 LSN 逆序应用"无 Commit 且无 Abort"事务（崩溃中止）的 PagePatch before 字节，清除磁盘上残留的未提交修改；该类 DropFile 跳过（不删文件）；有 Abort 的事务跳过（其磁盘已在运行期回滚时复原，重放 before 会破坏后继已提交事务）
+4. 重放绕过缓冲池直接 pread/pwrite：恢复期间不产生新 WAL 记录，结束后池仍为空，与新启动进程无异
+5. 收尾顺序与检查点一致：fsync 数据文件 -> fsync 目录 -> 清空 WAL
 
 注意事项：
 
@@ -181,7 +183,8 @@ DropFile(删文件):  [file_id u64]
 
 当前 server 每客户端一线程，多线程并发会同时打 storage。正确性优先，按此顺序演化：
 
-- **M1~M4（本次范围）**：`Storage` 内一把数据库级 `std::mutex` 串行化所有写；scan 持有页 pin。模型等价单写多读（读也串行，量小无影响）。WAL 的 txn_id 恒为 0，无冲突。
+- **M1~M4（本次范围）**：`Storage` 内一把数据库级 `std::mutex` 串行化所有写；scan 持有页 pin。模型等价单写多读（读也串行，量小无影响）。
+- **事务层 v1（已实现）**：catalog 锁升级为事务粒度长持（recursive_mutex），全库同一时刻至多一个活动事务；WAL 记录携带事务号与 Commit/Abort，设计见 docs/transaction-design.md。
 - **M7（后续）**：表级 `std::shared_mutex`（scan 共享、insert 独占）→ 缓冲池页帧闩锁 + B+树锁耦合（latch coupling）→ MVCC（行头加版本字段，读快照）。行格式届时按需扩展，不做兼容。
 
 ## 11. SQL 链路接入（M5，规划）
@@ -214,8 +217,8 @@ DropFile(删文件):  [file_id u64]
 - 索引键首期限 int/bigint/float/double 定长编码，char/varchar 变长键 M6
 - 索引条目删除未实现：DELETE 只做堆墓碑，索引条目滞留靠回表校验过滤；物理清理与下溢合并 M6
 - M4（WAL）之前堆与索引双写无崩溃原子性：崩溃可致索引缺条目（等值查询漏行，堆链全表扫描不受影响）或悬空条目（回表按页损坏报错），重建索引可修复；M4 起补丁统一覆盖堆页与树页，双写崩溃一致性由重放保证
-- 运行期检查点为提交点同步触发（挂 `Catalog::sync()`）：跨阈值语句的 Ok 前顺带刷盘，单条大语句（如建索引回填）期间 WAL 可超阈值无上限
+- 运行期检查点在 commit_txn 内触发（锁内、事务记录结束之后）：跨阈值事务的 Ok 前顺带刷盘，单个大事务（如建索引回填）期间 WAL 可超阈值无上限
 - 仅单列索引，多列复合索引后续里程碑
 - 无显式主键/唯一约束；rowid 照常分配但不参与定位，PRIMARY KEY/UNIQUE 于 M5 经索引落地
-- 事务仅自动提交；无 MVCC
+- 事务为全库串行实现（恒 SERIALIZABLE），无并发事务交错与 MVCC，演进路线见 §10；与标准 SQL 行为差异清单见 docs/transaction-design.md §10
 - 单文件单一目录，数据库互斥，未做多库

@@ -73,6 +73,12 @@ WS       [ \t\r]
 "not"      { return yy::parser::token::NOT; }
 "is"       { return yy::parser::token::IS; }
 "set"      { return yy::parser::token::SET; }
+"begin"    { return yy::parser::token::BEGIN_TXN; }
+"start"    { return yy::parser::token::START; }
+"transaction" { return yy::parser::token::TRANSACTION; }
+"commit"   { return yy::parser::token::COMMIT; }
+"rollback" { return yy::parser::token::ROLLBACK; }
+"work"     { return yy::parser::token::WORK; }
 
 {DIGIT}+"."{DIGIT}*|"."{DIGIT}+ {
     yylval->build<double>(std::stod(yytext));

@@ -86,6 +86,12 @@ std::string command_display(proto::CommandTag tag, uint64_t count)
         return "DELETE " + std::to_string(count);
     case proto::CommandTag::Set:
         return "SET";
+    case proto::CommandTag::Begin:
+        return "BEGIN";
+    case proto::CommandTag::Commit:
+        return "COMMIT";
+    case proto::CommandTag::Rollback:
+        return "ROLLBACK";
     case proto::CommandTag::Empty:
         return "";
     }

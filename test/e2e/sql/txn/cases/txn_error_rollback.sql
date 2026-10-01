@@ -1,0 +1,17 @@
+CREATE TABLE t_err (id int, v varchar);
+BEGIN;
+INSERT INTO t_err VALUES (1, 'a');
+INSERT INTO t_err VALUES (2, 'b');
+INSERT INTO t_err VALUES (1 / 0, 'c');
+SELECT * FROM t_err;
+COMMIT;
+SELECT * FROM t_err;
+BEGIN;
+INSERT INTO t_err VALUES (5, 'e'), (6, 'f'), (7 / 0, 'g');
+ROLLBACK;
+SELECT * FROM t_err;
+BEGIN;
+INSERT INTO t_err VALUES (8, 'h');
+SELEC * FROM @;
+SELECT * FROM t_err;
+DROP TABLE t_err;

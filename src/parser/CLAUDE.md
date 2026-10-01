@@ -5,3 +5,4 @@
 - 一帧多条语句只取第一条(语句切分约定在 client)
 - ast.hh 必须先于 bison 生成头被 include(variant 析构内联要求)；生成的 parser.tab.*、lex.yy.cc 在构建目录，不提交、不改
 - 扩展语法需同时改 lexer.l、parser.y、ast.hh，token 声明与 variant 类型要对应
+- bison token 命名须避开 flex 宏：如 BEGIN 宏导致事务开始 token 用 BEGIN_TXN

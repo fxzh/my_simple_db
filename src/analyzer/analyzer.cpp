@@ -509,6 +509,11 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt)
         b->value = static_cast<uint64_t>(ss.value());
         return b;
     }
+    case StmtKind::Begin:
+    case StmtKind::Commit:
+    case StmtKind::Rollback:
+        // 事务控制语句在会话层短路处理, 不进语义分析
+        break;
     }
     // 不可达: 全部语句种类已在上方穷尽
     DB_RAISE(db::ErrCode::UnknownStmt, LogModule::ANALYZER, "analyzer: 未知语句种类");

@@ -1,0 +1,17 @@
+COMMIT;
+ROLLBACK;
+CREATE TABLE t_ctl (id int);
+BEGIN;
+CREATE TABLE t_ddl (id int);
+SELECT table_name FROM db_table;
+BEGIN;
+SET x = 1;
+SELECT * FROM t_ctl;
+BEGIN;
+BEGIN;
+COMMIT;
+BEGIN;
+INSERT INTO t_ctl VALUES (1);
+BEGIN;
+SELECT * FROM t_ctl;
+DROP TABLE t_ctl;

@@ -292,6 +292,9 @@ enum class StmtKind {
     Delete,
     Select,
     Set,
+    Begin,
+    Commit,
+    Rollback,
 };
 
 // SQL 语句基类
@@ -502,6 +505,39 @@ public:
     }
 
     StmtKind kind() const override { return StmtKind::Set; }
+};
+
+// BEGIN / START TRANSACTION(事务控制语句, 会话层短路处理, 不进执行层)
+class BeginStmt : public SQLStatement {
+public:
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "Begin" << std::endl;
+    }
+
+    StmtKind kind() const override { return StmtKind::Begin; }
+};
+
+// COMMIT [WORK]
+class CommitStmt : public SQLStatement {
+public:
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "Commit" << std::endl;
+    }
+
+    StmtKind kind() const override { return StmtKind::Commit; }
+};
+
+// ROLLBACK [WORK]
+class RollbackStmt : public SQLStatement {
+public:
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "Rollback" << std::endl;
+    }
+
+    StmtKind kind() const override { return StmtKind::Rollback; }
 };
 
 #endif  // PARSER_AST_HH

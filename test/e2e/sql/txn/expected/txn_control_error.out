@@ -1,0 +1,44 @@
+COMMIT;
+ERROR: COMMIT: 无活动事务
+ROLLBACK;
+ERROR: ROLLBACK: 无活动事务
+CREATE TABLE t_ctl (id int);
+CREATE
+BEGIN;
+BEGIN
+CREATE TABLE t_ddl (id int);
+ERROR: 事务内不允许 DDL 或 SET 语句, 事务已回滚
+SELECT table_name FROM db_table;
+ table_name
+------------
+ db_table
+ db_column
+ db_schema
+ db_index
+ db_version
+ t_ctl
+(6 行)
+BEGIN;
+BEGIN
+SET x = 1;
+ERROR: 事务内不允许 DDL 或 SET 语句, 事务已回滚
+SELECT * FROM t_ctl;
+ id
+(0 行)
+BEGIN;
+BEGIN
+BEGIN;
+ERROR: 事务已在进行中, 嵌套 BEGIN 已拒绝, 外层事务已回滚
+COMMIT;
+ERROR: COMMIT: 无活动事务
+BEGIN;
+BEGIN
+INSERT INTO t_ctl VALUES (1);
+INSERT 1
+BEGIN;
+ERROR: 事务已在进行中, 嵌套 BEGIN 已拒绝, 外层事务已回滚
+SELECT * FROM t_ctl;
+ id
+(0 行)
+DROP TABLE t_ctl;
+DROP
