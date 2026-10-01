@@ -142,21 +142,8 @@ int main(int argc, char* argv[])
         return -1;
     }
 
-    // 打开数据目录(存储引擎), 所有客户端线程共享这一个实例; bootstrap 标志随构造传入
+    // 目录层实例, 所有客户端线程共享这一个实例; bootstrap 标志随构造传入, open 在 daemon fork 之后
     ct::Catalog db(data_dir, bootstrap_mode);
-    try {
-        db.open();
-    } catch (const db::DbError& e) {
-        LOG(CRITICAL, SYSTEM, "打开数据目录失败: %s", e.what());
-        if (e.code() == db::ErrCode::CatalogMissing) {
-            std::cout << "数据目录未初始化, 请先执行 initdb" << std::endl;
-        }
-        return -1;
-    } catch (const std::exception& e) {
-        LOG(CRITICAL, SYSTEM, "打开数据目录失败: %s", e.what());
-        return -1;
-    }
-    std::cout << "已打开数据目录: " << data_dir << std::endl;
 
     int server_fd, new_socket;
     struct sockaddr_in address;
@@ -283,6 +270,21 @@ int main(int argc, char* argv[])
             std::cerr << "写入 pidfile 失败" << std::endl;
         }
     }
+
+    // 打开数据目录(含崩溃恢复重放): 须在 daemon fork 之后, 恢复日志在子进程内构造 Logger
+    try {
+        db.open();
+    } catch (const db::DbError& e) {
+        LOG(CRITICAL, SYSTEM, "打开数据目录失败: %s", e.what());
+        if (e.code() == db::ErrCode::CatalogMissing) {
+            std::cout << "数据目录未初始化, 请先执行 initdb" << std::endl;
+        }
+        return -1;
+    } catch (const std::exception& e) {
+        LOG(CRITICAL, SYSTEM, "打开数据目录失败: %s", e.what());
+        return -1;
+    }
+    std::cout << "已打开数据目录: " << data_dir << std::endl;
 
     // 启动信息 LOG 必须在 fork 之后, 保证子进程内首次构造 Logger
     if (bootstrap_mode) {
