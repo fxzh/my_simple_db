@@ -53,8 +53,8 @@ public:
     void open();
     // 刷盘并关闭
     void close();
-    // 语句提交点: fsync WAL, 已确认修改掉电不丢(session 层回 Ok 前调用); 只做
-    // fsync 不改共享状态, 锁外调用
+    // 语句提交点: fsync WAL, 已确认修改掉电不丢(session 层回 Ok 前调用); WAL 自
+    // 上次清空累计字节达到阈值时改为取锁做运行期检查点, 其余情况锁外 fsync
     void sync();
 
     // 建表: bootstrap 模式用 SET 的显式 table_id(未 set/重复 id 报错), 正常模式自动分配

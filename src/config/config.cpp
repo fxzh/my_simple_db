@@ -28,6 +28,7 @@ struct IntSpec {
 constexpr IntSpec kIntSpecs[] = {
     {"port", 1, 65535},
     {"buffer_pool_frames", 16, 1048576},
+    {"wal_checkpoint_bytes", 64 * 1024, 1024 * 1024 * 1024},
 };
 
 // 按键名查整型配置项范围, 无则返回 nullptr
@@ -138,6 +139,8 @@ bool load(const std::string& path, std::string& error)
             cfg.port = static_cast<int>(num);
         } else if (key == "buffer_pool_frames") {
             cfg.buffer_pool_frames = static_cast<size_t>(num);
+        } else if (key == "wal_checkpoint_bytes") {
+            cfg.wal_checkpoint_bytes = static_cast<size_t>(num);
         } else if (key == "control_socket") {
             cfg.control_socket = std::string(value);
         } else {

@@ -30,6 +30,7 @@ constexpr char kDefaultConf[] = R"(# my_simple_db 服务端配置
 # port           监听端口, 1~65535
 # control_socket 控制通道 socket 路径, 不配置时为数据目录/server.sock
 # buffer_pool_frames 缓冲池帧数, 16~1048576, 不配置时为 8192
+# wal_checkpoint_bytes 运行期检查点阈值(字节), 65536~1073741824, 不配置时为 16777216(16MB)
 
 port = 8123
 )";

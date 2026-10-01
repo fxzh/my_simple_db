@@ -162,7 +162,7 @@ DropFile(删文件):  [file_id u64]
 
 **提交语义**（无显式事务，每条 SQL 为单语句自动提交）：session 层在非结果集语句执行成功后调 `Catalog::sync()`（fsync WAL）再回 Ok，SELECT 不调。fsync 返回即持久性边界，此前 append 只在 OS 缓冲。异常语句的部分修改保留（与 M1 一致），其持久化时机随下一语句的 sync。
 
-**检查点**（checkpoint）：干净关闭（Engine::close）与恢复重放完成后执行——刷全部脏页、fsync WAL、fsync 数据文件与目录、清空 wal.log，下次启动零重放。运行中定时/按体积触发检查点未实现（无后台线程基建，长运行进程的 WAL 会持续增长，属已知限制）。
+**检查点**（checkpoint）：干净关闭（Engine::close）与恢复重放完成后执行——刷全部脏页、fsync WAL、fsync 数据文件与目录、清空 wal.log，下次启动零重放。运行期按体量触发：Wal 累计自上次清空以来的写入字节（atomic 计数），提交点 `Catalog::sync()` 锁外发现达到配置阈值 `wal_checkpoint_bytes`（64KB~1GB，缺省 16MB）时取锁复查并执行检查点，长运行进程的 WAL 体量有界。
 
 **启动恢复**（recovery.cpp，Engine::open 进入运行状态前）：
 
@@ -214,7 +214,7 @@ DropFile(删文件):  [file_id u64]
 - 索引键首期限 int/bigint/float/double 定长编码，char/varchar 变长键 M6
 - 索引条目删除未实现：DELETE 只做堆墓碑，索引条目滞留靠回表校验过滤；物理清理与下溢合并 M6
 - M4（WAL）之前堆与索引双写无崩溃原子性：崩溃可致索引缺条目（等值查询漏行，堆链全表扫描不受影响）或悬空条目（回表按页损坏报错），重建索引可修复；M4 起补丁统一覆盖堆页与树页，双写崩溃一致性由重放保证
-- 运行中定时检查点未实现：长运行不重启的进程 WAL 持续增长，重启恢复时间随之变长（干净关闭即截断）
+- 运行期检查点为提交点同步触发（挂 `Catalog::sync()`）：跨阈值语句的 Ok 前顺带刷盘，单条大语句（如建索引回填）期间 WAL 可超阈值无上限
 - 仅单列索引，多列复合索引后续里程碑
 - 无显式主键/唯一约束；rowid 照常分配但不参与定位，PRIMARY KEY/UNIQUE 于 M5 经索引落地
 - 事务仅自动提交；无 MVCC

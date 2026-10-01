@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "common/err.h"
+#include "config/config.h"
 #include "log/log.h"
 
 namespace ct {
@@ -162,6 +163,20 @@ void Catalog::close()
 
 void Catalog::sync()
 {
+    // 运行期检查点: WAL 自上次清空累计字节达到阈值时, 取锁做检查点(内含 WAL
+    // fsync 与清空, 本语句持久性不受影响)。计数锁外读, 拿到锁后重查一次,
+    // 竞争者已抢先完成时落回普通 fsync
+    if (engine_.wal_bytes_since_reset() >= config::cfg.wal_checkpoint_bytes) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const uint64_t bytes = engine_.wal_bytes_since_reset();
+        if (bytes >= config::cfg.wal_checkpoint_bytes) {
+            engine_.checkpoint();
+            LOG_INFO(LogModule::CATALOG,
+                     "运行期检查点: WAL 自上次清空累计 %llu 字节达到阈值, 已刷脏页并清空日志",
+                     static_cast<unsigned long long>(bytes));
+            return;
+        }
+    }
     engine_.sync_wal();
 }
 

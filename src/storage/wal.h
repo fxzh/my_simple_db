@@ -63,18 +63,22 @@
 //   检查点(checkpoint): 把全部脏页刷盘并 fsync 数据文件后, 磁盘数据已经完整,
 //   wal.log 的历史使命结束, 用 Wal::reset() 清空。这样下次启动恢复的工作量
 //   与"距上次干净关闭多久"解耦: 干净关闭后重启零重放。检查点在引擎 close
-//   (正常停服)、恢复重放完成后、initdb 目录初始化完成时执行; 运行期定时
-//   检查点暂不实现。
+//   (正常停服)、恢复重放完成后、initdb 目录初始化完成时执行; 运行期由提交点
+//   按体量触发——append 累计自上次清空以来的写入字节, Catalog::sync 发现达到
+//   配置阈值(wal_checkpoint_bytes, 64KB~1GB)时取锁执行一次检查点, 日志体量
+//   因此有界。
 //
 // ============ 并发约定 ============
 //
 // append 只在 catalog 全局锁内被调用(所有页修改都经持锁的 engine 原语发生),
 // 天然串行; sync 只做 fsync, 允许与 append 并发(fsync 不要求独占), 提前或
 // 滞后覆盖某条并发记录都是安全的——多 fsync 无害, 少 fsync 的那条记录所属
-// 语句尚未确认。
+// 语句尚未确认。bytes_since_reset_ 做成 atomic: 提交点的阈值判断在锁外读,
+// 与持锁的 append/reset 并发。
 #ifndef STORAGE_WAL_H
 #define STORAGE_WAL_H
 
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -131,6 +135,9 @@ struct Wal {
     const std::string path_;
     int fd_ = -1;
     uint64_t next_lsn_ = 1;  // 下一条记录的 LSN, reset 不回退(见 .cpp 注释)
+    // 自上次清空以来的写入字节数(含记录头), 提交点的运行期检查点阈值判断用;
+    // append 持锁累加, reset 清零, sync 锁外读, 故 atomic
+    std::atomic<uint64_t> bytes_since_reset_ = 0;
 };
 
 // 一条从日志文件解析出的记录(payload 为 op 对应的原始字节)

@@ -62,6 +62,11 @@ void Engine::sync_wal()
     wal_.sync();
 }
 
+uint64_t Engine::wal_bytes_since_reset() const
+{
+    return wal_.bytes_since_reset_.load();
+}
+
 bool Engine::table_file_exists(uint64_t fid) const
 {
     return files_.table_file_exists(fid);

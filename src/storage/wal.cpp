@@ -82,6 +82,7 @@ uint64_t Wal::append(WalOp op, const char* payload, uint32_t len)
         done += static_cast<size_t>(n);
     }
     ++next_lsn_;
+    bytes_since_reset_ += static_cast<uint64_t>(total);
     return lsn;
 }
 
@@ -95,13 +96,15 @@ void Wal::sync()
 void Wal::reset()
 {
     // 检查点: 清空日志回到文件头。LSN 计数器不回退——本进程内缓冲池帧仍持有
-    // 历史 LSN 语义(新记录必须比旧记录大), 清空文件只是让"重放起点"归零
+    // 历史 LSN 语义(新记录必须比旧记录大), 清空文件只是让"重放起点"归零;
+    // 字节计数器随文件清空一并归零
     if (::ftruncate(fd_, 0) != 0) {
         raise_io("清空 wal.log 失败", errno);
     }
     if (::fsync(fd_) != 0) {
         raise_io("fsync wal.log 失败", errno);
     }
+    bytes_since_reset_ = 0;
 }
 
 // ==================== WalReader(读取侧) ====================

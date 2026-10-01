@@ -55,12 +55,14 @@ public:
     // 重置缓冲池与尾页跟踪, 进入打开状态; 打开前先重放 WAL 完成崩溃恢复
     void open();
     // 检查点: 刷全部脏页并按 WAL 先于数据文件的顺序落盘, 然后清空日志,
-    // 下次启动零重放; 干净关闭与目录初始化完成时调用
+    // 下次启动零重放; 干净关闭、目录初始化完成与运行期 WAL 达到阈值时调用
     void checkpoint();
     // 落盘并关闭全部文件, 收尾做检查点: 清空 WAL, 下次启动零重放
     void close();
     // 语句提交点: fsync WAL, 此前修改掉电不丢(由 session 层在回 Ok 前调用)
     void sync_wal();
+    // WAL 自上次清空以来的累计写入字节数, 提交点的运行期检查点阈值判断用
+    uint64_t wal_bytes_since_reset() const;
     bool table_file_exists(uint64_t fid) const;
 
     // 建表文件并初始化落盘文件头页
