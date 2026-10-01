@@ -25,6 +25,7 @@ using enum LogLevel;
 // 全局变量: server_running 定义在 server.cpp
 std::vector<std::shared_ptr<ClientInfo>> clients;
 std::mutex clients_mutex;
+std::condition_variable clients_cv;
 std::atomic<int> client_counter{0};
 std::mutex cout_mutex;  // 保护标准输出
 
@@ -194,6 +195,12 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
     }
 
     close(client_socket);
+
+    // 通知收尾等待放行, notify 后不得再触碰全局生命周期对象
+    {
+        std::lock_guard<std::mutex> lock(clients_mutex);
+        clients_cv.notify_all();
+    }
 }
 
 // 受理一个新连接: 拒超限/建线程/入表

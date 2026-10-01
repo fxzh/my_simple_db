@@ -2,6 +2,7 @@
 #define SESSION_H
 
 #include <atomic>
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -37,6 +38,7 @@ struct ClientInfo {
 // 全局变量声明: clients 族定义在 session.cpp, server_running 定义在 server.cpp
 extern std::vector<std::shared_ptr<ClientInfo>> clients;
 extern std::mutex clients_mutex;
+extern std::condition_variable clients_cv;  // 客户端线程退出时 notify, 收尾等待 clients 清空
 extern std::atomic<int> client_counter;
 extern std::atomic<bool> server_running;
 extern std::mutex cout_mutex;  // 保护标准输出

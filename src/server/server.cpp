@@ -278,8 +278,17 @@ int main(int argc, char* argv[])
         }
     }
 
-    // 等待一段时间让客户端断开
-    std::this_thread::sleep_for(std::chrono::seconds(2));
+    // 等待客户端清空: 在途语句无取消点, 等待上界为最慢语句剩余时长, 超时 10 秒走崩溃式退出
+    {
+        std::unique_lock<std::mutex> lock(clients_mutex);
+        if (!clients_cv.wait_for(lock, std::chrono::seconds(10),
+                                 [] { return clients.empty(); })) {
+            LOG(WARNING, SYSTEM, "等待客户端退出超时, 剩余 %zu 个会话, 崩溃式退出",
+                clients.size());
+            Logger::cleanup();  // _exit 无静态析构, 手动排空日志队列
+            _exit(1);
+        }
+    }
 
     // 清理资源: 数据与控制两个监听 socket
     close(server_fd);
