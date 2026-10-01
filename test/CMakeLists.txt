@@ -18,11 +18,17 @@ target_link_libraries(test_common_selftest PRIVATE test_common GTest::gtest_main
 
 add_test(NAME common_selftest COMMAND test_common_selftest)
 
-# L0 模块冒烟: storage 页删除整理/增删扫/重开持久化, TempDir 隔离数据目录
+# L0 模块冒烟: storage 页删除整理/增删扫/重开持久化/WAL 记录往返, TempDir 隔离数据目录
 add_executable(test_storage storage/test_storage.cpp)
 target_link_libraries(test_storage PRIVATE catalog storage test_common GTest::gtest_main)
 
 add_test(NAME storage_smoke COMMAND test_storage)
+
+# L0 崩溃恢复: fork 子进程 _exit 模拟 kill -9, 验证 WAL 重放幸存与未提交残留撤销
+add_executable(test_storage_crash storage/test_storage_crash.cpp)
+target_link_libraries(test_storage_crash PRIVATE catalog storage test_common GTest::gtest_main)
+
+add_test(NAME storage_crash COMMAND test_storage_crash)
 
 # L1 e2e: initdb 正常路径(挂 DB_READY)与异常路径(独立执行)
 add_executable(test_initdb e2e/initdb/test_initdb.cpp)

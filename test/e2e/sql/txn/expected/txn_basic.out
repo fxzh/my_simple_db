@@ -41,6 +41,55 @@ SELECT * FROM t_basic;
  2  | b
  4  | d
 (3 行)
+BEGIN;
+BEGIN
+INSERT INTO t_basic VALUES (5, 'e');
+INSERT 1
+SELECT * FROM t_basic;
+ id | v
+----+---
+ 1  | a
+ 2  | b
+ 4  | d
+ 5  | e
+(4 行)
+DELETE FROM t_basic WHERE id = 2;
+DELETE 1
+INSERT INTO t_basic VALUES (6, 'f');
+INSERT 1
+SELECT * FROM t_basic;
+ id | v
+----+---
+ 1  | a
+ 4  | d
+ 5  | e
+ 6  | f
+(4 行)
+ROLLBACK;
+ROLLBACK
+SELECT * FROM t_basic;
+ id | v
+----+---
+ 1  | a
+ 2  | b
+ 4  | d
+(3 行)
+BEGIN;
+BEGIN
+DELETE FROM t_basic;
+DELETE 3
+SELECT * FROM t_basic;
+ id | v
+(0 行)
+ROLLBACK;
+ROLLBACK
+SELECT * FROM t_basic;
+ id | v
+----+---
+ 1  | a
+ 2  | b
+ 4  | d
+(3 行)
 BEGIN TRANSACTION;
 BEGIN
 ROLLBACK WORK;
