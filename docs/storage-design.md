@@ -135,7 +135,7 @@ M4 已接入 WAL：帧增加 before 基线快照（页内容最近一次与"已�
 
 WHY: B+ 树原地改写页 + 缓冲池延迟写盘（性能），若不做日志，崩溃点数据页处于任意中间状态 -> 丢失且不可判定。WAL 让"允许延迟刷脏页"与"绝不丢失已确认数据"同时成立。
 
-实现为**物理 redo+undo 补丁**：记录携带页字节补丁的 after/before 双向映像（兼作重做与撤销日志）与事务号（事务层引入，见 docs/transaction-design.md；写者经 catalog 全局锁串行）。原理性教学注释见 src/storage/wal.h 与 recovery.cpp 文件头。
+实现为**物理 redo+undo 补丁**：记录携带页字节补丁的 after/before 双向映像（兼作重做与撤销日志）与事务号（事务层引入；写者经 catalog 全局锁串行）。原理性教学注释见 src/storage/wal.h 与 recovery.cpp 文件头。
 
 **write-ahead 不变量**（任何页字节落盘前，描述它的日志已写入 wal.log）由三点保证：
 
@@ -184,7 +184,7 @@ Commit(提交) / Abort(中止): 空 payload
 当前 server 每客户端一线程，多线程并发会同时打 storage。正确性优先，按此顺序演化：
 
 - **M1~M4（本次范围）**：`Storage` 内一把数据库级 `std::mutex` 串行化所有写；scan 持有页 pin。模型等价单写多读（读也串行，量小无影响）。
-- **事务层 v1（已实现）**：catalog 锁升级为事务粒度长持（recursive_mutex），全库同一时刻至多一个活动事务；WAL 记录携带事务号与 Commit/Abort，设计见 docs/transaction-design.md。
+- **事务层 v1（已实现）**：catalog 锁升级为事务粒度长持（recursive_mutex），全库同一时刻至多一个活动事务；WAL 记录携带事务号与 Commit/Abort。
 - **M7（后续）**：表级 `std::shared_mutex`（scan 共享、insert 独占）→ 缓冲池页帧闩锁 + B+树锁耦合（latch coupling）→ MVCC（行头加版本字段，读快照）。行格式届时按需扩展，不做兼容。
 
 ## 11. SQL 链路接入（M5，规划）
@@ -220,5 +220,5 @@ Commit(提交) / Abort(中止): 空 payload
 - 运行期检查点在 commit_txn 内触发（锁内、事务记录结束之后）：跨阈值事务的 Ok 前顺带刷盘，单个大事务（如建索引回填）期间 WAL 可超阈值无上限
 - 仅单列索引，多列复合索引后续里程碑
 - 无显式主键/唯一约束；rowid 照常分配但不参与定位，PRIMARY KEY/UNIQUE 于 M5 经索引落地
-- 事务为全库串行实现（恒 SERIALIZABLE），无并发事务交错与 MVCC，演进路线见 §10；与标准 SQL 行为差异清单见 docs/transaction-design.md §10
+- 事务为全库串行实现（恒 SERIALIZABLE），无并发事务交错与 MVCC，演进路线见 §10
 - 单文件单一目录，数据库互斥，未做多库
