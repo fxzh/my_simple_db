@@ -1,6 +1,5 @@
 #include <iostream>
 #include <string>
-#include <cstring>
 #include <cerrno>
 #include <filesystem>
 #include <fstream>
@@ -10,19 +9,16 @@
 #include <atomic>
 #include <csignal>
 #include <sys/socket.h>
-#include <sys/un.h>
 #include <sys/file.h>
-#include <sys/time.h>
-#include <sys/stat.h>
 #include <netinet/in.h>
 #include <poll.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <arpa/inet.h>
 #include "common/err.h"
 #include "config/config.h"
 #include "log/log.h"
 #include "catalog.h"
+#include "net.h"
 #include "session.h"
 
 using enum LogModule;
@@ -37,32 +33,20 @@ void signal_handler(int)
     server_running.store(false, std::memory_order_relaxed);
 }
 
-// 控制通道命令: 一次连接一条命令, 返回是否收到 shutdown
-bool handle_control_command(int cfd)
+// 用法提示
+void usage()
 {
-    char buf[128] = {0};
-    ssize_t n = read(cfd, buf, sizeof(buf) - 1);
-    if (n <= 0) {
-        return false;  // 超时或连接半开, 直接关闭
+    std::cerr << "用法: server -D <数据目录> [--daemon] [--bootstrap]" << std::endl;
+}
+
+// 截断重写 pidfile 内容
+void write_pid_file(int pid_fd, pid_t pid)
+{
+    std::string pid_str = std::to_string(pid);
+    if (ftruncate(pid_fd, 0) != 0 ||
+        pwrite(pid_fd, pid_str.data(), pid_str.size(), 0) < 0) {
+        std::cerr << "写入 pidfile 失败" << std::endl;
     }
-    buf[static_cast<size_t>(n)] = '\0';
-    std::string cmd(buf);
-    while (!cmd.empty() && (cmd.back() == '\n' || cmd.back() == '\r')) {
-        cmd.pop_back();  // 容忍/忽略结尾换行
-    }
-    std::string reply;
-    if (cmd == "ping") {
-        reply = "PONG";
-    } else if (cmd == "status") {
-        reply = "ERROR: status 暂不支持";  // 占位: 富状态字段后续扩展, 协议沿用一行回复
-    } else if (cmd == "shutdown") {
-        reply = "OK";
-    } else {
-        reply = "ERROR: unknown command";
-    }
-    send(cfd, reply.c_str(), reply.size(), 0);
-    close(cfd);
-    return cmd == "shutdown";
 }
 
 // 服务器主函数
@@ -76,7 +60,7 @@ int main(int argc, char* argv[])
         std::string arg = argv[i];
         if (arg == "-D") {
             if (i + 1 >= argc || !data_dir_arg.empty()) {
-                std::cerr << "用法: server -D <数据目录> [--daemon] [--bootstrap]" << std::endl;
+                usage();
                 return -1;
             }
             data_dir_arg = argv[++i];
@@ -85,12 +69,12 @@ int main(int argc, char* argv[])
         } else if (arg == "--bootstrap") {
             bootstrap_mode = true;
         } else {
-            std::cerr << "用法: server -D <数据目录> [--daemon] [--bootstrap]" << std::endl;
+            usage();
             return -1;
         }
     }
     if (data_dir_arg.empty()) {
-        std::cerr << "用法: server -D <数据目录> [--daemon] [--bootstrap]" << std::endl;
+        usage();
         return -1;
     }
     if (daemon_mode && bootstrap_mode) {
@@ -147,83 +131,18 @@ int main(int argc, char* argv[])
 
     int server_fd, new_socket;
     struct sockaddr_in address;
-    int opt = 1;
     int addrlen = sizeof(address);
 
-    // 创建socket文件描述符
-    if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
-        LOG(CRITICAL, NETWORK, "Socket创建失败");
-        return -1;
-    }
-
-    // 设置socket选项
-    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
-        LOG(CRITICAL, NETWORK, "设置socket选项失败");
-        return -1;
-    }
-
     // 实际监听端口: bootstrap 模式由内核分配后回填, 正常模式为配置端口
-    int listen_port = config::cfg.port;
-
-    address.sin_family = AF_INET;
-    // bootstrap 模式仅本机监听且端口 0 由内核临时分配, 配置端口忽略
-    address.sin_addr.s_addr = bootstrap_mode ? htonl(INADDR_LOOPBACK) : INADDR_ANY;
-    address.sin_port = htons(bootstrap_mode
-                                  ? 0
-                                  : static_cast<in_port_t>(config::cfg.port));
-
-    // 绑定socket到地址和端口
-    if (bind(server_fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) < 0) {
-        close(server_fd);
-        LOG(CRITICAL, NETWORK, "绑定端口失败");
+    int listen_port = 0;
+    server_fd = create_tcp_listener(bootstrap_mode, listen_port);
+    if (server_fd < 0) {
         return -1;
-    }
-
-    // 开始监听连接
-    if (listen(server_fd, 10) < 0) {  // 增加等待队列长度
-        close(server_fd);
-        LOG(CRITICAL, NETWORK, "监听失败");
-        return -1;
-    }
-
-    // bootstrap 模式: 取内核分配的实际端口
-    if (bootstrap_mode) {
-        struct sockaddr_in bound;
-        socklen_t bound_len = sizeof(bound);
-        if (getsockname(server_fd, reinterpret_cast<sockaddr*>(&bound), &bound_len) != 0) {
-            close(server_fd);
-            LOG(CRITICAL, NETWORK, "获取实际监听端口失败");
-            return -1;
-        }
-        listen_port = ntohs(bound.sin_port);
     }
 
     // 控制通道: unix domain socket
-    int control_fd = socket(AF_UNIX, SOCK_STREAM, 0);
+    int control_fd = create_control_listener(ctl_sock);
     if (control_fd < 0) {
-        LOG(CRITICAL, NETWORK, "控制 socket 创建失败");
-        return -1;
-    }
-    struct sockaddr_un ctl_addr;
-    memset(&ctl_addr, 0, sizeof(ctl_addr));
-    ctl_addr.sun_family = AF_UNIX;
-    if (ctl_sock.size() >= sizeof(ctl_addr.sun_path)) {
-        LOG(CRITICAL, NETWORK, "控制 socket 路径过长: %s", ctl_sock.c_str());
-        return -1;
-    }
-    strncpy(ctl_addr.sun_path, ctl_sock.c_str(), sizeof(ctl_addr.sun_path) - 1);
-    unlink(ctl_sock.c_str());  // 清理上次异常退出残留的 socket 文件
-    if (bind(control_fd, reinterpret_cast<sockaddr*>(&ctl_addr), sizeof(ctl_addr)) < 0) {
-        LOG(CRITICAL, NETWORK, "控制 socket 绑定失败: %s", ctl_sock.c_str());
-        return -1;
-    }
-    // 仅属主可读写, 避免同机其他用户任意停服(fchmod 对 socket fd 无效, 必须对路径 chmod)
-    if (chmod(ctl_sock.c_str(), 0600) != 0) {
-        LOG(CRITICAL, NETWORK, "设置控制 socket 权限失败");
-        return -1;
-    }
-    if (listen(control_fd, 5) < 0) {
-        LOG(CRITICAL, NETWORK, "控制 socket 监听失败");
         return -1;
     }
 
@@ -242,11 +161,7 @@ int main(int argc, char* argv[])
         }
         if (daemon_pid > 0) {
             // 父进程: 写 pidfile(子进程 pid) 后立即退出
-            std::string pid_str = std::to_string(daemon_pid);
-            if (ftruncate(pid_fd, 0) != 0 ||
-                pwrite(pid_fd, pid_str.data(), pid_str.size(), 0) < 0) {
-                std::cerr << "写入 pidfile 失败" << std::endl;
-            }
+            write_pid_file(pid_fd, daemon_pid);
             _exit(0);
         }
         // 子进程(daemon): 脱离会话与控制终端
@@ -264,11 +179,7 @@ int main(int argc, char* argv[])
         }
     } else {
         // 前台: 写 pidfile(自身 pid)
-        std::string pid_self = std::to_string(getpid());
-        if (ftruncate(pid_fd, 0) != 0 ||
-            pwrite(pid_fd, pid_self.data(), pid_self.size(), 0) < 0) {
-            std::cerr << "写入 pidfile 失败" << std::endl;
-        }
+        write_pid_file(pid_fd, getpid());
     }
 
     // 打开数据目录(含崩溃恢复重放): 须在 daemon fork 之后, 恢复日志在子进程内构造 Logger
@@ -322,16 +233,9 @@ int main(int argc, char* argv[])
 
         // 控制通道: 内联处理一条控制命令, 不建线程
         if (fds[1].revents & (POLLIN | POLLHUP | POLLERR)) {
-            int control_conn = accept(control_fd, nullptr, nullptr);
-            if (control_conn >= 0) {
-                struct timeval tv;
-                tv.tv_sec = 2;
-                tv.tv_usec = 0;
-                setsockopt(control_conn, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));  // 输入防护, 防挂死
-                if (handle_control_command(control_conn)) {
-                    server_running = false;
-                    break;  // 收到 shutdown
-                }
+            if (accept_control_command(control_fd)) {
+                server_running = false;
+                break;  // 收到 shutdown
             }
         }
         if (!server_running) {
