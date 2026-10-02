@@ -1,6 +1,7 @@
-// err.h: 跨层结构化错误(db::) — 在报错源头记 ERROR 日志(带堆栈)并抛出 DbError,
+// err.h: 跨层结构化错误(db::) — DB_RAISE 在报错源头记 ERROR 日志(带堆栈)并抛出 DbError,
 // 由 server 统一路由给客户端(what()/code() 入错误帧); 日志与客户端出口共用同一消息来源, 各自取用不同字段。
-// 使用: DB_RAISE(ErrCode, LogModule, "fmt{}", args...) 取代"LOG_ERROR + 裸 throw"的耦合写法
+// DB_CRITICAL 记 CRITICAL 日志(带堆栈)后全量排空并退出进程, 用于不可恢复的致命错误
+// 使用: DB_RAISE(ErrCode, LogModule, "fmt{}", args...) / DB_CRITICAL(LogModule, "fmt{}", args...)
 #ifndef DB_COMMON_ERR_H
 #define DB_COMMON_ERR_H
 
@@ -105,6 +106,10 @@ namespace detail {
                                    const std::source_location& location,
                                    std::string_view fmt, std::format_args args);
 
+// CRITICAL 的非模板实现: 记 CRITICAL 日志后全量排空并退出进程(err.cpp)
+[[noreturn]] void raise_critical_impl(LogModule module,
+                                      std::string_view fmt, std::format_args args);
+
 // DB_RAISE 的实现: 格式化消息 -> 记 ERROR 日志(带错误码与堆栈) -> 抛 DbError
 template<typename... Args>
 [[noreturn]] void raise_error(ErrCode code, LogModule module,
@@ -112,6 +117,13 @@ template<typename... Args>
                               std::string_view fmt, Args&&... args)
 {
     raise_error_impl(code, module, location, fmt, std::make_format_args(args...));
+}
+
+// DB_CRITICAL 的实现: 格式化消息 -> 记 CRITICAL 日志(带堆栈) -> 退出进程
+template<typename... Args>
+[[noreturn]] void raise_critical(LogModule module, std::string_view fmt, Args&&... args)
+{
+    raise_critical_impl(module, fmt, std::make_format_args(args...));
 }
 
 }  // namespace detail
@@ -122,5 +134,9 @@ template<typename... Args>
 #define DB_RAISE(code, module, fmt, ...) \
     ::db::detail::raise_error(code, module, std::source_location::current(), \
                               fmt, ##__VA_ARGS__)
+
+// 致命错误宏: 记 CRITICAL 日志(带堆栈)后全量排空并退出进程, 不返回调用方
+#define DB_CRITICAL(module, fmt, ...) \
+    ::db::detail::raise_critical(module, fmt, ##__VA_ARGS__)
 
 #endif // DB_COMMON_ERR_H

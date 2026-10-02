@@ -30,7 +30,7 @@ std::atomic<bool> server_running{true};
 
 namespace {
 
-// 信号处理: 仅置停止标志, 主循环经 poll EINTR 退出(handler 内不得 LOG, 非 async-signal-safe)
+// 信号处理: 仅置停止标志, 主循环经 poll EINTR 退出
 void signal_handler(int)
 {
     server_running.store(false, std::memory_order_relaxed);
@@ -42,15 +42,11 @@ void usage()
     std::cerr << "用法: server -D <数据目录> [--daemon] [--bootstrap]" << std::endl;
 }
 
-// 截断重写 pidfile 内容, 失败报 CRITICAL 并返回 false
+// 截断重写 pidfile 内容, 失败返回 false, errno 留给调用方报 DB_CRITICAL
 bool write_pid_file(int pid_fd, pid_t pid)
 {
     std::string pid_str = std::to_string(pid);
-    if (ftruncate(pid_fd, 0) != 0 || pwrite(pid_fd, pid_str.data(), pid_str.size(), 0) < 0) {
-        LOG(CRITICAL, SYSTEM, "写入 pidfile 失败: %s", std::strerror(errno));
-        return false;
-    }
-    return true;
+    return ftruncate(pid_fd, 0) == 0 && pwrite(pid_fd, pid_str.data(), pid_str.size(), 0) >= 0;
 }
 
 }  // namespace
@@ -124,12 +120,10 @@ int main(int argc, char* argv[])
     std::string pidfile = (data_dir_abs / "server.pid").string();
     int pid_fd = open(pidfile.c_str(), O_CREAT | O_RDWR, 0644);
     if (pid_fd < 0) {
-        LOG(CRITICAL, SYSTEM, "无法打开 pidfile: %s", pidfile.c_str());
-        return -1;
+        DB_CRITICAL(SYSTEM, "无法打开 pidfile: {}", pidfile);
     }
     if (flock(pid_fd, LOCK_EX | LOCK_NB) != 0) {
-        LOG(CRITICAL, SYSTEM, "另一实例已在运行");
-        return -1;
+        DB_CRITICAL(SYSTEM, "另一实例已在运行");
     }
 
     // 目录层实例, 所有客户端线程共享这一个实例; bootstrap 标志随构造传入, open 在 daemon fork 之后
@@ -142,15 +136,9 @@ int main(int argc, char* argv[])
     // 实际监听端口: bootstrap 模式由内核分配后回填, 正常模式为配置端口
     int listen_port = 0;
     server_fd = create_tcp_listener(bootstrap_mode, listen_port);
-    if (server_fd < 0) {
-        return -1;
-    }
 
     // 控制通道: unix domain socket
     int control_fd = create_control_listener(ctl_sock);
-    if (control_fd < 0) {
-        return -1;
-    }
 
     // 信号: SIGPIPE 忽略(向已关闭连接写回复的防护), 停止信号走统一收尾
     signal(SIGPIPE, SIG_IGN);
@@ -162,22 +150,19 @@ int main(int argc, char* argv[])
     if (daemon_mode) {
         pid_t daemon_pid = fork();
         if (daemon_pid < 0) {
-            LOG(CRITICAL, SYSTEM, "daemon fork 失败");
-            return -1;
+            DB_CRITICAL(SYSTEM, "daemon fork 失败");
         }
         if (daemon_pid > 0) {
             // 父进程: 写 pidfile(子进程 pid) 后立即退出
             if (!write_pid_file(pid_fd, daemon_pid)) {
                 kill(daemon_pid, SIGTERM);  // 终止刚 fork 的 daemon, 避免留下孤儿进程
-                Logger::cleanup();  // _exit 无静态析构, 手动排空日志队列
-                _exit(1);
+                DB_CRITICAL(SYSTEM, "写入 pidfile 失败: {}", std::strerror(errno));
             }
             _exit(0);
         }
         // 子进程(daemon): 脱离会话与控制终端
         if (setsid() < 0) {
-            LOG(CRITICAL, SYSTEM, "setsid 失败");
-            return -1;
+            DB_CRITICAL(SYSTEM, "setsid 失败");
         }
         // 标准输入/输出/错误重定向, 不再依赖启动终端
         int devnull = open("/dev/null", O_RDWR);
@@ -190,7 +175,7 @@ int main(int argc, char* argv[])
     } else {
         // 前台: 写 pidfile(自身 pid)
         if (!write_pid_file(pid_fd, getpid())) {
-            return -1;
+            DB_CRITICAL(SYSTEM, "写入 pidfile 失败: {}", std::strerror(errno));
         }
     }
 
@@ -198,14 +183,12 @@ int main(int argc, char* argv[])
     try {
         db.open();
     } catch (const db::DbError& e) {
-        LOG(CRITICAL, SYSTEM, "打开数据目录失败: %s", e.what());
         if (e.code() == db::ErrCode::CatalogMissing) {
             std::cout << "数据目录未初始化, 请先执行 initdb" << std::endl;
         }
-        return -1;
+        DB_CRITICAL(SYSTEM, "打开数据目录失败: {}", e.what());
     } catch (const std::exception& e) {
-        LOG(CRITICAL, SYSTEM, "打开数据目录失败: %s", e.what());
-        return -1;
+        DB_CRITICAL(SYSTEM, "打开数据目录失败: {}", e.what());
     }
     std::cout << "已打开数据目录: " << data_dir << std::endl;
 
@@ -287,10 +270,8 @@ int main(int argc, char* argv[])
         std::unique_lock<std::mutex> lock(clients_mutex);
         if (!clients_cv.wait_for(lock, std::chrono::seconds(10),
                                  [] { return clients.empty(); })) {
-            LOG(WARNING, SYSTEM, "等待客户端退出超时, 剩余 %zu 个会话, 崩溃式退出",
-                clients.size());
-            Logger::cleanup();  // _exit 无静态析构, 手动排空日志队列
-            _exit(1);
+            DB_CRITICAL(SYSTEM, "等待客户端退出超时, 剩余 {} 个会话, 崩溃式退出",
+                        clients.size());
         }
     }
 

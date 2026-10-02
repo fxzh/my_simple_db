@@ -79,9 +79,6 @@ struct LogMessage {
 // 日志记录器类
 class Logger {
 private:
-    // 单例实例
-    static Logger* instance_;
-
     // 日志文件路径, 单例构造前由 initPath 设置
     static std::string log_path_;
 
@@ -124,9 +121,6 @@ private:
     // 进程是否退出由调用方决定(log() 只负责记录, 不承担控制流副作用)
     void echoCritical(const std::string& message);
 
-    // 捕获当前调用栈文本, ERROR 及以上日志附在消息尾部
-    std::string stacktraceText();
-
     // logCpp 的非模板实现, 格式化收敛在库内完成
     void logCppImpl(LogLevel level, LogModule module, std::string_view fmt,
                     std::format_args args);
@@ -142,7 +136,6 @@ public:
     static Logger& getInstance()
     {
         static Logger instance;
-        instance_ = &instance;
         return instance;
     }
 
@@ -198,16 +191,7 @@ public:
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
     }
-    
-    // 清理资源
-    static void cleanup()
-    {
-        if (instance_) {
-            instance_->flush();
-            // 单例会在程序退出时自动销毁
-        }
-    }
-    
+
     // 设置是否输出到控制台
     void setConsoleOutput(bool enable)
     {
@@ -232,12 +216,6 @@ public:
 
 #define LOG_WARNING(module, format, ...) \
     LOG(LogLevel::WARNING, module, format, ##__VA_ARGS__)
-
-#define LOG_ERROR(module, format, ...) \
-    LOG(LogLevel::ERROR, module, format, ##__VA_ARGS__)
-
-#define LOG_CRITICAL(module, format, ...) \
-    LOG(LogLevel::CRITICAL, module, format, ##__VA_ARGS__)
 
 // 带源码位置的日志宏
 #define LOG_SOURCE(level, module, format, ...) \

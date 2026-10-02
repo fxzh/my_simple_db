@@ -2,8 +2,3 @@
 add_library(log STATIC
     log.cpp
 )
-
-# log.cpp 捕获堆栈需要 Boost.Stacktrace 头文件
-if(BoostFound)
-    target_include_directories(log PRIVATE ${Boost_INCLUDE_DIRS})
-endif()

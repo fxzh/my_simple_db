@@ -1,12 +1,10 @@
 // log.cpp: Logger 实现(构造/写线程/格式化/日志入口), 头文件仅保留声明与宏
 #include "log/log.h"
 
-#include <boost/stacktrace.hpp>
 #include <cstdio>
 #include <iostream>
 
 // 初始化静态成员
-Logger* Logger::instance_ = nullptr;
 std::string Logger::log_path_;
 
 // 私有构造函数
@@ -151,12 +149,6 @@ void Logger::echoCritical(const std::string& message)
     std::cerr << "[CRITICAL] " << message << std::endl;
 }
 
-// 捕获当前调用栈文本, ERROR 及以上日志附在消息尾部
-std::string Logger::stacktraceText()
-{
-    return boost::stacktrace::to_string(boost::stacktrace::stacktrace());
-}
-
 // 记录日志的主函数
 void Logger::log(LogLevel level, LogModule module, const char* format, ...)
 {
@@ -171,12 +163,9 @@ void Logger::log(LogLevel level, LogModule module, const char* format, ...)
     std::string message = formatMessage(format, args);
     va_end(args);
 
-    std::string errmsg{};
-
-    if (level >= LogLevel::ERROR) {
-        errmsg = message;
-        message += "\nStack trace:\n";
-        message += stacktraceText();
+    // CRITICAL 先同步走 stderr, 再入队
+    if (level == LogLevel::CRITICAL) {
+        echoCritical(message);
     }
 
     // 创建日志消息并加入队列
@@ -187,10 +176,6 @@ void Logger::log(LogLevel level, LogModule module, const char* format, ...)
         queue_.push(std::move(log_msg));
     }
     queue_cv_.notify_one();
-
-    if (level == LogLevel::CRITICAL) {
-        echoCritical(errmsg);
-    }
 }
 
 // 记录日志，带源码位置（可选功能）
@@ -212,11 +197,9 @@ void Logger::logWithSource(LogLevel level, LogModule module,
     std::string message = std::format("{}:{}:{} {}",
         location.file_name(), location.line(), location.function_name(), content);
 
-    std::string errmsg{};
-    if (level >= LogLevel::ERROR) {
-        errmsg = message;
-        message += "\nStack trace:\n";
-        message += stacktraceText();
+    // CRITICAL 先同步走 stderr, 再入队
+    if (level == LogLevel::CRITICAL) {
+        echoCritical(message);
     }
 
     // 创建日志消息并加入队列
@@ -227,10 +210,6 @@ void Logger::logWithSource(LogLevel level, LogModule module,
         queue_.push(std::move(log_msg));
     }
     queue_cv_.notify_one();
-
-    if (level == LogLevel::CRITICAL) {
-        echoCritical(errmsg);
-    }
 }
 
 // logCpp 的非模板实现, 格式化收敛在库内完成
@@ -250,11 +229,9 @@ void Logger::logCppImpl(LogLevel level, LogModule module, std::string_view fmt,
         message = std::string("[format error] ") + e.what();
     }
 
-    std::string errmsg{};
-    if (level >= LogLevel::ERROR) {
-        errmsg = message;
-        message += "\nStack trace:\n";
-        message += stacktraceText();
+    // CRITICAL 先同步走 stderr, 再入队
+    if (level == LogLevel::CRITICAL) {
+        echoCritical(message);
     }
 
     // 创建日志消息并加入队列
@@ -265,8 +242,4 @@ void Logger::logCppImpl(LogLevel level, LogModule module, std::string_view fmt,
         queue_.push(std::move(log_msg));
     }
     queue_cv_.notify_one();
-
-    if (level == LogLevel::CRITICAL) {
-        echoCritical(errmsg);
-    }
 }
