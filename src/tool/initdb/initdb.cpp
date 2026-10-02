@@ -127,7 +127,7 @@ bool read_port_line(int fd, int& port, std::string& error)
             error = "等待 bootstrap 端口行超时";
             return false;
         }
-        struct pollfd pfd;
+        pollfd pfd;
         pfd.fd = fd;
         pfd.events = POLLIN;
         int pret = poll(&pfd, 1, static_cast<int>(remain_ms));

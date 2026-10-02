@@ -36,7 +36,7 @@ static bool parse_port(std::string_view value, Options& opts)
 
 static bool parse_host(std::string_view value, Options& opts)
 {
-    struct in_addr addr;
+    in_addr addr;
     if (inet_pton(AF_INET, std::string(value).c_str(), &addr) != 1) {
         std::cerr << "错误: 主机地址非法: " << value << std::endl;
         return false;

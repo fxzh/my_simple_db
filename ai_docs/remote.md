@@ -10,7 +10,7 @@
 /home/hz/win 为windows挂载的共享目录，实际指向当前代码仓库
 
 # 远程编译要求
-无error无warning
+无error(所有warning被视为error), 如果某种必要的写法触发了某项编译warning, 停止工作并报告
 
 # 远程启停
 当前已支持服务端控制程序 serverctl

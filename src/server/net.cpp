@@ -73,7 +73,7 @@ int create_tcp_listener(bool bootstrap_mode, int& listen_port)
         return -1;
     }
 
-    struct sockaddr_in address;
+    sockaddr_in address;
     address.sin_family = AF_INET;
     // bootstrap 模式仅本机监听且端口 0 由内核临时分配, 配置端口忽略
     address.sin_addr.s_addr = bootstrap_mode ? htonl(INADDR_LOOPBACK) : INADDR_ANY;
@@ -98,7 +98,7 @@ int create_tcp_listener(bool bootstrap_mode, int& listen_port)
     // 实际监听端口: bootstrap 模式由内核分配后回填, 正常模式为配置端口
     listen_port = config::cfg.port;
     if (bootstrap_mode) {
-        struct sockaddr_in bound;
+        sockaddr_in bound;
         socklen_t bound_len = sizeof(bound);
         if (getsockname(server_fd, reinterpret_cast<sockaddr*>(&bound), &bound_len) != 0) {
             close(server_fd);
@@ -126,7 +126,7 @@ int create_control_listener(const std::string& ctl_sock)
         LOG(CRITICAL, NETWORK, "设置监听 socket 非阻塞失败");
         return -1;
     }
-    struct sockaddr_un ctl_addr;
+    sockaddr_un ctl_addr;
     memset(&ctl_addr, 0, sizeof(ctl_addr));
     ctl_addr.sun_family = AF_UNIX;
     if (ctl_sock.size() >= sizeof(ctl_addr.sun_path)) {
@@ -158,7 +158,7 @@ bool accept_control_command(int control_fd)
     if (control_conn < 0) {
         return false;  // 本轮无连接可受理
     }
-    struct timeval tv;
+    timeval tv;
     tv.tv_sec = 2;
     tv.tv_usec = 0;
     setsockopt(control_conn, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));  // 输入防护, 防挂死

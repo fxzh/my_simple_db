@@ -53,6 +53,8 @@ void append_to_sql(const char* text, std::size_t len)
     sql_buffer.append(text, len);
 }
 
+namespace {
+
 // 单元格显示文本: NULL 显示 NULL, 整数十进制, 浮点最短表示, 字符串原样
 std::string cell_text(const proto::CellVal& cell)
 {
@@ -203,6 +205,8 @@ bool recv_result_stream(proto::ResultSet& rs)
     }
 }
 
+}  // namespace
+
 void send_to_server()
 {
     if (sql_overflow) {
@@ -270,6 +274,8 @@ void send_to_server()
     }
 }
 
+namespace {
+
 void process_input(std::string& input)
 {
     if (input.empty()) {
@@ -302,9 +308,11 @@ int run_batch(std::istream& input)
     return sql_failed ? 1 : 0;
 }
 
+}  // namespace
+
 int main(int argc, char* argv[])
 {
-    struct sockaddr_in serv_addr;
+    sockaddr_in serv_addr;
 
     Options opts;
     if (!parse_args(argc, argv, opts)) {

@@ -384,7 +384,7 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
 }
 
 // 受理一个新连接: 拒超限/建线程/入表
-void spawn_client(int new_socket, const struct sockaddr_in& address, ct::Catalog* db)
+void spawn_client(int new_socket, const sockaddr_in& address, ct::Catalog* db)
 {
     // 关闭 Nagle, 回复帧即时发出
     int nodelay = 1;

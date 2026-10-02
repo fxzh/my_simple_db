@@ -176,15 +176,15 @@ TEST(NetProbe, EphemeralListener)
 {
     int lfd = socket(AF_INET, SOCK_STREAM, 0);
     ASSERT_GE(lfd, 0);
-    struct sockaddr_in addr;
+    sockaddr_in addr;
     std::memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port = 0;
-    ASSERT_EQ(bind(lfd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)), 0);
+    ASSERT_EQ(bind(lfd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)), 0);
     ASSERT_EQ(listen(lfd, 1), 0);
     socklen_t len = sizeof(addr);
-    ASSERT_EQ(getsockname(lfd, reinterpret_cast<struct sockaddr*>(&addr), &len), 0);
+    ASSERT_EQ(getsockname(lfd, reinterpret_cast<sockaddr*>(&addr), &len), 0);
     int port = ntohs(addr.sin_port);
 
     EXPECT_TRUE(tcommon::port_is_open("127.0.0.1", port));

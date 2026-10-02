@@ -28,6 +28,8 @@ using enum LogLevel;
 // 全局变量: 进程停止标志, 声明见 session.h
 std::atomic<bool> server_running{true};
 
+namespace {
+
 // 信号处理: 仅置停止标志, 主循环经 poll EINTR 退出(handler 内不得 LOG, 非 async-signal-safe)
 void signal_handler(int)
 {
@@ -50,6 +52,8 @@ bool write_pid_file(int pid_fd, pid_t pid)
     }
     return true;
 }
+
+}  // namespace
 
 // 服务器主函数
 int main(int argc, char* argv[])
@@ -132,7 +136,7 @@ int main(int argc, char* argv[])
     ct::Catalog db(data_dir, bootstrap_mode);
 
     int server_fd, new_socket;
-    struct sockaddr_in address;
+    sockaddr_in address;
     int addrlen = sizeof(address);
 
     // 实际监听端口: bootstrap 模式由内核分配后回填, 正常模式为配置端口
@@ -220,7 +224,7 @@ int main(int argc, char* argv[])
     }
 
     // 主循环: poll 双 socket(数据连接 + 控制连接)
-    struct pollfd fds[2];
+    pollfd fds[2];
     fds[0].fd = server_fd;
     fds[0].events = POLLIN;
     fds[1].fd = control_fd;

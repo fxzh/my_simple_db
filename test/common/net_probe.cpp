@@ -24,7 +24,7 @@ bool connect_once(const std::string& host, int port, int connect_timeout_ms)
     if (fd < 0) {
         return false;
     }
-    struct sockaddr_in addr;
+    sockaddr_in addr;
     std::memset(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(static_cast<uint16_t>(port));
@@ -32,7 +32,7 @@ bool connect_once(const std::string& host, int port, int connect_timeout_ms)
         close(fd);
         return false;
     }
-    if (connect(fd, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) == 0) {
+    if (connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0) {
         close(fd);
         return true;
     }
@@ -40,7 +40,7 @@ bool connect_once(const std::string& host, int port, int connect_timeout_ms)
         close(fd);
         return false;
     }
-    struct pollfd pfd{fd, POLLOUT, 0};
+    pollfd pfd{fd, POLLOUT, 0};
     if (poll(&pfd, 1, connect_timeout_ms) <= 0) {
         close(fd);
         return false;

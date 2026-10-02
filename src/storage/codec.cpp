@@ -191,7 +191,7 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
     size_t pos = 2 + bitmap_len;
     for (size_t i = 0; i < cols.size(); ++i) {
         const ColumnSpec& col = cols[i];
-        if ((bitmap[i / 8] >> (i % 8)) & 1u) {
+        if ((static_cast<unsigned>(bitmap[i / 8]) >> (i % 8)) & 1u) {
             out.emplace_back();  // NULL: monostate
             continue;
         }

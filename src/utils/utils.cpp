@@ -57,7 +57,7 @@ bool control_send_recv(const std::string& socket_path, const std::string& cmd,
         error = "创建控制 socket 失败";
         return false;
     }
-    struct sockaddr_un addr;
+    sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
     addr.sun_family = AF_UNIX;
     if (socket_path.size() >= sizeof(addr.sun_path)) {
@@ -73,7 +73,7 @@ bool control_send_recv(const std::string& socket_path, const std::string& cmd,
         return false;
     }
     // 读侧超时: server 无响应时不永久挂死
-    struct timeval tv;
+    timeval tv;
     tv.tv_sec = 3;
     tv.tv_usec = 0;
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));

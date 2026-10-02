@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(my_simple_db VERSION 0.3.0 LANGUAGES C CXX)
+project(my_simple_db LANGUAGES C CXX)
 
 # 设置C++标准
 set(CMAKE_CXX_STANDARD 20)
@@ -18,7 +18,6 @@ option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 option(ENABLE_TESTING "Enable testing" OFF)
 
 # Use -O2 for Release builds (prefer -O2 over -O3), and add many warning flags
-# Add an option to treat warnings as errors: `WARNINGS_AS_ERRORS` (default OFF)
 
 # Ensure Release uses -O2 instead of -O3 for non-MSVC, and /O2 for MSVC
 if(NOT MSVC)
@@ -34,7 +33,7 @@ else()
     endif()
 endif()
 
-option(WARNINGS_AS_ERRORS "Treat warnings as errors (add -Werror or /WX)" OFF)
+option(WARNINGS_AS_ERRORS "Treat warnings as errors (add -Werror or /WX)" ON)
 
 # Warning flags per compiler
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
@@ -57,6 +56,86 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
         -Wlogical-op
         -Wcast-align
         -Winit-self
+        # 内存/生命周期
+        -Wmismatched-new-delete
+        -Wdelete-non-virtual-dtor
+        -Wdelete-incomplete
+        -Wuse-after-free=3
+        -Wfree-nonheap-object
+        -Wplacement-new=2
+        -Wzero-length-bounds
+        # 悬垂引用/指针与移动语义
+        -Wdangling-reference
+        -Wdangling-pointer
+        -Winit-list-lifetime
+        -Wself-move
+        -Wredundant-move
+        -Wpessimizing-move
+        -Wrange-loop-construct
+        # cast 强化
+        -Wuseless-cast
+        -Wcast-qual
+        -Wcast-user-defined
+        -Wsign-promo
+        -Winvalid-offsetof
+        -Warith-conversion
+        # 溢出/越界(-O2 下生效)
+        -Warray-bounds=2
+        -Wformat-overflow=2
+        -Wformat-truncation=2
+        -Wformat-signedness
+        -Wstringop-overflow=4
+        -Wstrict-overflow=2
+        -Wshift-overflow=2
+        -Warray-parameter=2
+        # 预处理/词法安全
+        -Wundef
+        -Wkeyword-macro
+        -Wchanges-meaning
+        -Wexpansion-to-defined
+        -Wunused-macros
+        -Wbidi-chars=any
+        -Winvalid-utf8
+        -Wnormalized
+        # VLA/alloca 禁用
+        -Wvla
+        -Walloca
+        -Walloc-zero
+        # C++ 语义/ABI
+        -Wvolatile
+        -Wregister
+        -Wterminate
+        -Wcatch-value=3
+        -Wvexing-parse
+        -Wctad-maybe-unsupported
+        -Wcomma-subscript
+        -Wvirtual-move-assign
+        -Winaccessible-base
+        -Wsuggest-override
+        -Wredundant-decls
+        -Wnoexcept-type
+        -Wtemplate-id-cdtor
+        -Wmissing-template-keyword
+        -Wmissing-requires
+        -Wextra-semi
+        -Wliteral-suffix
+        -Wmultichar
+        -Wzero-as-null-pointer-constant
+        -Wstrict-null-sentinel
+        -Wconditionally-supported
+        -Winterference-size
+        -Wnon-c-typedef-for-linkage
+        -Wattribute-alias=2
+        -Wimplicit-fallthrough=5
+        -Wdate-time
+        -Wmissing-noreturn
+        -Wdeprecated-enum-enum-conversion
+        -Wdeprecated-enum-float-conversion
+        -Wflex-array-member-not-at-end
+        -Wtrampolines
+        -Wpacked
+        -Wmissing-declarations
+        -Wredundant-tags
     )
     set(C_WARNING_FLAGS
         -Wall
@@ -73,6 +152,41 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
         -Wlogical-op
         -Wcast-align
         -Winit-self
+        # 与 CXX 侧同源
+        -Wuseless-cast
+        -Wcast-qual
+        -Wundef
+        -Wunused-macros
+        -Wvla
+        -Walloca
+        -Walloc-zero
+        -Wuse-after-free=3
+        -Wfree-nonheap-object
+        -Wzero-length-bounds
+        -Wdangling-pointer
+        -Wflex-array-member-not-at-end
+        -Wbidi-chars=any
+        -Wkeyword-macro
+        -Wexpansion-to-defined
+        -Wattribute-alias=2
+        -Wimplicit-fallthrough=5
+        -Wmultichar
+        -Wzero-as-null-pointer-constant
+        -Wformat-overflow=2
+        -Wformat-truncation=2
+        -Wformat-signedness
+        -Wstringop-overflow=4
+        -Wstrict-overflow=2
+        -Wshift-overflow=2
+        -Warray-parameter=2
+        -Warray-bounds=2
+        -Wdate-time
+        -Wmissing-noreturn
+        -Wredundant-decls
+        -Winvalid-utf8
+        -Wnormalized
+        -Wtrampolines
+        -Wpacked
         -Wno-unused-function    # flex/bison may generate unused functions
     )
 

@@ -87,7 +87,7 @@ bool run_process(const std::vector<std::string>& argv, int timeout_ms, ProcessRe
             kill(pid, SIGKILL);
             killed = true;
         }
-        struct pollfd fds[2] = {{out_pipe[0], POLLIN, 0}, {err_pipe[0], POLLIN, 0}};
+        pollfd fds[2] = {{out_pipe[0], POLLIN, 0}, {err_pipe[0], POLLIN, 0}};
         int nready = poll(fds, 2, 50);
         if (nready < 0) {
             if (errno == EINTR) {
