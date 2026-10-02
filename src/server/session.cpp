@@ -305,8 +305,7 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
             send_error(client_socket, e.code(), err);
             continue;
         } catch (const std::exception& e) {
-            // 非 DbError 的底层异常降级收录后回客户端
-            LOG(WARNING, EXECUTOR, "ID:%d SQL执行异常: %s", client_id, e.what());
+            // 非 DbError 的底层异常: 升格为结构化错误, 由外层 catch 路由回客户端
             db->rollback_txn();
             std::string err = e.what();
             if (in_txn) {
@@ -314,8 +313,7 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
                 txn_started = false;
                 err += ", 事务已回滚";
             }
-            send_error(client_socket, db::ErrCode::Internal, err);
-            continue;
+            DB_RAISE(db::ErrCode::Internal, EXECUTOR, "ID:{} SQL执行异常: {}", client_id, err);
         }
         if (!in_txn) {
             // 自动提交: 成功即提交(持久化边界); SELECT 在算子 open 后提交释放锁,
@@ -351,6 +349,8 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
     if (txn_started) {
         try {
             db->rollback_txn();
+        } catch (const db::DbError&) {
+            // 结构化错误源头已记 ERROR, 此处不重记
         } catch (const std::exception& e) {
             LOG(WARNING, EXECUTOR, "ID:%d 断连回滚事务失败: %s", client_id, e.what());
         }

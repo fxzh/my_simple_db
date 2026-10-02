@@ -222,7 +222,7 @@ int main(int argc, char* argv[])
                 }
                 continue;
             }
-            LOG(WARNING, NETWORK, "poll 失败");
+            LOG(WARNING, NETWORK, "poll 失败: %s", std::strerror(errno));
             continue;
         }
 
@@ -248,7 +248,7 @@ int main(int argc, char* argv[])
             if (!server_running) {
                 break;  // 服务器正在关闭
             }
-            LOG(WARNING, NETWORK, "接受连接失败");
+            LOG(WARNING, NETWORK, "接受连接失败: %s", std::strerror(errno));
             continue;
         }
 
@@ -287,7 +287,7 @@ int main(int argc, char* argv[])
     try {
         db.close();
     } catch (const std::exception& e) {
-        LOG(WARNING, STORAGE, "关闭存储引擎失败: %s", e.what());
+        DB_CRITICAL(STORAGE, "关闭存储引擎失败: {}", e.what());
     }
 
     close(pid_fd);  // 锁保持到收尾完成, 防止新实例提前抢锁
