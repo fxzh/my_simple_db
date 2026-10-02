@@ -186,8 +186,14 @@ bool recv_result_stream(proto::ResultSet& rs)
             }
             return true;
         } else if (t == proto::MsgType::Error) {
-            // 语句中途失败, 已收部分行不展示
-            std::cout << "ERROR: " << b << std::endl;
+            // 语句中途失败, 已收部分行不展示; 码只做解码校验不展示
+            proto::WireErrCode code;
+            std::string text;
+            if (!proto::decode_error(b, code, text)) {
+                std::cerr << "错误: 错误帧解码失败" << std::endl;
+                return false;
+            }
+            std::cout << "ERROR: " << text << std::endl;
             return false;
         } else {
             std::cerr << "错误: 收到未实现的消息类型: "
@@ -227,10 +233,17 @@ void send_to_server()
         return;
     }
 
-    // Error 补前缀打印, Ok 解码命令标签后打印(空语句无输出), ResultSetHead 起三帧流式接收
+    // Error 解码后补前缀打印(码只校验不展示), Ok 解码命令标签后打印(空语句无输出),
+    // ResultSetHead 起三帧流式接收
     if (type == proto::MsgType::Error) {
+        proto::WireErrCode code;
+        std::string text;
+        if (!proto::decode_error(body, code, text)) {
+            std::cerr << "错误: 错误帧解码失败" << std::endl;
+        } else {
+            std::cout << "ERROR: " << text << std::endl;
+        }
         sql_failed = true;
-        std::cout << "ERROR: " << body << std::endl;
     } else if (type == proto::MsgType::Ok) {
         proto::CommandTag tag;
         uint64_t count = 0;

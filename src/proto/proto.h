@@ -26,7 +26,7 @@ constexpr uint32_t MAX_REQUEST_PAYLOAD = 10240;
 enum class MsgType : uint8_t {
     Query = 1,          // body: SQL 原文
     Ok = 2,             // body: 命令标签(编码见下方命令标签部分)
-    Error = 3,          // body: 错误文案
+    Error = 3,          // body: [错误码 u16][文案](编码见下方错误帧部分)
     ResultSetHead = 4,  // body: 结果集列名(编码见下方结果集部分)
     ResultSetBatch = 5, // body: 一批结果行
     ResultSetEnd = 6,   // body: 总行数 u64
@@ -380,6 +380,63 @@ inline bool decode_command(std::string_view body, CommandTag& tag, uint64_t& cou
         v = (v << 8) | static_cast<unsigned char>(body[1 + i]);
     }
     count = v;
+    return true;
+}
+
+// ==================== 错误帧(Error body 编解码) ====================
+
+// wire 错误码: 数值独立编址, 与 db::ErrCode 一一对应, 转换收敛在 server 的穷尽 switch
+enum class WireErrCode : uint16_t {
+    // 以下注释禁止添加括号与括号内的额外说明
+    IoError = 1,        // 文件/IO 类失败
+    CorruptCatalog = 2, // 元数据表损坏
+    CatalogMissing = 3, // 元数据表缺失
+    CatalogExists = 4,  // 元数据表已存在
+    CorruptData = 5,    // 数据页/记录损坏
+    InvalidType = 6,    // 列类型非法
+    TableNotFound = 7,  // 表不存在
+    TableExists = 8,    // 表已存在
+    SchemaNotFound = 9, // schema 不存在
+    SchemaExists = 10,  // schema 已存在
+    SchemaNotEmpty = 11, // 非空 schema 禁止删除
+    ProtectedTable = 12, // 保留段表禁止删除
+    InvalidDdl = 13,     // 建表参数非法
+    ValueMismatch = 14,  // 插入值与列类型不匹配
+    RecordTooLong = 15,  // 记录超长
+    ArithError = 16,     // 算术溢出/除零
+    UnknownColumn = 17,  // 引用了不存在的列
+    UnknownVar = 18,     // SET 引用了不存在的变量
+    UnknownStmt = 19,    // 未知语句种类
+    NotImplemented = 20, // 功能未实现
+    Internal = 21,       // 内部不变量违反
+    SyntaxError = 22,    // SQL 解析失败
+    TxnActive = 23,      // 事务已在进行中
+    NoActiveTxn = 24,    // 无活动事务
+    DdlInTxn = 25,       // 事务内 DDL/SET 被拒
+    BootstrapMode = 26,  // bootstrap 模式限制
+    TooManyClients = 27, // 连接数超限
+};
+
+// Error body 布局: [code u16 大端][错误文案(余量全体)]
+inline std::string encode_error(WireErrCode code, const std::string& message)
+{
+    std::string body;
+    append_u16(body, static_cast<uint16_t>(code));
+    body.append(message);
+    return body;
+}
+
+// 错误帧解码; 长度不足或码值越界返回 false
+inline bool decode_error(std::string_view body, WireErrCode& code, std::string& message)
+{
+    std::size_t off = 0;
+    uint16_t v = 0;
+    if (!take_u16(body, off, v) || v == 0
+        || v > static_cast<uint16_t>(WireErrCode::TooManyClients)) {
+        return false;
+    }
+    code = static_cast<WireErrCode>(v);
+    message.assign(body.substr(off));
     return true;
 }
 

@@ -57,6 +57,47 @@ const char* tag_log_name(proto::CommandTag tag)
     return "";
 }
 
+// db::ErrCode -> proto wire 码的穷尽转换, 新增 ErrCode 未映射时 -Wswitch 报警
+proto::WireErrCode to_wire(db::ErrCode code)
+{
+    switch (code) {
+    case db::ErrCode::IoError:        return proto::WireErrCode::IoError;
+    case db::ErrCode::CorruptCatalog: return proto::WireErrCode::CorruptCatalog;
+    case db::ErrCode::CatalogMissing: return proto::WireErrCode::CatalogMissing;
+    case db::ErrCode::CatalogExists:  return proto::WireErrCode::CatalogExists;
+    case db::ErrCode::CorruptData:    return proto::WireErrCode::CorruptData;
+    case db::ErrCode::InvalidType:    return proto::WireErrCode::InvalidType;
+    case db::ErrCode::TableNotFound:  return proto::WireErrCode::TableNotFound;
+    case db::ErrCode::TableExists:    return proto::WireErrCode::TableExists;
+    case db::ErrCode::SchemaNotFound: return proto::WireErrCode::SchemaNotFound;
+    case db::ErrCode::SchemaExists:   return proto::WireErrCode::SchemaExists;
+    case db::ErrCode::SchemaNotEmpty: return proto::WireErrCode::SchemaNotEmpty;
+    case db::ErrCode::ProtectedTable: return proto::WireErrCode::ProtectedTable;
+    case db::ErrCode::InvalidDdl:     return proto::WireErrCode::InvalidDdl;
+    case db::ErrCode::ValueMismatch:  return proto::WireErrCode::ValueMismatch;
+    case db::ErrCode::RecordTooLong:  return proto::WireErrCode::RecordTooLong;
+    case db::ErrCode::ArithError:     return proto::WireErrCode::ArithError;
+    case db::ErrCode::UnknownColumn:  return proto::WireErrCode::UnknownColumn;
+    case db::ErrCode::UnknownVar:     return proto::WireErrCode::UnknownVar;
+    case db::ErrCode::UnknownStmt:    return proto::WireErrCode::UnknownStmt;
+    case db::ErrCode::NotImplemented: return proto::WireErrCode::NotImplemented;
+    case db::ErrCode::Internal:       return proto::WireErrCode::Internal;
+    case db::ErrCode::SyntaxError:    return proto::WireErrCode::SyntaxError;
+    case db::ErrCode::TxnActive:      return proto::WireErrCode::TxnActive;
+    case db::ErrCode::NoActiveTxn:    return proto::WireErrCode::NoActiveTxn;
+    case db::ErrCode::DdlInTxn:       return proto::WireErrCode::DdlInTxn;
+    case db::ErrCode::BootstrapMode:  return proto::WireErrCode::BootstrapMode;
+    case db::ErrCode::TooManyClients: return proto::WireErrCode::TooManyClients;
+    }
+    return proto::WireErrCode::Internal;  // 不可达: 上方穷尽
+}
+
+// 发错误帧: 错误码经映射入帧, 文案原样
+void send_error(int sock, db::ErrCode code, const std::string& message)
+{
+    proto::send_frame(sock, proto::MsgType::Error, proto::encode_error(to_wire(code), message));
+}
+
 // 结果集流式发送: 头帧 + 逐行攒批帧 + 结束帧(总行数); 发送失败返回 false(对端已断)
 bool send_result_stream(int sock, exec::ExecResult& result, int client_id)
 {
@@ -153,7 +194,7 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
                 in_txn = false;
                 parse_error += ", 事务已回滚";
             }
-            proto::send_frame(client_socket, proto::MsgType::Error, parse_error);
+            send_error(client_socket, db::ErrCode::SyntaxError, parse_error);
             continue;
         }
         std::string ok_log = "SQL解析成功 ID:" + std::to_string(client_id) + ": " + msg_str;
@@ -173,8 +214,8 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
                     std::string err_log = "ID:" + std::to_string(client_id)
                                          + " bootstrap 模式拒绝 BEGIN";
                     LOG(WARNING, EXECUTOR, "%s", err_log.c_str());
-                    proto::send_frame(client_socket, proto::MsgType::Error,
-                                      "bootstrap 模式不允许 BEGIN");
+                    send_error(client_socket, db::ErrCode::BootstrapMode,
+                               "bootstrap 模式不允许 BEGIN");
                     continue;
                 }
                 if (in_txn) {
@@ -187,8 +228,8 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
                         txn_started = false;
                     }
                     in_txn = false;
-                    proto::send_frame(client_socket, proto::MsgType::Error,
-                                      "事务已在进行中, 嵌套 BEGIN 已拒绝, 外层事务已回滚");
+                    send_error(client_socket, db::ErrCode::TxnActive,
+                               "事务已在进行中, 嵌套 BEGIN 已拒绝, 外层事务已回滚");
                     continue;
                 }
                 in_txn = true;
@@ -201,8 +242,8 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
                 std::string err_log = "ID:" + std::to_string(client_id) + " 事务外 ";
                 err_log += name;
                 LOG(WARNING, EXECUTOR, "%s", err_log.c_str());
-                proto::send_frame(client_socket, proto::MsgType::Error,
-                                  std::string(name) + ": 无活动事务");
+                send_error(client_socket, db::ErrCode::NoActiveTxn,
+                           std::string(name) + ": 无活动事务");
                 continue;
             }
             // 结束事务: 已建立引擎事务上下文才调引擎(空事务无操作), 会话状态先复位,
@@ -234,8 +275,8 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
                 txn_started = false;
             }
             in_txn = false;
-            proto::send_frame(client_socket, proto::MsgType::Error,
-                              "事务内不允许 DDL 或 SET 语句, 事务已回滚");
+            send_error(client_socket, db::ErrCode::DdlInTxn,
+                       "事务内不允许 DDL 或 SET 语句, 事务已回滚");
             continue;
         }
 
@@ -261,7 +302,7 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
                 txn_started = false;
                 err += ", 事务已回滚";
             }
-            proto::send_frame(client_socket, proto::MsgType::Error, err);
+            send_error(client_socket, e.code(), err);
             continue;
         } catch (const std::exception& e) {
             // 非 DbError 的底层异常降级收录后回客户端
@@ -273,7 +314,7 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
                 txn_started = false;
                 err += ", 事务已回滚";
             }
-            proto::send_frame(client_socket, proto::MsgType::Error, err);
+            send_error(client_socket, db::ErrCode::Internal, err);
             continue;
         }
         if (!in_txn) {
@@ -298,11 +339,11 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
         }
         } catch (const db::DbError& e) {
             // 结构化错误: 源头已记 ERROR(带堆栈), 这里只路由给客户端, 不再重复记
-            proto::send_frame(client_socket, proto::MsgType::Error, e.what());
+            send_error(client_socket, e.code(), e.what());
         } catch (const std::exception& e) {
             // 非 DbError 的底层异常降级收录后回客户端
             LOG(WARNING, EXECUTOR, "ID:%d SQL执行异常: %s", client_id, e.what());
-            proto::send_frame(client_socket, proto::MsgType::Error, e.what());
+            send_error(client_socket, db::ErrCode::Internal, e.what());
         }
     }
 
@@ -358,7 +399,7 @@ void spawn_client(int new_socket, const struct sockaddr_in& address, ct::Catalog
         std::lock_guard<std::mutex> lock(clients_mutex);
         if (clients.size() >= MAX_CLIENTS) {
             std::string reject_msg = "服务器已达到最大客户端数限制 (" + std::to_string(MAX_CLIENTS) + ")";
-            proto::send_frame(new_socket, proto::MsgType::Error, reject_msg);
+            send_error(new_socket, db::ErrCode::TooManyClients, reject_msg);
             close(new_socket);
             std::cout << "拒绝新连接：已达到最大客户端数限制" << std::endl;
             return;

@@ -1,5 +1,5 @@
 // err.h: 跨层结构化错误(db::) — 在报错源头记 ERROR 日志(带堆栈)并抛出 DbError,
-// 由 server 统一路由给客户端; 日志与客户端出口共用同一消息来源, 各自取用不同字段。
+// 由 server 统一路由给客户端(what()/code() 入错误帧); 日志与客户端出口共用同一消息来源, 各自取用不同字段。
 // 使用: DB_RAISE(ErrCode, LogModule, "fmt{}", args...) 取代"LOG_ERROR + 裸 throw"的耦合写法
 #ifndef DB_COMMON_ERR_H
 #define DB_COMMON_ERR_H
@@ -16,12 +16,13 @@
 
 namespace db {
 
-// 客户端/服务端共用的错误分类码; 后续 wire 协议定型时可直接入帧
+// 错误分类码; 经 server 穷尽 switch 映射为 proto wire 码入错误帧
 enum class ErrCode {
+    // 以下注释禁止添加括号与括号内的额外说明
     IoError,        // 文件/IO 类失败
     CorruptCatalog, // 元数据表损坏
-    CatalogMissing, // 元数据表缺失(数据目录未初始化)
-    CatalogExists,  // 元数据表已存在(数据目录已初始化)
+    CatalogMissing, // 元数据表缺失
+    CatalogExists,  // 元数据表已存在
     CorruptData,    // 数据页/记录损坏
     InvalidType,    // 列类型非法
     TableNotFound,  // 表不存在
@@ -30,15 +31,21 @@ enum class ErrCode {
     SchemaExists,   // schema 已存在
     SchemaNotEmpty, // 非空 schema 禁止删除
     ProtectedTable, // 保留段表禁止删除
-    InvalidDdl,     // 建表参数非法(空表名/空列集/重复列名)
+    InvalidDdl,     // 建表参数非法
     ValueMismatch,  // 插入值与列类型不匹配
     RecordTooLong,  // 记录超长
-    ArithError,     // 算术溢出/除零(表达式求值)
+    ArithError,     // 算术溢出/除零
     UnknownColumn,  // 引用了不存在的列
     UnknownVar,     // SET 引用了不存在的变量
-    UnknownStmt,    // 未知语句种类(执行层不变量违反)
-    NotImplemented, // 功能未实现(语法已接入, 执行暂缺)
-    Internal,       // 内部不变量违反(缓冲池记账等)
+    UnknownStmt,    // 未知语句种类
+    NotImplemented, // 功能未实现
+    Internal,       // 内部不变量违反
+    SyntaxError,    // SQL 解析失败
+    TxnActive,      // 事务已在进行中, 嵌套 BEGIN 被拒
+    NoActiveTxn,    // 无活动事务的 COMMIT/ROLLBACK
+    DdlInTxn,       // 事务内 DDL/SET 被拒
+    BootstrapMode,  // bootstrap 模式限制
+    TooManyClients, // 连接数超限
 };
 
 // 错误码转字符串, 用于日志书写
@@ -66,11 +73,17 @@ constexpr std::string_view errCodeName(ErrCode code) noexcept
         case ErrCode::UnknownStmt:    return "UNKNOWN_STMT";
         case ErrCode::NotImplemented: return "NOT_IMPLEMENTED";
         case ErrCode::Internal:       return "INTERNAL";
+        case ErrCode::SyntaxError:    return "SYNTAX_ERROR";
+        case ErrCode::TxnActive:      return "TXN_ACTIVE";
+        case ErrCode::NoActiveTxn:    return "NO_ACTIVE_TXN";
+        case ErrCode::DdlInTxn:       return "DDL_IN_TXN";
+        case ErrCode::BootstrapMode:  return "BOOTSTRAP_MODE";
+        case ErrCode::TooManyClients: return "TOO_MANY_CLIENTS";
         default:                      return "UNKNOWN";
     }
 }
 
-// 跨层异常: what() 是给客户端看的可读文案; code/location 供日志与后续 wire 协议使用
+// 跨层异常: what() 是给客户端看的可读文案; code 供错误帧与日志, location 供日志
 // 沿用 std::runtime_error 基类, 兼容既有 catch(std::runtime_error) 调用方
 class DbError : public std::runtime_error {
 private:
