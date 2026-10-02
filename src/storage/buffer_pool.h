@@ -66,9 +66,7 @@ public:
     BufferPool(const BufferPool&) = delete;
     BufferPool& operator=(const BufferPool&) = delete;
 
-    // 读页并 pin; 页校验失败时:
-    //   - 文件头页: 抛异常(不可重建)
-    //   - 数据页: 视为尾部截断, 重建为空页并标记脏
+    // 读页并 pin; 页校验失败(魔数/校验和错)时抛异常, 损坏页不入缓存
     char* read(PageId page, uint32_t expect_magic, FileManager& files);
 
     // 分配一个新页(清零, 标记脏, pin), 不落盘

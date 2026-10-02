@@ -150,17 +150,16 @@ char* BufferPool::read(PageId page, uint32_t expect_magic, FileManager& files)
     files.read_page(page.file_id, page.page_no, f.data);
 
     if (!page_valid(f.data, expect_magic)) {
+        // 损坏页不入缓存: 作废帧并从页表摘除, 后续重读仍会重新校验并报错
+        page_table_.erase(page);
+        f = PageFrame{};
         if (expect_magic == MAGIC_FILE_HEADER) {
             raise_error(db::ErrCode::CorruptData, "文件头页损坏");
         }
-        // 数据页损坏: 按追加截断处理, 重建空页
-        LOG_WARNING(LogModule::STORAGE, "检测到损坏数据页, 按空页重建: file=%llu page=%u",
-                    static_cast<unsigned long long>(page.file_id), page.page_no);
-        init_page(f.data, MAGIC_HEAP, PageType::Heap);
-        f.dirty = true;
+        DB_RAISE(db::ErrCode::CorruptData, LogModule::STORAGE, "数据页损坏: fid={} page_no={}",
+                 page.file_id, page.page_no);
     }
-    // 进池即建 diff 基线(含上方损坏重建后的内容): 重建视为修复动作本身
-    // 定义了基线, 其效果不单独记补丁, 历史 WAL 里该页的补丁重放时照常覆盖
+    // 进池即建 diff 基线, mark_dirty 据此算增量补丁
     std::memcpy(f.before, f.data, PAGE_SIZE);
     return f.data;
 }

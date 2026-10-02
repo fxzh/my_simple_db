@@ -94,7 +94,7 @@ M3 新增 db_index(table_id, index_name, col_ordinal, file_id): 每索引一行,
 
 ## 7. 缓冲池 Buffer Pool
 
-已实现（src/storage/buffer_pool.h）：定长帧数组（帧数经 db.conf 的 buffer_pool_frames 配置，默认 8192）+ 哈希页表（PageId→帧下标，unpin/mark_dirty 经数据指针换算帧下标）+ Clock 淘汰 + pin 引用计数，read/allocate/unpin/mark_dirty/flush 原语；pin > 0 的帧不可淘汰；数据页校验失败按尾部截断重建空页，文件头页校验失败报错；内部不加锁，串行化由上层全局锁保证（§10）。
+已实现（src/storage/buffer_pool.h）：定长帧数组（帧数经 db.conf 的 buffer_pool_frames 配置，默认 8192）+ 哈希页表（PageId→帧下标，unpin/mark_dirty 经数据指针换算帧下标）+ Clock 淘汰 + pin 引用计数，read/allocate/unpin/mark_dirty/flush 原语；pin > 0 的帧不可淘汰；页校验失败即报错（截断容忍只在崩溃恢复重放路径）；内部不加锁，串行化由上层全局锁保证（§10）。
 
 M4 已接入 WAL：帧增加 before 基线快照（页内容最近一次与"已记日志状态"一致时的副本，只在页新进池/write_back 落盘后/mark_dirty 记完补丁后更新，read 命中已缓存帧时不动，否则两次 pin 之间的修改会漏出 diff）；mark_dirty 以 8 字节字长粒度 diff(before, data) 产生 OP_PAGE_PATCH（write-ahead 不变量，见 §9）；write_back 落盘前断言 before 与 data 一致，存在未记日志的修改当场报错。
 

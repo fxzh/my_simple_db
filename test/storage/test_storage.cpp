@@ -1,4 +1,4 @@
-// test_storage.cpp: 存储引擎冒烟测试(页删除整理/增删扫/重开持久化/WAL 记录往返)
+// test_storage.cpp: 存储引擎测试(不包含崩溃测试)
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -405,6 +405,56 @@ TEST_F(StorageDb, TxnRollbackRestoresContent)
         EXPECT_EQ(engine.row_count(fid), size_t{21});
         engine.close();
     }
+}
+
+// 运行期读页校验失败: 立即报错且重复读仍报错(损坏页不入缓存), 不静默重建空页
+TEST_F(StorageDb, CorruptDataPageReadFails)
+{
+    const std::vector<ColumnSpec> cols = {{"id", ColType::Int, 0, true}};
+    constexpr uint64_t fid = 200;
+    {
+        Engine engine(dir.path);
+        engine.open();
+        engine.begin_txn();
+        engine.init_table_file(fid);
+        RowRef ref;
+        for (int i = 1; i <= 5; ++i) {
+            engine.insert_row(fid, cols, {Value{int64_t{i}}}, &ref);
+        }
+        engine.commit_txn();
+        engine.close();
+    }
+
+    // 干净关闭后翻转首个数据页内一字节: 魔数不变, 校验和失配
+    {
+        const std::string path = dir.path + "/t_" + std::to_string(fid) + ".dat";
+        FILE* f = std::fopen(path.c_str(), "r+b");
+        ASSERT_NE(f, nullptr);
+        const long off = static_cast<long>(PAGE_SIZE) + 32;
+        ASSERT_EQ(std::fseek(f, off, SEEK_SET), 0);
+        const int c = std::fgetc(f);
+        ASSERT_NE(c, EOF);
+        ASSERT_EQ(std::fseek(f, off, SEEK_SET), 0);
+        ASSERT_EQ(std::fputc(c ^ 0xff, f), c ^ 0xff);
+        std::fclose(f);
+    }
+
+    Engine engine(dir.path);
+    engine.open();
+    try {
+        engine.row_count(fid);
+        FAIL() << "损坏数据页读取应报错";
+    } catch (const db::DbError& e) {
+        EXPECT_EQ(e.code(), db::ErrCode::CorruptData);
+    }
+    // 同页重复读不命中垃圾缓存, 仍走到校验并报错
+    try {
+        engine.row_count(fid);
+        FAIL() << "损坏数据页重复读取应继续报错";
+    } catch (const db::DbError& e) {
+        EXPECT_EQ(e.code(), db::ErrCode::CorruptData);
+    }
+    engine.close();
 }
 
 // 落盘性原语在事务外调用报错
