@@ -100,8 +100,18 @@ void send_error(int sock, db::ErrCode code, const std::string& message)
     proto::send_frame(sock, proto::MsgType::Error, proto::encode_error(to_wire(code), message));
 }
 
+// 发消息帧: 消息级别不低于会话变量 client_msg_level 才发, 会话诊断统一 debug 级;
+void send_notice(int sock, LogLevel session_level, LogLevel msg_level, const std::string& message)
+{
+    if (msg_level < session_level) {
+        return;
+    }
+    proto::send_frame(sock, proto::MsgType::Notice,
+                      proto::encode_notice(static_cast<uint8_t>(msg_level), message));
+}
+
 // 结果集流式发送: 头帧 + 逐行攒批帧 + 结束帧(总行数); 发送失败返回 false(对端已断)
-bool send_result_stream(int sock, exec::ExecResult& result, int client_id)
+bool send_result_stream(int sock, exec::ExecResult& result, int client_id, LogLevel session_level)
 {
     if (!proto::send_frame(sock, proto::MsgType::ResultSetHead,
                            proto::encode_rs_head(result.col_names))) {
@@ -132,12 +142,14 @@ bool send_result_stream(int sock, exec::ExecResult& result, int client_id)
                                              proto::encode_rs_batch(batch))) {
         return false;
     }
-    if (!proto::send_frame(sock, proto::MsgType::ResultSetEnd, proto::encode_rs_end(total))) {
-        return false;
-    }
+    // 执行结果消息先于结束帧发出, 归入本条语句的响应流
     std::string exec_log = "ID:" + std::to_string(client_id) + " SQL执行结果: 返回 "
                          + std::to_string(total) + " 行";
     LOG(INFO, EXECUTOR, "%s", exec_log.c_str());
+    send_notice(sock, session_level, DEBUG, "执行结果: 返回 " + std::to_string(total) + " 行");
+    if (!proto::send_frame(sock, proto::MsgType::ResultSetEnd, proto::encode_rs_end(total))) {
+        return false;
+    }
     return true;
 }
 
@@ -176,6 +188,7 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
         }
         std::string log_msg = "来自 ID:" + std::to_string(client_id) + " 的SQL: " + msg_str;
         LOG(INFO, NETWORK, "%s", log_msg.c_str());
+        send_notice(client_socket, client_msg_level, DEBUG, "收到 SQL: " + msg_str);
 
         // 检查是否收到退出指令
         if (msg_str == "quit" || msg_str == "exit") {
@@ -204,6 +217,7 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
         }
         std::string ok_log = "SQL解析成功 ID:" + std::to_string(client_id) + ": " + msg_str;
         LOG(INFO, PARSER, "%s", ok_log.c_str());
+        send_notice(client_socket, client_msg_level, DEBUG, "解析成功: " + msg_str);
         if (!stmt) {
             // 空输入或仅 ";", 无实际语句
             proto::send_frame(client_socket, proto::MsgType::Ok,
@@ -303,6 +317,8 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
                                 + " 会话变量 client_msg_level = "
                                 + std::string(levelToString(client_msg_level));
             LOG(INFO, NETWORK, "%s", set_log.c_str());
+            send_notice(client_socket, client_msg_level, DEBUG,
+                        "client_msg_level = " + std::string(levelToString(client_msg_level)));
             proto::send_frame(client_socket, proto::MsgType::Ok,
                               proto::encode_command(proto::CommandTag::Set, 0));
             continue;
@@ -349,17 +365,20 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
             db->commit_txn();
         }
         if (result.is_result_set) {
-            if (!send_result_stream(client_socket, result, client_id)) {
+            if (!send_result_stream(client_socket, result, client_id, client_msg_level)) {
                 // 发送失败即对端已断, 结束会话(算子经析构释放页 pin)
                 break;
             }
         } else {
             std::string exec_log = "ID:" + std::to_string(client_id)
                                  + " SQL执行结果: " + tag_log_name(result.tag);
+            std::string exec_msg = std::string("执行结果: ") + tag_log_name(result.tag);
             if (result.count > 0) {
                 exec_log += " " + std::to_string(result.count);
+                exec_msg += " " + std::to_string(result.count);
             }
             LOG(INFO, EXECUTOR, "%s", exec_log.c_str());
+            send_notice(client_socket, client_msg_level, DEBUG, exec_msg);
             proto::send_frame(client_socket, proto::MsgType::Ok,
                               proto::encode_command(result.tag, result.count));
         }
@@ -368,7 +387,8 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
             send_error(client_socket, e.code(), e.what());
         } catch (const std::exception& e) {
             // 非 DbError 的底层异常降级收录后回客户端
-            LOG(WARNING, EXECUTOR, "ID:%d SQL执行异常: %s", client_id, e.what());
+            std::string err_log = "ID:" + std::to_string(client_id) + " SQL执行异常: " + e.what();
+            LOG(WARNING, EXECUTOR, "%s", err_log.c_str());
             send_error(client_socket, db::ErrCode::Internal, e.what());
         }
     }

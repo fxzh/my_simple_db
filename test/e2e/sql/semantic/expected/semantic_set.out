@@ -21,8 +21,11 @@ ERROR: 1.14-16: syntax error, unexpected SET, expecting IDENTIFIER
 SET client_msg_level = warning;
 SET
 SET client_msg_level = 'debug';
+DEBUG: client_msg_level = DEBUG
 SET
 SET client_msg_level = INFO;
+DEBUG: 收到 SQL: SET client_msg_level = INFO;
+DEBUG: 解析成功: SET client_msg_level = INFO;
 SET
 SET client_msg_level = banana;
 ERROR: client_msg_level 值非法: banana

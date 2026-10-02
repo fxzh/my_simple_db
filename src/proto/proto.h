@@ -30,6 +30,7 @@ enum class MsgType : uint8_t {
     ResultSetHead = 4,  // body: 结果集列名(编码见下方结果集部分)
     ResultSetBatch = 5, // body: 一批结果行
     ResultSetEnd = 6,   // body: 总行数 u64
+    Notice = 7,         // body: [消息级别 u8][文案](编码见下方消息帧部分)
 };
 
 // 命令完成标签: 非结果集语句的执行语义, 展示格式由 client 决定
@@ -438,6 +439,31 @@ inline bool decode_error(std::string_view body, WireErrCode& code, std::string& 
     }
     code = static_cast<WireErrCode>(v);
     message.assign(body.substr(off));
+    return true;
+}
+
+// ==================== 消息帧(Notice 编解码) ====================
+
+// 消息级别值与 log.h 的 LogLevel 枚举值一致(DEBUG5=0 .. CRITICAL=9),
+// 发送与否由 server 按会话变量过滤, client 收到即渲染
+constexpr uint8_t NOTICE_LEVEL_MAX = 9;
+
+// Notice body 布局: [级别 u8][文案(余量全体)]
+inline std::string encode_notice(uint8_t level, const std::string& message)
+{
+    std::string body(1, static_cast<char>(level));
+    body.append(message);
+    return body;
+}
+
+// Notice 解码; 级别越界返回 false
+inline bool decode_notice(std::string_view body, uint8_t& level, std::string& message)
+{
+    if (body.empty() || static_cast<unsigned char>(body[0]) > NOTICE_LEVEL_MAX) {
+        return false;
+    }
+    level = static_cast<uint8_t>(body[0]);
+    message.assign(body.substr(1));
     return true;
 }
 

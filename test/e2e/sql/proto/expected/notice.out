@@ -1,0 +1,44 @@
+SET client_msg_level = debug5;
+DEBUG: client_msg_level = DEBUG5
+SET
+CREATE TABLE t_notice (id int);
+DEBUG: 收到 SQL: CREATE TABLE t_notice (id int);
+DEBUG: 解析成功: CREATE TABLE t_notice (id int);
+DEBUG: 执行结果: CREATE
+CREATE
+INSERT INTO t_notice VALUES (1);
+DEBUG: 收到 SQL: INSERT INTO t_notice VALUES (1);
+DEBUG: 解析成功: INSERT INTO t_notice VALUES (1);
+DEBUG: 执行结果: INSERT 1
+INSERT 1
+INSERT INTO t_notice VALUES (2);
+DEBUG: 收到 SQL: INSERT INTO t_notice VALUES (2);
+DEBUG: 解析成功: INSERT INTO t_notice VALUES (2);
+DEBUG: 执行结果: INSERT 1
+INSERT 1
+SELECT * FROM t_notice;
+DEBUG: 收到 SQL: SELECT * FROM t_notice;
+DEBUG: 解析成功: SELECT * FROM t_notice;
+DEBUG: 执行结果: 返回 2 行
+ id
+----
+ 1
+ 2
+(2 行)
+SELECT bogus FROM t_notice;
+DEBUG: 收到 SQL: SELECT bogus FROM t_notice;
+DEBUG: 解析成功: SELECT bogus FROM t_notice;
+ERROR: 列不存在: bogus
+DROP TABLE t_notice;
+DEBUG: 收到 SQL: DROP TABLE t_notice;
+DEBUG: 解析成功: DROP TABLE t_notice;
+DEBUG: 执行结果: DROP
+DROP
+SET client_msg_level = info;
+DEBUG: 收到 SQL: SET client_msg_level = info;
+DEBUG: 解析成功: SET client_msg_level = info;
+SET
+CREATE TABLE t_quiet (id int);
+CREATE
+DROP TABLE t_quiet;
+DROP

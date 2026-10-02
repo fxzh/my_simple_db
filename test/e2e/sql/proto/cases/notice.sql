@@ -1,0 +1,10 @@
+SET client_msg_level = debug5;
+CREATE TABLE t_notice (id int);
+INSERT INTO t_notice VALUES (1);
+INSERT INTO t_notice VALUES (2);
+SELECT * FROM t_notice;
+SELECT bogus FROM t_notice;
+DROP TABLE t_notice;
+SET client_msg_level = info;
+CREATE TABLE t_quiet (id int);
+DROP TABLE t_quiet;

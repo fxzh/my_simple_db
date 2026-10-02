@@ -16,6 +16,7 @@
 #include <FlexLexer.h>
 #include "parse_args.h"
 #include "client.h"
+#include "log/log.h"
 #include "proto/proto.h"
 
 int sock = 0;
@@ -54,6 +55,12 @@ void append_to_sql(const char* text, std::size_t len)
 }
 
 namespace {
+
+// 消息帧打印: 级别名 + 文案; 是否发送已由 server 按会话级别过滤, 此处不再筛
+void print_notice(uint8_t level, const std::string& text)
+{
+    std::cout << levelToString(static_cast<LogLevel>(level)) << ": " << text << std::endl;
+}
 
 // 单元格显示文本: NULL 显示 NULL, 整数十进制, 浮点最短表示, 字符串原样
 std::string cell_text(const proto::CellVal& cell)
@@ -197,6 +204,15 @@ bool recv_result_stream(proto::ResultSet& rs)
             }
             std::cout << "ERROR: " << text << std::endl;
             return false;
+        } else if (t == proto::MsgType::Notice) {
+            // 流中消息帧: 打印后继续接收
+            uint8_t level = 0;
+            std::string text;
+            if (!proto::decode_notice(b, level, text)) {
+                std::cerr << "错误: 消息帧解码失败" << std::endl;
+                return false;
+            }
+            print_notice(level, text);
         } else {
             std::cerr << "错误: 收到未实现的消息类型: "
                       << static_cast<unsigned int>(t) << std::endl;
@@ -228,13 +244,26 @@ void send_to_server()
     add_history(sql_buffer.c_str());
     reset_sql_buffer();
 
-    // 接收服务器回复整帧
+    // 接收服务器回复整帧; 消息帧打印后继续收, 直到实质响应帧
     proto::MsgType type;
     std::string body;
-    if (!proto::recv_frame(sock, 0, type, body)) {
-        std::cerr << "服务器连接已断开" << std::endl;
-        sql_failed = true;
-        return;
+    for (;;) {
+        if (!proto::recv_frame(sock, 0, type, body)) {
+            std::cerr << "服务器连接已断开" << std::endl;
+            sql_failed = true;
+            return;
+        }
+        if (type != proto::MsgType::Notice) {
+            break;
+        }
+        uint8_t level = 0;
+        std::string text;
+        if (!proto::decode_notice(body, level, text)) {
+            std::cerr << "错误: 消息帧解码失败" << std::endl;
+            sql_failed = true;
+            return;
+        }
+        print_notice(level, text);
     }
 
     // Error 解码后补前缀打印(码只校验不展示), Ok 解码命令标签后打印(空语句无输出),
