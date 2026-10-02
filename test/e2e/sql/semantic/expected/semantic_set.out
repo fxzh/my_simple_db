@@ -13,8 +13,20 @@ ERROR: SET 仅 bootstrap 模式可用
 SET table_id;
 ERROR: 1.13: syntax error, unexpected ';', expecting EQ
 SET table_id = ;
-ERROR: 1.16: syntax error, unexpected ';', expecting INTEGER or '+' or '-'
+ERROR: 1.16: syntax error, unexpected ';'
 SET = 4;
 ERROR: 1.5: syntax error, unexpected EQ, expecting IDENTIFIER
 CREATE TABLE set (a int);
 ERROR: 1.14-16: syntax error, unexpected SET, expecting IDENTIFIER
+SET client_msg_level = warning;
+SET
+SET client_msg_level = 'debug';
+SET
+SET client_msg_level = INFO;
+SET
+SET client_msg_level = banana;
+ERROR: client_msg_level 值非法: banana
+SET client_msg_level = 5;
+ERROR: client_msg_level 值非法: 5
+SET client_msg_level = table_id;
+ERROR: client_msg_level 值非法: table_id

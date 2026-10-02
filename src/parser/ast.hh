@@ -488,15 +488,18 @@ public:
     StmtKind kind() const override { return StmtKind::Select; }
 };
 
-// SET 变量 = 值(bootstrap 自举专用, 正常模式由 analyzer 拒绝)
+// SET 变量 = 值(值以文本承载, 语义由变量接收侧解释)
 class SetStmt : public SQLStatement {
     std::string var_;
-    long long value_;
+    std::string value_;
 public:
-    SetStmt(std::string var, long long value) : var_(std::move(var)), value_(value) {}
+    SetStmt(std::string var, std::string value)
+        : var_(std::move(var)), value_(std::move(value))
+    {
+    }
 
     const std::string& var_name() const { return var_; }
-    long long value() const { return value_; }
+    const std::string& value() const { return value_; }
 
     void print(std::ostream& os, int indent) const override
     {

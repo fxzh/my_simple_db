@@ -88,7 +88,7 @@
 %type <std::vector<std::vector<std::unique_ptr<Expr>>>> values_rows
 %type <std::unique_ptr<Expr>> value expression where_opt
 %type <bool> null_not_opt not_null_opt
-%type <long long> set_value
+%type <std::string> set_value
 %type <std::vector<SelectItem>> select_list select_items
 %type <SelectItem> select_item
 %type <std::string> alias_opt
@@ -205,7 +205,7 @@ select_statement:
         }
     ;
 
-// set 变量 = 值(bootstrap 自举专用, 正常模式由 analyzer 拒绝)
+// set 变量 = 值(bootstrap 变量与会话变量共用语法)
 set_statement:
         SET IDENTIFIER EQ set_value
         {
@@ -213,11 +213,13 @@ set_statement:
         }
     ;
 
-// set 值: 可带正负号的整数字面量, 值域不在语法层校验
+// set 值: 整数(可带符号)、标识符或字符串字面量, 值域不在语法层校验
 set_value:
-        INTEGER      { $$ = $1; }
-    |   '-' INTEGER  { $$ = -$2; }
-    |   '+' INTEGER  { $$ = $2; }
+        INTEGER      { $$ = std::to_string($1); }
+    |   '-' INTEGER  { $$ = std::to_string(-$2); }
+    |   '+' INTEGER  { $$ = std::to_string($2); }
+    |   IDENTIFIER   { $$ = std::move($1); }
+    |   STRING       { $$ = std::move($1); }
     ;
 
 // 事务控制语句: begin / commit / rollback(会话层短路处理, 不进执行层)

@@ -12,6 +12,7 @@
 #include <queue>
 #include <atomic>
 #include <memory>
+#include <optional>
 #include <cstdarg>
 #include <source_location>
 #include <utility>
@@ -46,6 +47,26 @@ constexpr std::string_view levelToString(LogLevel level)
         case LogLevel::CRITICAL: return "CRITICAL";
         default:                 return "UNKNOWN";
     }
+}
+
+// 日志级别解析: 级别名大小写不敏感, 未知名返回空
+inline std::optional<LogLevel> levelFromString(std::string_view name)
+{
+    const auto lower = [](char c) {
+        return static_cast<char>(c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c);
+    };
+    for (int i = static_cast<int>(LogLevel::DEBUG5); i <= static_cast<int>(LogLevel::CRITICAL);
+         ++i) {
+        const std::string_view known = levelToString(static_cast<LogLevel>(i));
+        bool match = name.size() == known.size();
+        for (std::size_t j = 0; match && j < name.size(); ++j) {
+            match = lower(name[j]) == lower(known[j]);
+        }
+        if (match) {
+            return static_cast<LogLevel>(i);
+        }
+    }
+    return std::nullopt;
 }
 
 // 日志模块枚举

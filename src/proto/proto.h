@@ -34,14 +34,14 @@ enum class MsgType : uint8_t {
 
 // 命令完成标签: 非结果集语句的执行语义, 展示格式由 client 决定
 enum class CommandTag : uint8_t {
-    Empty = 0,       // 空语句(无实际语句)
+    Empty = 0,       // 空语句
     CreateTable = 1,
     DropTable = 2,
     Insert = 3,      // count 为插入行数
     Delete = 4,      // count 为删除行数
     CreateSchema = 5,
     DropSchema = 6,
-    Set = 7,          // bootstrap 模式变量设置
+    Set = 7,          // 变量设置
     Begin = 8,        // 事务开始
     Commit = 9,       // 事务提交
     Rollback = 10,    // 事务回滚
@@ -415,6 +415,7 @@ enum class WireErrCode : uint16_t {
     DdlInTxn = 25,       // 事务内 DDL/SET 被拒
     BootstrapMode = 26,  // bootstrap 模式限制
     TooManyClients = 27, // 连接数超限
+    InvalidVarValue = 28, // SET 变量值非法
 };
 
 // Error body 布局: [code u16 大端][错误文案(余量全体)]
@@ -432,7 +433,7 @@ inline bool decode_error(std::string_view body, WireErrCode& code, std::string& 
     std::size_t off = 0;
     uint16_t v = 0;
     if (!take_u16(body, off, v) || v == 0
-        || v > static_cast<uint16_t>(WireErrCode::TooManyClients)) {
+        || v > static_cast<uint16_t>(WireErrCode::InvalidVarValue)) {
         return false;
     }
     code = static_cast<WireErrCode>(v);

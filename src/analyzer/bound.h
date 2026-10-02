@@ -79,7 +79,7 @@ struct BoundSelect : BoundStmt {
 // bootstrap SET 变量种类(按对象类型独立命名)
 enum class SetVar : uint8_t { TableId };
 
-// SET: 变量已知名绑定, 值经 uint64 转换不做域校验(bootstrap.sql 为受控文件)
+// SET: 变量已知名绑定, 值文本经接收侧转换校验(此处绑定的均为 bootstrap 变量)
 struct BoundSet : BoundStmt {
     SetVar var;
     uint64_t value;

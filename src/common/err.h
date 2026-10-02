@@ -38,6 +38,7 @@ enum class ErrCode {
     ArithError,     // 算术溢出/除零
     UnknownColumn,  // 引用了不存在的列
     UnknownVar,     // SET 引用了不存在的变量
+    InvalidVarValue,// SET 变量值非法
     UnknownStmt,    // 未知语句种类
     NotImplemented, // 功能未实现
     Internal,       // 内部不变量违反
@@ -71,6 +72,7 @@ constexpr std::string_view errCodeName(ErrCode code) noexcept
         case ErrCode::ArithError:     return "ARITH_ERROR";
         case ErrCode::UnknownColumn:  return "UNKNOWN_COLUMN";
         case ErrCode::UnknownVar:     return "UNKNOWN_VAR";
+        case ErrCode::InvalidVarValue:return "INVALID_VAR_VALUE";
         case ErrCode::UnknownStmt:    return "UNKNOWN_STMT";
         case ErrCode::NotImplemented: return "NOT_IMPLEMENTED";
         case ErrCode::Internal:       return "INTERNAL";

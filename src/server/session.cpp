@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <memory>
+#include <optional>
 #include <thread>
 #include <mutex>
 #include <atomic>
@@ -88,6 +89,7 @@ proto::WireErrCode to_wire(db::ErrCode code)
     case db::ErrCode::DdlInTxn:       return proto::WireErrCode::DdlInTxn;
     case db::ErrCode::BootstrapMode:  return proto::WireErrCode::BootstrapMode;
     case db::ErrCode::TooManyClients: return proto::WireErrCode::TooManyClients;
+    case db::ErrCode::InvalidVarValue: return proto::WireErrCode::InvalidVarValue;
     }
     return proto::WireErrCode::Internal;  // 不可达: 上方穷尽
 }
@@ -152,6 +154,9 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
     // (BEGIN 不取锁, 锁在事务首条语句执行时获取, 见事务设计文档 §2.3)
     bool in_txn = false;
     bool txn_started = false;
+
+    // 会话变量: 本连接消息级别, 缺省 info
+    LogLevel client_msg_level = LogLevel::INFO;
 
     // 处理客户端消息循环
     while (server_running) {
@@ -277,6 +282,29 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
             in_txn = false;
             send_error(client_socket, db::ErrCode::DdlInTxn,
                        "事务内不允许 DDL 或 SET 语句, 事务已回滚");
+            continue;
+        }
+
+        // client_msg_level 会话变量: 会话层短路处理, 不进 analyzer/executor
+        if (kind == StmtKind::Set
+            && static_cast<const SetStmt&>(*stmt).var_name() == "client_msg_level") {
+            const SetStmt& ss = static_cast<const SetStmt&>(*stmt);
+            const std::optional<LogLevel> lvl = levelFromString(ss.value());
+            if (!lvl.has_value()) {
+                std::string err_log = "ID:" + std::to_string(client_id)
+                                     + " client_msg_level 值非法: " + ss.value();
+                LOG(WARNING, NETWORK, "%s", err_log.c_str());
+                send_error(client_socket, db::ErrCode::InvalidVarValue,
+                           "client_msg_level 值非法: " + ss.value());
+                continue;
+            }
+            client_msg_level = *lvl;
+            std::string set_log = "ID:" + std::to_string(client_id)
+                                + " 会话变量 client_msg_level = "
+                                + std::string(levelToString(client_msg_level));
+            LOG(INFO, NETWORK, "%s", set_log.c_str());
+            proto::send_frame(client_socket, proto::MsgType::Ok,
+                              proto::encode_command(proto::CommandTag::Set, 0));
             continue;
         }
 

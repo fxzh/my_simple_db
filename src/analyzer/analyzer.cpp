@@ -1,6 +1,7 @@
 // analyzer.cpp: 语义分析层实现: AST + catalog 元数据 → BoundStmt
 #include "analyzer.h"
 
+#include <charconv>
 #include <cmath>
 #include <cstdint>
 #include <memory>
@@ -505,8 +506,16 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt)
             DB_RAISE(db::ErrCode::UnknownVar, LogModule::ANALYZER, "未知 SET 变量: {}",
                      ss.var_name());
         }
-        // 值经 uint64 转换, 不做域校验(bootstrap.sql 为受控文件)
-        b->value = static_cast<uint64_t>(ss.value());
+        // 值文本转 uint64, 非十进制非负整数即报错(bootstrap.sql 为受控文件)
+        uint64_t value = 0;
+        const char* begin = ss.value().data();
+        const char* end = begin + ss.value().size();
+        const auto conv = std::from_chars(begin, end, value);
+        if (conv.ec != std::errc{} || conv.ptr != end) {
+            DB_RAISE(db::ErrCode::InvalidVarValue, LogModule::ANALYZER, "table_id 值非法: {}",
+                     ss.value());
+        }
+        b->value = value;
         return b;
     }
     case StmtKind::Begin:
