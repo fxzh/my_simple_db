@@ -153,282 +153,207 @@ bool send_result_stream(int sock, exec::ExecResult& result, int client_id, LogLe
     return true;
 }
 
-}  // namespace
-
-// 处理单个客户端的函数
-void handle_client(int client_socket, int client_id, const std::string& client_ip,
-                   ct::Catalog* db)
-{
-    std::string connect_msg = "客户端 ID:" + std::to_string(client_id) + " 已连接 (" + client_ip + ")";
-    LOG(INFO, NETWORK, "%s", connect_msg.c_str());
-
-    // 会话事务状态: in_txn 为客户端已 BEGIN, txn_started 为引擎事务上下文已建立
-    // (BEGIN 不取锁, 锁在事务首条语句执行时获取, 见事务设计文档 §2.3)
+// 会话上下文: 主循环与各拆分函数共用的会话状态, 成员直接读写
+struct SessionCtx {
+    int sock;
+    int client_id;
+    ct::Catalog* db;
+    // 事务状态: in_txn 为客户端已 BEGIN, txn_started 为引擎事务上下文已建立
+    // (BEGIN 不取锁, 锁在事务首条语句执行时获取)
     bool in_txn = false;
     bool txn_started = false;
-
     // 会话变量: 本连接消息级别, 缺省 info
     LogLevel client_msg_level = LogLevel::INFO;
+};
 
-    // 处理客户端消息循环
-    while (server_running) {
-        try {
-        // 按帧收整条请求: 断开/读取失败/长度超限即结束会话
-        proto::MsgType msg_type;
-        std::string msg_str;
-        if (!proto::recv_frame(client_socket, proto::MAX_REQUEST_PAYLOAD, msg_type, msg_str)) {
-            std::string disconnect_msg = "客户端 ID:" + std::to_string(client_id) + " 断开连接";
-            LOG(INFO, NETWORK, "%s", disconnect_msg.c_str());
-            break;
-        }
-        if (msg_type != proto::MsgType::Query) {
-            LOG(WARNING, NETWORK, "客户端 ID:%d 消息类型非法: %u, 断开连接", client_id,
-                static_cast<unsigned int>(msg_type));
-            break;
-        }
-        std::string log_msg = "来自 ID:" + std::to_string(client_id) + " 的SQL: " + msg_str;
-        LOG(DEBUG, NETWORK, "%s", log_msg.c_str());
-        send_notice(client_socket, client_msg_level, DEBUG, "收到 SQL: " + msg_str);
+// 报错路径的整事务回滚: 引擎事务上下文已建立才调引擎, 会话状态无条件复位
+void rollback_session_txn(SessionCtx& s)
+{
+    if (s.txn_started) {
+        s.db->rollback_txn();
+        s.txn_started = false;
+    }
+    s.in_txn = false;
+}
 
-        // 检查是否收到退出指令
-        if (msg_str == "quit" || msg_str == "exit") {
-            std::string leave_msg = "客户端 ID:" + std::to_string(client_id) + " 主动退出";
-            LOG(INFO, NETWORK, "%s", leave_msg.c_str());
-            break;
-        }
+// 收整条请求帧并做会话级预检; false = 结束会话(断开/非法类型/主动退出)
+bool recv_query(const SessionCtx& s, std::string& msg)
+{
+    proto::MsgType msg_type;
+    if (!proto::recv_frame(s.sock, proto::MAX_REQUEST_PAYLOAD, msg_type, msg)) {
+        LOG(INFO, NETWORK, "客户端 ID:%d 断开连接", s.client_id);
+        return false;
+    }
+    if (msg_type != proto::MsgType::Query) {
+        LOG(WARNING, NETWORK, "客户端 ID:%d 消息类型非法: %u, 断开连接", s.client_id,
+            static_cast<unsigned int>(msg_type));
+        return false;
+    }
+    LOG(DEBUG, NETWORK, "来自 ID:%d 的SQL: %s", s.client_id, msg.c_str());
+    send_notice(s.sock, s.client_msg_level, DEBUG, "收到 SQL: " + msg);
+    if (msg == "quit" || msg == "exit") {
+        LOG(INFO, NETWORK, "客户端 ID:%d 主动退出", s.client_id);
+        return false;
+    }
+    return true;
+}
 
-        // SQL 解析: 合法语句按事务状态路由, 空语句原样回显
-        std::string parse_error;
-        std::unique_ptr<SQLStatement> stmt;
-        if (!sql::parse(msg_str, parse_error, stmt)) {
-            std::string err_log = "SQL解析失败 ID:" + std::to_string(client_id) + ": " + parse_error;
-            LOG(WARNING, PARSER, "%s", err_log.c_str());
-            // 显式事务内解析失败: 整事务立即回滚并结束
-            if (in_txn) {
-                if (txn_started) {
-                    db->rollback_txn();
-                    txn_started = false;
-                }
-                in_txn = false;
-                parse_error += ", 事务已回滚";
-            }
-            send_error(client_socket, db::ErrCode::SyntaxError, parse_error);
-            continue;
+// 事务控制语句: 会话层短路处理, 自行回帧
+void handle_txn_control(SessionCtx& s, StmtKind kind)
+{
+    if (kind == StmtKind::Begin) {
+        if (s.db->bootstrap_mode()) {
+            LOG(WARNING, EXECUTOR, "ID:%d bootstrap 模式拒绝 BEGIN", s.client_id);
+            send_error(s.sock, db::ErrCode::BootstrapMode, "bootstrap 模式不允许 BEGIN");
+            return;
         }
-        std::string ok_log = "SQL解析成功 ID:" + std::to_string(client_id) + ": " + msg_str;
-        LOG(DEBUG2, PARSER, "%s", ok_log.c_str());
-        send_notice(client_socket, client_msg_level, DEBUG, "解析成功: " + msg_str);
-        if (!stmt) {
-            // 空输入或仅 ";", 无实际语句
-            proto::send_frame(client_socket, proto::MsgType::Ok,
-                              proto::encode_command(proto::CommandTag::Empty, 0));
-            continue;
+        if (s.in_txn) {
+            // 嵌套 BEGIN: 报错并回滚外层事务
+            LOG(WARNING, EXECUTOR, "ID:%d 嵌套 BEGIN, 外层事务已回滚", s.client_id);
+            rollback_session_txn(s);
+            send_error(s.sock, db::ErrCode::TxnActive,
+                       "事务已在进行中, 嵌套 BEGIN 已拒绝, 外层事务已回滚");
+            return;
         }
-
-        const StmtKind kind = stmt->kind();
-        if (kind == StmtKind::Begin || kind == StmtKind::Commit || kind == StmtKind::Rollback) {
-            // 事务控制语句: 会话层短路处理, 不进 analyzer/planner/executor
-            if (kind == StmtKind::Begin) {
-                if (db->bootstrap_mode()) {
-                    std::string err_log = "ID:" + std::to_string(client_id)
-                                         + " bootstrap 模式拒绝 BEGIN";
-                    LOG(WARNING, EXECUTOR, "%s", err_log.c_str());
-                    send_error(client_socket, db::ErrCode::BootstrapMode,
-                               "bootstrap 模式不允许 BEGIN");
-                    continue;
-                }
-                if (in_txn) {
-                    // 嵌套 BEGIN: 报错并回滚外层事务
-                    std::string err_log = "ID:" + std::to_string(client_id)
-                                         + " 嵌套 BEGIN, 外层事务已回滚";
-                    LOG(WARNING, EXECUTOR, "%s", err_log.c_str());
-                    if (txn_started) {
-                        db->rollback_txn();
-                        txn_started = false;
-                    }
-                    in_txn = false;
-                    send_error(client_socket, db::ErrCode::TxnActive,
-                               "事务已在进行中, 嵌套 BEGIN 已拒绝, 外层事务已回滚");
-                    continue;
-                }
-                in_txn = true;
-                proto::send_frame(client_socket, proto::MsgType::Ok,
-                                  proto::encode_command(proto::CommandTag::Begin, 0));
-                continue;
-            }
-            if (!in_txn) {
-                const char* name = kind == StmtKind::Commit ? "COMMIT" : "ROLLBACK";
-                std::string err_log = "ID:" + std::to_string(client_id) + " 事务外 ";
-                err_log += name;
-                LOG(WARNING, EXECUTOR, "%s", err_log.c_str());
-                send_error(client_socket, db::ErrCode::NoActiveTxn,
-                           std::string(name) + ": 无活动事务");
-                continue;
-            }
-            // 结束事务: 已建立引擎事务上下文才调引擎(空事务无操作), 会话状态先复位,
-            // 提交/回滚失败经外层 catch 回错误帧
-            in_txn = false;
-            if (txn_started) {
-                txn_started = false;
-                if (kind == StmtKind::Commit) {
-                    db->commit_txn();
-                } else {
-                    db->rollback_txn();
-                }
-            }
-            const proto::CommandTag tag = kind == StmtKind::Commit ? proto::CommandTag::Commit
-                                                                   : proto::CommandTag::Rollback;
-            proto::send_frame(client_socket, proto::MsgType::Ok, proto::encode_command(tag, 0));
-            continue;
-        }
-
-        if (in_txn && (kind == StmtKind::CreateTable || kind == StmtKind::DropTable
-                       || kind == StmtKind::CreateSchema || kind == StmtKind::DropSchema
-                       || kind == StmtKind::Set)) {
-            // 显式事务内拒绝 DDL 与 SET: 报错即整事务回滚
-            std::string err_log = "ID:" + std::to_string(client_id)
-                                 + " 事务内 DDL/SET 被拒, 事务已回滚";
-            LOG(WARNING, EXECUTOR, "%s", err_log.c_str());
-            if (txn_started) {
-                db->rollback_txn();
-                txn_started = false;
-            }
-            in_txn = false;
-            send_error(client_socket, db::ErrCode::DdlInTxn,
-                       "事务内不允许 DDL 或 SET 语句, 事务已回滚");
-            continue;
-        }
-
-        // client_msg_level 会话变量: 会话层短路处理, 不进 analyzer/executor
-        if (kind == StmtKind::Set
-            && static_cast<const SetStmt&>(*stmt).var_name() == "client_msg_level") {
-            const SetStmt& ss = static_cast<const SetStmt&>(*stmt);
-            const std::optional<LogLevel> lvl = levelFromString(ss.value());
-            if (!lvl.has_value()) {
-                std::string err_log = "ID:" + std::to_string(client_id)
-                                     + " client_msg_level 值非法: " + ss.value();
-                LOG(WARNING, NETWORK, "%s", err_log.c_str());
-                send_error(client_socket, db::ErrCode::InvalidVarValue,
-                           "client_msg_level 值非法: " + ss.value());
-                continue;
-            }
-            client_msg_level = *lvl;
-            std::string set_log = "ID:" + std::to_string(client_id)
-                                + " 会话变量 client_msg_level = "
-                                + std::string(levelToString(client_msg_level));
-            LOG(INFO, NETWORK, "%s", set_log.c_str());
-            send_notice(client_socket, client_msg_level, DEBUG,
-                        "client_msg_level = " + std::string(levelToString(client_msg_level)));
-            proto::send_frame(client_socket, proto::MsgType::Ok,
-                              proto::encode_command(proto::CommandTag::Set, 0));
-            continue;
-        }
-
-        // server_log_level 全局变量: 会话层短路处理, 调整服务端日志级别阈值, 对所有会话生效
-        if (kind == StmtKind::Set
-            && static_cast<const SetStmt&>(*stmt).var_name() == "server_log_level") {
-            const SetStmt& ss = static_cast<const SetStmt&>(*stmt);
-            const std::optional<LogLevel> lvl = levelFromString(ss.value());
-            if (!lvl.has_value()) {
-                std::string err_log = "ID:" + std::to_string(client_id)
-                                     + " server_log_level 值非法: " + ss.value();
-                LOG(WARNING, NETWORK, "%s", err_log.c_str());
-                send_error(client_socket, db::ErrCode::InvalidVarValue,
-                           "server_log_level 值非法: " + ss.value());
-                continue;
-            }
-            Logger::getInstance().setLevelThreshold(*lvl);
-            std::string set_log = "ID:" + std::to_string(client_id)
-                                + " 全局变量 server_log_level = "
-                                + std::string(levelToString(*lvl));
-            LOG(INFO, NETWORK, "%s", set_log.c_str());
-            send_notice(client_socket, client_msg_level, DEBUG,
-                        "server_log_level = " + std::string(levelToString(*lvl)));
-            proto::send_frame(client_socket, proto::MsgType::Ok,
-                              proto::encode_command(proto::CommandTag::Set, 0));
-            continue;
-        }
-
-        // 事务开启: 自动提交语句为单语句事务, 显式事务首条语句取锁长持至 COMMIT/ROLLBACK
-        if (in_txn) {
-            if (!txn_started) {
-                db->begin_txn();
-                txn_started = true;
-            }
+        s.in_txn = true;
+        proto::send_frame(s.sock, proto::MsgType::Ok,
+                          proto::encode_command(proto::CommandTag::Begin, 0));
+        return;
+    }
+    if (!s.in_txn) {
+        const char* name = kind == StmtKind::Commit ? "COMMIT" : "ROLLBACK";
+        LOG(WARNING, EXECUTOR, "ID:%d 事务外 %s", s.client_id, name);
+        send_error(s.sock, db::ErrCode::NoActiveTxn, std::string(name) + ": 无活动事务");
+        return;
+    }
+    // 结束事务: 已建立引擎事务上下文才调引擎(空事务无操作), 会话状态先复位,
+    // 提交/回滚失败经外层 catch 回错误帧
+    s.in_txn = false;
+    if (s.txn_started) {
+        s.txn_started = false;
+        if (kind == StmtKind::Commit) {
+            s.db->commit_txn();
         } else {
-            db->begin_txn();
-        }
-
-        exec::ExecResult result;
-        try {
-            result = exec::execute(*db, *stmt);
-        } catch (const db::DbError& e) {
-            // 结构化错误: 源头已记 ERROR, 当前事务回滚, 显式事务一并结束
-            db->rollback_txn();
-            std::string err = e.what();
-            if (in_txn) {
-                in_txn = false;
-                txn_started = false;
-                err += ", 事务已回滚";
-            }
-            send_error(client_socket, e.code(), err);
-            continue;
-        } catch (const std::exception& e) {
-            // 非 DbError 的底层异常: 升格为结构化错误, 由外层 catch 路由回客户端
-            db->rollback_txn();
-            std::string err = e.what();
-            if (in_txn) {
-                in_txn = false;
-                txn_started = false;
-                err += ", 事务已回滚";
-            }
-            DB_RAISE(db::ErrCode::Internal, EXECUTOR, "ID:{} SQL执行异常: {}", client_id, err);
-        }
-        if (!in_txn) {
-            // 自动提交: 成功即提交(持久化边界); SELECT 在算子 open 后提交释放锁,
-            // 结果集锁外流式拉取——显式事务内的 SELECT 在锁内流式发送(见下)
-            db->commit_txn();
-        }
-        if (result.is_result_set) {
-            if (!send_result_stream(client_socket, result, client_id, client_msg_level)) {
-                // 发送失败即对端已断, 结束会话(算子经析构释放页 pin)
-                break;
-            }
-        } else {
-            std::string exec_log = "ID:" + std::to_string(client_id)
-                                 + " SQL执行结果: " + tag_log_name(result.tag);
-            std::string exec_msg = std::string("执行结果: ") + tag_log_name(result.tag);
-            if (result.count > 0) {
-                exec_log += " " + std::to_string(result.count);
-                exec_msg += " " + std::to_string(result.count);
-            }
-            LOG(DEBUG, EXECUTOR, "%s", exec_log.c_str());
-            send_notice(client_socket, client_msg_level, DEBUG, exec_msg);
-            proto::send_frame(client_socket, proto::MsgType::Ok,
-                              proto::encode_command(result.tag, result.count));
-        }
-        } catch (const db::DbError& e) {
-            // 结构化错误: 源头已记 ERROR(带堆栈), 这里只路由给客户端, 不再重复记
-            send_error(client_socket, e.code(), e.what());
-        } catch (const std::exception& e) {
-            // 非 DbError 的底层异常降级收录后回客户端
-            std::string err_log = "ID:" + std::to_string(client_id) + " SQL执行异常: " + e.what();
-            LOG(WARNING, EXECUTOR, "%s", err_log.c_str());
-            send_error(client_socket, db::ErrCode::Internal, e.what());
+            s.db->rollback_txn();
         }
     }
+    const proto::CommandTag tag = kind == StmtKind::Commit ? proto::CommandTag::Commit
+                                                            : proto::CommandTag::Rollback;
+    proto::send_frame(s.sock, proto::MsgType::Ok, proto::encode_command(tag, 0));
+}
 
-    // 断连/quit/停服: 未结束的显式事务同 ROLLBACK 清理
-    if (txn_started) {
-        try {
-            db->rollback_txn();
-        } catch (const db::DbError&) {
-            // 结构化错误源头已记 ERROR, 此处不重记
-        } catch (const std::exception& e) {
-            LOG(WARNING, EXECUTOR, "ID:%d 断连回滚事务失败: %s", client_id, e.what());
+// SET 会话/全局变量: 会话层短路处理; 返回是否已处理, 未识别变量落回执行路径
+bool handle_session_set(SessionCtx& s, const SetStmt& ss)
+{
+    if (ss.var_name() == "client_msg_level") {
+        const std::optional<LogLevel> lvl = levelFromString(ss.value());
+        if (!lvl.has_value()) {
+            std::string err_log = "ID:" + std::to_string(s.client_id)
+                                 + " client_msg_level 值非法: " + ss.value();
+            LOG(WARNING, NETWORK, "%s", err_log.c_str());
+            send_error(s.sock, db::ErrCode::InvalidVarValue,
+                       "client_msg_level 值非法: " + ss.value());
+            return true;
         }
+        s.client_msg_level = *lvl;
+        std::string set_log = "ID:" + std::to_string(s.client_id)
+                            + " 会话变量 client_msg_level = "
+                            + std::string(levelToString(s.client_msg_level));
+        LOG(INFO, NETWORK, "%s", set_log.c_str());
+        send_notice(s.sock, s.client_msg_level, DEBUG,
+                    "client_msg_level = " + std::string(levelToString(s.client_msg_level)));
+        proto::send_frame(s.sock, proto::MsgType::Ok,
+                          proto::encode_command(proto::CommandTag::Set, 0));
+        return true;
+    }
+    if (ss.var_name() == "server_log_level") {
+        // 全局变量: 调整服务端日志级别阈值, 对所有会话生效
+        const std::optional<LogLevel> lvl = levelFromString(ss.value());
+        if (!lvl.has_value()) {
+            std::string err_log = "ID:" + std::to_string(s.client_id)
+                                 + " server_log_level 值非法: " + ss.value();
+            LOG(WARNING, NETWORK, "%s", err_log.c_str());
+            send_error(s.sock, db::ErrCode::InvalidVarValue,
+                       "server_log_level 值非法: " + ss.value());
+            return true;
+        }
+        Logger::getInstance().setLevelThreshold(*lvl);
+        std::string set_log = "ID:" + std::to_string(s.client_id)
+                            + " 全局变量 server_log_level = "
+                            + std::string(levelToString(*lvl));
+        LOG(INFO, NETWORK, "%s", set_log.c_str());
+        send_notice(s.sock, s.client_msg_level, DEBUG,
+                    "server_log_level = " + std::string(levelToString(*lvl)));
+        proto::send_frame(s.sock, proto::MsgType::Ok,
+                          proto::encode_command(proto::CommandTag::Set, 0));
+        return true;
+    }
+    return false;
+}
+
+// 执行一条语句: 开事务/执行/自动提交/结果分流; false = 结果集发送失败(对端已断)
+bool exec_statement(SessionCtx& s, const SQLStatement& stmt)
+{
+    // 事务开启: 自动提交语句为单语句事务, 显式事务首条语句取锁长持至 COMMIT/ROLLBACK
+    if (s.in_txn) {
+        if (!s.txn_started) {
+            s.db->begin_txn();
+            s.txn_started = true;
+        }
+    } else {
+        s.db->begin_txn();
     }
 
+    exec::ExecResult result;
+    try {
+        result = exec::execute(*s.db, stmt);
+    } catch (const db::DbError& e) {
+        // 结构化错误: 源头已记 ERROR, 当前事务回滚, 显式事务一并结束
+        s.db->rollback_txn();
+        std::string err = e.what();
+        if (s.in_txn) {
+            s.in_txn = false;
+            s.txn_started = false;
+            err += ", 事务已回滚";
+        }
+        send_error(s.sock, e.code(), err);
+        return true;
+    } catch (const std::exception& e) {
+        // 非 DbError 的底层异常: 升格为结构化错误, 由外层 catch 路由回客户端
+        s.db->rollback_txn();
+        std::string err = e.what();
+        if (s.in_txn) {
+            s.in_txn = false;
+            s.txn_started = false;
+            err += ", 事务已回滚";
+        }
+        DB_RAISE(db::ErrCode::Internal, EXECUTOR, "ID:{} SQL执行异常: {}", s.client_id, err);
+    }
+    if (!s.in_txn) {
+        // 自动提交: 成功即提交(持久化边界); SELECT 在算子 open 后提交释放锁,
+        // 结果集锁外流式拉取——显式事务内的 SELECT 在锁内流式发送(见下)
+        s.db->commit_txn();
+    }
+    if (result.is_result_set) {
+        // 发送失败即对端已断, 结束会话(算子经析构释放页 pin)
+        return send_result_stream(s.sock, result, s.client_id, s.client_msg_level);
+    }
+    std::string exec_log = "ID:" + std::to_string(s.client_id)
+                         + " SQL执行结果: " + tag_log_name(result.tag);
+    std::string exec_msg = std::string("执行结果: ") + tag_log_name(result.tag);
+    if (result.count > 0) {
+        exec_log += " " + std::to_string(result.count);
+        exec_msg += " " + std::to_string(result.count);
+    }
+    LOG(DEBUG, EXECUTOR, "%s", exec_log.c_str());
+    send_notice(s.sock, s.client_msg_level, DEBUG, exec_msg);
+    proto::send_frame(s.sock, proto::MsgType::Ok, proto::encode_command(result.tag, result.count));
+    return true;
+}
+
+// 会话收尾: 摘表/报在线数/关连接; notify 后不得再触碰全局生命周期对象
+void remove_client(int client_socket)
+{
     // 清理客户端连接
     {
         std::lock_guard<std::mutex> lock(clients_mutex);
@@ -449,11 +374,104 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
 
     close(client_socket);
 
-    // 通知收尾等待放行, notify 后不得再触碰全局生命周期对象
+    // 通知收尾等待放行
     {
         std::lock_guard<std::mutex> lock(clients_mutex);
         clients_cv.notify_all();
     }
+}
+
+}  // namespace
+
+// 处理单个客户端的函数
+void handle_client(int client_socket, int client_id, const std::string& client_ip,
+                   ct::Catalog* db)
+{
+    std::string connect_msg = "客户端 ID:" + std::to_string(client_id) + " 已连接 (" + client_ip + ")";
+    LOG(INFO, NETWORK, "%s", connect_msg.c_str());
+
+    SessionCtx ctx{client_socket, client_id, db};
+
+    // 处理客户端消息循环
+    while (server_running) {
+        try {
+        // 按帧收整条请求: 断开/读取失败/长度超限/非法类型/主动退出即结束会话
+        std::string msg_str;
+        if (!recv_query(ctx, msg_str)) {
+            break;
+        }
+
+        // SQL 解析: 合法语句按事务状态路由, 空语句原样回显
+        std::string parse_error;
+        std::unique_ptr<SQLStatement> stmt;
+        if (!sql::parse(msg_str, parse_error, stmt)) {
+            LOG(WARNING, PARSER, "SQL解析失败 ID:%d: %s", client_id, parse_error.c_str());
+            // 显式事务内解析失败: 整事务立即回滚并结束
+            if (ctx.in_txn) {
+                rollback_session_txn(ctx);
+                parse_error += ", 事务已回滚";
+            }
+            send_error(client_socket, db::ErrCode::SyntaxError, parse_error);
+            continue;
+        }
+        LOG(DEBUG2, PARSER, "SQL解析成功 ID:%d: %s", client_id, msg_str.c_str());
+        send_notice(client_socket, ctx.client_msg_level, DEBUG, "解析成功: " + msg_str);
+        if (!stmt) {
+            // 空输入或仅 ";", 无实际语句
+            proto::send_frame(client_socket, proto::MsgType::Ok,
+                              proto::encode_command(proto::CommandTag::Empty, 0));
+            continue;
+        }
+
+        const StmtKind kind = stmt->kind();
+        // 事务控制语句: 会话层短路处理, 不进 analyzer/planner/executor
+        if (kind == StmtKind::Begin || kind == StmtKind::Commit || kind == StmtKind::Rollback) {
+            handle_txn_control(ctx, kind);
+            continue;
+        }
+
+        if (ctx.in_txn && (kind == StmtKind::CreateTable || kind == StmtKind::DropTable
+                           || kind == StmtKind::CreateSchema || kind == StmtKind::DropSchema
+                           || kind == StmtKind::Set)) {
+            // 显式事务内拒绝 DDL 与 SET: 报错即整事务回滚
+            LOG(WARNING, EXECUTOR, "ID:%d 事务内 DDL/SET 被拒, 事务已回滚", client_id);
+            rollback_session_txn(ctx);
+            send_error(client_socket, db::ErrCode::DdlInTxn,
+                       "事务内不允许 DDL 或 SET 语句, 事务已回滚");
+            continue;
+        }
+
+        // SET 会话/全局变量: 会话层短路处理, 不进 analyzer/executor
+        if (kind == StmtKind::Set
+            && handle_session_set(ctx, static_cast<const SetStmt&>(*stmt))) {
+            continue;
+        }
+
+        if (!exec_statement(ctx, *stmt)) {
+            break;
+        }
+        } catch (const db::DbError& e) {
+            // 结构化错误: 源头已记 ERROR(带堆栈), 这里只路由给客户端, 不再重复记
+            send_error(client_socket, e.code(), e.what());
+        } catch (const std::exception& e) {
+            // 非 DbError 的底层异常降级收录后回客户端
+            LOG(WARNING, EXECUTOR, "ID:%d SQL执行异常: %s", client_id, e.what());
+            send_error(client_socket, db::ErrCode::Internal, e.what());
+        }
+    }
+
+    // 断连/quit/停服: 未结束的显式事务同 ROLLBACK 清理
+    if (ctx.txn_started) {
+        try {
+            db->rollback_txn();
+        } catch (const db::DbError&) {
+            // 结构化错误源头已记 ERROR, 此处不重记
+        } catch (const std::exception& e) {
+            LOG(WARNING, EXECUTOR, "ID:%d 断连回滚事务失败: %s", client_id, e.what());
+        }
+    }
+
+    remove_client(client_socket);
 }
 
 // 受理一个新连接: 拒超限/建线程/入表
