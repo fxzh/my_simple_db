@@ -32,7 +32,7 @@ add_test(NAME storage_crash COMMAND test_storage_crash)
 
 # L1 e2e: initdb 正常路径(挂 DB_READY)与异常路径(独立执行)
 add_executable(test_initdb e2e/initdb/test_initdb.cpp)
-target_link_libraries(test_initdb PRIVATE test_common GTest::gtest_main)
+target_link_libraries(test_initdb PRIVATE catalog test_common GTest::gtest_main)
 target_compile_definitions(test_initdb PRIVATE
     MSDB_BIN_DIR="${PROJECT_BINARY_DIR}/bin"
     MSDB_STATE_DIR="${CMAKE_CURRENT_BINARY_DIR}/e2e_state"

@@ -6,12 +6,14 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include <gtest/gtest.h>
 
 #include "common/process.hpp"
 #include "common/temp_dir.hpp"
+#include "storage/storage_fixture.hpp"
 
 // 编译期注入: 被测二进制目录与跨用例状态目录
 constexpr const char* kBinDir = MSDB_BIN_DIR;
@@ -36,6 +38,42 @@ bool run_ok(const std::vector<std::string>& argv, int timeout_ms, ProcessResult&
 std::string bin(const char* name)
 {
     return (std::filesystem::path(kBinDir) / name).string();
+}
+
+// 元数据行值序列化: 三张元数据表仅含 int/string 值, 其余类型当场判负
+std::string format_meta_value(const st::Value& v)
+{
+    if (const std::string* s = std::get_if<std::string>(&v)) {
+        return *s;
+    }
+    if (const int64_t* i = std::get_if<int64_t>(&v)) {
+        return std::to_string(*i);
+    }
+    ADD_FAILURE() << "元数据行出现非 int/string 值";
+    return "";
+}
+
+// 采集目录三张元数据表全部行作可比对文本, 行序即堆扫描序
+std::string dump_meta_rows(const std::string& dir)
+{
+    ct::Catalog db(dir);
+    db.open();
+    std::string dump;
+    for (const char* table : {ct::kTableMetaName, ct::kColumnMetaName, ct::kSchemaMetaName}) {
+        dump += table;
+        dump += '\n';
+        std::unique_ptr<st::Scanner> cursor = db.scan(table);
+        st::Row row;
+        while (cursor->next(&row)) {
+            for (const st::Value& v : row.values) {
+                dump += format_meta_value(v);
+                dump += '|';
+            }
+            dump += '\n';
+        }
+    }
+    db.close();
+    return dump;
 }
 
 }  // namespace
@@ -64,6 +102,14 @@ TEST(Initdb, Ok)
     std::ifstream in(conf);
     std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     EXPECT_NE(content.find("port = 8123"), std::string::npos);
+
+    // 漂移守卫: bootstrap_version_marker 引导目录与 initdb 产物的元数据行集一致
+    TempDir fixture_dir;
+    std::string error;
+    ASSERT_TRUE(fixture_dir.create("msdb_initdb_drift", error)) << error;
+    Logger::initPath(fixture_dir.path + "/simple.log");
+    bootstrap_version_marker(fixture_dir.path);
+    EXPECT_EQ(dump_meta_rows(fixture_dir.path), dump_meta_rows(data));
 }
 
 TEST(Initdb, DirExistsEmpty)

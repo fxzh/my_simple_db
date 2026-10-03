@@ -24,7 +24,7 @@ struct StorageDb : ::testing::Test {
 };
 
 // 引导数据目录(元数据表 + db_index + db_version 完成标记)后干净关闭, 供测试起步;
-// 建表语句与 bootstrap.sql 保持一致
+// 建表语句与 bootstrap.sql 保持一致, 漂移由 Initdb.Ok 守卫拦截
 inline void bootstrap_version_marker(const std::string& path)
 {
     ct::Catalog db(path, true);
