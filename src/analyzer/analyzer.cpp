@@ -458,6 +458,42 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt)
         b->schema = ds.schema_name();
         return b;
     }
+    case StmtKind::CreateIndex: {
+        const auto& cs = static_cast<const CreateIndexStmt&>(stmt);
+        check_reserved_table(cs.table_name());
+        const st::TableMeta meta = db.table_meta(cs.table_name());
+        size_t ordinal = meta.cols.size();
+        for (size_t i = 0; i < meta.cols.size(); ++i) {
+            if (meta.cols[i].name == cs.column_name()) {
+                ordinal = i;
+                break;
+            }
+        }
+        if (ordinal == meta.cols.size()) {
+            DB_RAISE(db::ErrCode::UnknownColumn, LogModule::ANALYZER, "列不存在: {}",
+                     cs.column_name());
+        }
+        const st::ColType type = meta.cols[ordinal].type;
+        if (type != st::ColType::Int && type != st::ColType::BigInt && type != st::ColType::Float
+            && type != st::ColType::Double) {
+            DB_RAISE(db::ErrCode::InvalidType, LogModule::ANALYZER, "索引列类型不支持: {}",
+                     cs.column_name());
+        }
+        auto b = std::make_unique<BoundCreateIndex>();
+        b->table = cs.table_name();
+        b->index = cs.index_name();
+        b->col_ordinal = static_cast<uint16_t>(ordinal);
+        return b;
+    }
+    case StmtKind::DropIndex: {
+        const auto& ds = static_cast<const DropIndexStmt&>(stmt);
+        check_reserved_table(ds.table_name());
+        db.table_meta(ds.table_name());
+        auto b = std::make_unique<BoundDropIndex>();
+        b->table = ds.table_name();
+        b->index = ds.index_name();
+        return b;
+    }
     case StmtKind::Insert: {
         const auto& is = static_cast<const InsertStmt&>(stmt);
         check_reserved_table(is.table_name());

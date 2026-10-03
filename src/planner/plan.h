@@ -14,7 +14,7 @@ namespace pl {
 // 计划节点种类, 供执行层按类型分派
 enum class PlanKind {
     SeqScan, Filter, Project, Insert, Delete, CreateTable, DropTable, CreateSchema, DropSchema,
-    Set,
+    CreateIndex, DropIndex, Set,
 };
 
 // 计划节点基类: 表达式为绑定树, 由计划节点持有
@@ -80,6 +80,21 @@ struct CreateSchemaPlan : PlanNode {
 struct DropSchemaPlan : PlanNode {
     std::string schema;
     PlanKind kind() const override { return PlanKind::DropSchema; }
+};
+
+// 建索引
+struct CreateIndexPlan : PlanNode {
+    std::string table;
+    std::string index;
+    uint16_t col_ordinal = 0;  // 索引列的列序号
+    PlanKind kind() const override { return PlanKind::CreateIndex; }
+};
+
+// 删索引
+struct DropIndexPlan : PlanNode {
+    std::string table;
+    std::string index;
+    PlanKind kind() const override { return PlanKind::DropIndex; }
 };
 
 // SET 变量(bootstrap 模式): 值透传给 catalog 变量成员

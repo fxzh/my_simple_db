@@ -191,8 +191,8 @@ Commit(提交) / Abort(中止): 空 payload
 
 存储层索引就位后，文法与执行器按下述接入；本节为规划，暂不实现：
 
-- 文法（parser）：`CREATE [UNIQUE] INDEX name ON table (col);` 与 `DROP INDEX name;`，单列，语句风格随现有 DDL
-- 语义分析（analyzer）：绑定表/列存在性；索引列类型须属于当前键支持集；索引名经 db_index 查重；UNIQUE 标志届时按需加字段记入 db_index
+- 文法（parser）：已接入 `CREATE INDEX name ON table (col);` 与 `DROP INDEX name ON table;`，单列，索引名表内唯一，UNIQUE 不做
+- 语义分析（analyzer）：已接入绑定：表/列存在性、索引列类型限 int/bigint/float/double、保留表拦截；执行暂报未实现；索引名表内查重与索引存在性校验待 catalog 写入方接入时实现
 - 计划（planner）：现有 Project[Filter[SeqScan]] 之上，Filter 含 `col θ const`（θ ∈ =, <, ≤, >, ≥, BETWEEN）且该列有索引时，生成 IndexScan{键下界, 上界} 替换 SeqScan 并摘除该谓词，其余谓词留在 Filter；无适用索引维持 SeqScan（访问路径选择，非降级）
 - 执行（executor）：IndexScan 迭代 = 树范围扫描 → 回表取整行 → 堆槽墓碑跳过 → 残余 Filter 过滤 → 上抛 Project；UNIQUE 索引在 insert 前对键做等值预查，命中非墓碑行即拒绝
 - 依赖方向不变：executor 经 catalog 新增门面（create_index/drop_index/索引扫描原语）访问存储层

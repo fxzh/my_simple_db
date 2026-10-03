@@ -61,6 +61,21 @@ std::unique_ptr<PlanNode> build(ana::BoundStmt& bound)
         p->schema = bs.schema;
         return p;
     }
+    case ana::BoundKind::CreateIndex: {
+        const auto& bs = static_cast<const ana::BoundCreateIndex&>(bound);
+        auto p = std::make_unique<CreateIndexPlan>();
+        p->table = bs.table;
+        p->index = bs.index;
+        p->col_ordinal = bs.col_ordinal;
+        return p;
+    }
+    case ana::BoundKind::DropIndex: {
+        const auto& bs = static_cast<const ana::BoundDropIndex&>(bound);
+        auto p = std::make_unique<DropIndexPlan>();
+        p->table = bs.table;
+        p->index = bs.index;
+        return p;
+    }
     case ana::BoundKind::Insert: {
         auto& bs = static_cast<ana::BoundInsert&>(bound);
         auto p = std::make_unique<InsertPlan>();

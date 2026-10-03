@@ -92,6 +92,10 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt)
         db.drop_schema(p.schema);
         return tag_result(proto::CommandTag::DropSchema, 0);
     }
+    case pl::PlanKind::CreateIndex:
+        DB_RAISE(db::ErrCode::NotImplemented, LogModule::EXECUTOR, "CREATE INDEX 暂未实现");
+    case pl::PlanKind::DropIndex:
+        DB_RAISE(db::ErrCode::NotImplemented, LogModule::EXECUTOR, "DROP INDEX 暂未实现");
     case pl::PlanKind::Insert: {
         const auto& p = static_cast<const pl::InsertPlan&>(*plan);
         // 逐行求值并写盘: 求值期错误(溢出/除零)在执行中报错, 已写入行保留

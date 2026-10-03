@@ -1,0 +1,17 @@
+CREATE TABLE idx_t (id int, name varchar(20), score double);
+CREATE INDEX idx_a ON idx_t (id);
+create index idx_a on idx_t (score);
+CREATE INDEX idx_b ON idx_t (name);
+CREATE INDEX idx_c ON idx_t (no_col);
+CREATE INDEX idx_d ON no_table (id);
+CREATE INDEX idx_e ON db_table (table_id);
+CREATE INDEX ON idx_t (id);
+CREATE INDEX idx_f idx_t (id);
+CREATE INDEX idx_g ON idx_t id;
+DROP INDEX idx_a ON idx_t;
+DROP INDEX idx_a ON no_table;
+DROP INDEX idx_a ON db_table;
+DROP INDEX idx_a;
+BEGIN;
+CREATE INDEX idx_h ON idx_t (id);
+DROP TABLE idx_t;

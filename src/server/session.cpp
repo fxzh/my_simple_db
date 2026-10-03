@@ -432,6 +432,7 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
 
         if (ctx.in_txn && (kind == StmtKind::CreateTable || kind == StmtKind::DropTable
                            || kind == StmtKind::CreateSchema || kind == StmtKind::DropSchema
+                           || kind == StmtKind::CreateIndex || kind == StmtKind::DropIndex
                            || kind == StmtKind::Set)) {
             // 显式事务内拒绝 DDL 与 SET: 报错即整事务回滚
             LOG(WARNING, EXECUTOR, "ID:%d 事务内 DDL/SET 被拒, 事务已回滚", client_id);

@@ -288,6 +288,8 @@ enum class StmtKind {
     DropTable,
     CreateSchema,
     DropSchema,
+    CreateIndex,
+    DropIndex,
     Insert,
     Delete,
     Select,
@@ -379,6 +381,48 @@ public:
     }
 
     StmtKind kind() const override { return StmtKind::DropSchema; }
+};
+
+// CREATE INDEX 索引名 ON 表名 (列名), 索引名表内唯一(语法已接入, 执行暂缺)
+class CreateIndexStmt : public SQLStatement {
+    std::string index;
+    std::string table;
+    std::string column;
+public:
+    CreateIndexStmt(std::string index_name, std::string table_name, std::string column_name)
+        : index(std::move(index_name)), table(std::move(table_name)), column(std::move(column_name)) {}
+
+    const std::string& index_name() const { return index; }
+    const std::string& table_name() const { return table; }
+    const std::string& column_name() const { return column; }
+
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "CreateIndex: " << index
+           << " ON " << table << " (" << column << ")" << std::endl;
+    }
+
+    StmtKind kind() const override { return StmtKind::CreateIndex; }
+};
+
+// DROP INDEX 索引名 ON 表名(语法已接入, 执行暂缺)
+class DropIndexStmt : public SQLStatement {
+    std::string index;
+    std::string table;
+public:
+    DropIndexStmt(std::string index_name, std::string table_name)
+        : index(std::move(index_name)), table(std::move(table_name)) {}
+
+    const std::string& index_name() const { return index; }
+    const std::string& table_name() const { return table; }
+
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "DropIndex: " << index
+           << " ON " << table << std::endl;
+    }
+
+    StmtKind kind() const override { return StmtKind::DropIndex; }
 };
 
 // INSERT INTO 表名 [(列清单)] VALUES 值行列表

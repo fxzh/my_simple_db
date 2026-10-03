@@ -55,7 +55,7 @@
 // Token定义
 %token END 0 "end of file"
 %token TOK_ERROR
-%token CREATE TABLE DROP SCHEMA INSERT INTO VALUES DELETE FROM
+%token CREATE TABLE DROP SCHEMA INSERT INTO VALUES DELETE FROM INDEX ON
 %token INT BIGINT FLOAT CHAR VARCHAR DOUBLE
 %token SELECT AS NULL_T WHERE AND OR NOT IS SET
 %token BEGIN_TXN START TRANSACTION COMMIT WORK ROLLBACK
@@ -80,7 +80,7 @@
 %right UMINUS
 
 // 类型声明
-%type <std::unique_ptr<SQLStatement>> statement create_statement drop_statement insert_statement delete_statement create_table_statement drop_table_statement create_schema_statement drop_schema_statement select_statement set_statement txn_statement begin_statement commit_statement rollback_statement
+%type <std::unique_ptr<SQLStatement>> statement create_statement drop_statement insert_statement delete_statement create_table_statement drop_table_statement create_schema_statement drop_schema_statement create_index_statement drop_index_statement select_statement set_statement txn_statement begin_statement commit_statement rollback_statement
 %type <std::vector<ColumnDef>> column_definitions
 %type <ColumnDef> column_definition
 %type <TypeInfo> type_specifier
@@ -121,10 +121,10 @@ statement:
     |   txn_statement     { $$ = std::move($1); }
     ;
 
-// create table / create schema ...
 create_statement:
         create_table_statement { $$ = std::move($1); }
     |   create_schema_statement { $$ = std::move($1); }
+    |   create_index_statement { $$ = std::move($1); }
     ;
 
 create_table_statement:
@@ -139,6 +139,14 @@ create_schema_statement:
         CREATE SCHEMA IDENTIFIER
         {
             $$ = std::make_unique<CreateSchemaStmt>(std::move($3));
+        }
+    ;
+
+// create index 索引名 on 表名 (单列名)
+create_index_statement:
+        CREATE INDEX IDENTIFIER ON IDENTIFIER '(' IDENTIFIER ')'
+        {
+            $$ = std::make_unique<CreateIndexStmt>(std::move($3), std::move($5), std::move($7));
         }
     ;
 
@@ -167,10 +175,11 @@ not_null_opt:
     |   NOT NULL_T { $$ = true; }
     ;
 
-// drop table / drop schema ...
+// drop table / drop schema / drop index ...
 drop_statement:
         drop_table_statement { $$ = std::move($1); }
     |   drop_schema_statement { $$ = std::move($1); }
+    |   drop_index_statement { $$ = std::move($1); }
     ;
 
 drop_table_statement:
@@ -185,6 +194,14 @@ drop_schema_statement:
         DROP SCHEMA IDENTIFIER
         {
             $$ = std::make_unique<DropSchemaStmt>(std::move($3));
+        }
+    ;
+
+// drop index 索引名 on 表名
+drop_index_statement:
+        DROP INDEX IDENTIFIER ON IDENTIFIER
+        {
+            $$ = std::make_unique<DropIndexStmt>(std::move($3), std::move($5));
         }
     ;
 
