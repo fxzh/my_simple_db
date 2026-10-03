@@ -65,10 +65,8 @@ proto::WireErrCode to_wire(db::ErrCode code)
 {
     switch (code) {
     case db::ErrCode::IoError:        return proto::WireErrCode::IoError;
-    case db::ErrCode::CorruptCatalog: return proto::WireErrCode::CorruptCatalog;
     case db::ErrCode::CatalogMissing: return proto::WireErrCode::CatalogMissing;
     case db::ErrCode::CatalogExists:  return proto::WireErrCode::CatalogExists;
-    case db::ErrCode::CorruptData:    return proto::WireErrCode::CorruptData;
     case db::ErrCode::InvalidType:    return proto::WireErrCode::InvalidType;
     case db::ErrCode::TableNotFound:  return proto::WireErrCode::TableNotFound;
     case db::ErrCode::TableExists:    return proto::WireErrCode::TableExists;

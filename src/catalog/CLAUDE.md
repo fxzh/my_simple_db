@@ -8,6 +8,6 @@
 - db_schema 记 (schema_id, schema_name)，引导写入唯一行 system(id=1)；db_table.schema_id 现阶段所有表一律挂 system 名下，schema 名字解析未接入
 - 三张自举表(db_table/db_column/db_schema)自身 schema 永远用 create() 的硬编码定义，不从 db_column 读自己(自举问题)；db_index 是经正常建表路径建的保留表，列定义不硬编码，open() 从 db_column 载入内存缓存后读写均用缓存，bootstrap 建表时直接填充(此时该表尚不存在)
 - create_table 先落盘表文件头页再写元数据行，drop_table 反向（先删元数据行再删文件），避免"元数据有表但文件无效"；索引同序：create_index 先建索引文件并全表回填再写 db_index 行，drop_index/drop_table 级联删索引反向
-- db_index 记 (table_id, index_name, col_ordinal, file_id)——列定义的唯一事实来源是 bootstrap.sql 经 db_column 登记，索引名表内唯一(跨表可同名)，查重/存在性校验在 catalog 持锁完成；insert 双写该表全部索引条目；open 扫 db_table+db_index 取 file_id 分配起点(bootstrap 模式 db_index 由 bootstrap.sql 在 open 后创建，缺失跳过；正常模式缺失报 CorruptCatalog)
+- db_index 记 (table_id, index_name, col_ordinal, file_id)——列定义的唯一事实来源是 bootstrap.sql 经 db_column 登记，索引名表内唯一(跨表可同名)，查重/存在性校验在 catalog 持锁完成；insert 双写该表全部索引条目；open 扫 db_table+db_index 取 file_id 分配起点(bootstrap 模式 db_index 由 bootstrap.sql 在 open 后创建，缺失跳过；正常模式缺失 DB_CRITICAL 退出进程)
 - scan() 返回的游标不持锁(仅持页 pin)，并发 DDL 期间扫描是未定义行为；其余门面方法持全局锁
 - 落盘性门面(建删表/建删 schema/插删行)须在活动事务内调用(事务外报 Internal)，事务由调用方经 begin_txn/commit_txn/rollback_txn 门面包裹：锁随事务长持(mutex 为 recursive_mutex，门面方法同线程递归重入)，commit_txn 是唯一提交点(Commit 记录 fsync + WAL 阈值检查点)；调用方约定见 server 层——会话按语句级自动提交包裹，显式事务状态机随事务层后续里程碑接入

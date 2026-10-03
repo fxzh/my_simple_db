@@ -282,14 +282,14 @@ void BTree::create()
 void BTree::open()
 {
     if (!files.table_file_exists(file_id)) {
-        DB_RAISE(db::ErrCode::CorruptData, LogModule::STORAGE, "B+树文件缺失: file={}", file_id);
+        DB_CRITICAL(LogModule::STORAGE, "B+树文件缺失: file={}", file_id);
     }
     const PageId pid0{file_id, 0};
     char* h0 = pool.read(pid0, MAGIC_FILE_HEADER, files);
     const uint32_t root = file_root(h0);
     pool.unpin(h0);
     if (root == 0) {
-        DB_RAISE(db::ErrCode::CorruptData, LogModule::STORAGE, "B+树根页号无效: file={}", file_id);
+        DB_CRITICAL(LogModule::STORAGE, "B+树根页号无效: file={}", file_id);
     }
     root_page = root;
     next_page_hint = std::max(files.page_count(file_id), root + 1);
@@ -309,9 +309,8 @@ char* BTree::read_tree(const PageId& pid)
     if (!tree_page_type(header(pg)->type)) {
         const uint8_t type = header(pg)->type;
         pool.unpin(pg);
-        DB_RAISE(db::ErrCode::CorruptData, LogModule::STORAGE,
-                 "B+树页类型损坏: file={} page={} type={}", pid.file_id, pid.page_no,
-                 static_cast<unsigned>(type));
+        DB_CRITICAL(LogModule::STORAGE, "B+树页类型损坏: file={} page={} type={}",
+                    pid.file_id, pid.page_no, static_cast<unsigned>(type));
     }
     return pg;
 }
@@ -465,8 +464,7 @@ BTreeScanner::BTreeScanner(BTree& tree, std::optional<IndexKey> lo, std::optiona
     }
     if (header(pg)->type != static_cast<uint8_t>(PageType::BTreeLeaf)) {
         pool.unpin(pg);
-        DB_RAISE(db::ErrCode::CorruptData, LogModule::STORAGE,
-                 "B+树页类型损坏: file={} page={}", file_id, no);
+        DB_CRITICAL(LogModule::STORAGE, "B+树页类型损坏: file={} page={}", file_id, no);
     }
     cur = pg;
     cur_page = PageId{file_id, no};
@@ -505,8 +503,7 @@ bool BTreeScanner::next(BTreeEntry* out)
             if (header(cur)->type != static_cast<uint8_t>(PageType::BTreeLeaf)) {
                 pool.unpin(cur);
                 cur = nullptr;
-                DB_RAISE(db::ErrCode::CorruptData, LogModule::STORAGE,
-                         "B+树页类型损坏: file={} page={}", file_id, no);
+                DB_CRITICAL(LogModule::STORAGE, "B+树页类型损坏: file={} page={}", file_id, no);
             }
             cur_page = PageId{file_id, no};
             next_no = header(cur)->next_page;

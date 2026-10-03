@@ -48,7 +48,7 @@ void BufferPool::write_back(PageFrame& f, FileManager& files)
     // 却没调 mark_dirty 的代码路径, 把这样的页落盘会让无日志的修改外泄,
     // 崩溃后既无法重放也解释不了来源, 只能当场报错
     if (std::memcmp(f.before, f.data, PAGE_SIZE) != 0) {
-        raise_error(db::ErrCode::Internal, "脏页存在未记 WAL 的修改");
+        DB_CRITICAL(LogModule::STORAGE, "脏页存在未记 WAL 的修改");
     }
     files.write_page(f.page.file_id, f.page.page_no, f.data);
     f.dirty = false;
@@ -154,10 +154,9 @@ char* BufferPool::read(PageId page, uint32_t expect_magic, FileManager& files)
         page_table_.erase(page);
         f = PageFrame{};
         if (expect_magic == MAGIC_FILE_HEADER) {
-            raise_error(db::ErrCode::CorruptData, "文件头页损坏");
+            DB_CRITICAL(LogModule::STORAGE, "文件头页损坏");
         }
-        DB_RAISE(db::ErrCode::CorruptData, LogModule::STORAGE, "数据页损坏: fid={} page_no={}",
-                 page.file_id, page.page_no);
+        DB_CRITICAL(LogModule::STORAGE, "数据页损坏: fid={} page_no={}", page.file_id, page.page_no);
     }
     // 进池即建 diff 基线, mark_dirty 据此算增量补丁
     std::memcpy(f.before, f.data, PAGE_SIZE);

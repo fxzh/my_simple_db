@@ -63,7 +63,7 @@ int64_t row_int(const std::vector<st::Value>& row, size_t idx)
 {
     const int64_t* v = std::get_if<int64_t>(&row[idx]);
     if (v == nullptr) {
-        DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "元数据行损坏");
+        DB_CRITICAL(LogModule::CATALOG, "元数据行损坏");
     }
     return *v;
 }
@@ -73,7 +73,7 @@ const std::string& row_str(const std::vector<st::Value>& row, size_t idx)
 {
     const std::string* v = std::get_if<std::string>(&row[idx]);
     if (v == nullptr) {
-        DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "元数据行损坏");
+        DB_CRITICAL(LogModule::CATALOG, "元数据行损坏");
     }
     return *v;
 }
@@ -86,13 +86,13 @@ std::pair<int64_t, st::ColumnSpec> parse_column_row(const std::vector<st::Value>
     const int64_t not_null = row_int(row, 5);
     if (type < static_cast<int64_t>(st::ColType::Int) ||
         type > static_cast<int64_t>(st::ColType::Char)) {
-        DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "列类型值非法: {}", type);
+        DB_CRITICAL(LogModule::CATALOG, "列类型值非法: {}", type);
     }
     if (length < 0 || length > UINT16_MAX) {
-        DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "列长度值非法: {}", length);
+        DB_CRITICAL(LogModule::CATALOG, "列长度值非法: {}", length);
     }
     if (not_null != 0 && not_null != 1) {
-        DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "非空标记值非法: {}", not_null);
+        DB_CRITICAL(LogModule::CATALOG, "非空标记值非法: {}", not_null);
     }
     return {row_int(row, 2), st::ColumnSpec{row_str(row, 1), static_cast<st::ColType>(type),
                                             static_cast<uint16_t>(length), not_null == 1}};
@@ -109,13 +109,13 @@ std::vector<st::ColumnSpec> collect_columns(st::Engine& engine, uint64_t tid,
         }
     }
     if (pairs.empty()) {
-        DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "表无列定义: {}", name);
+        DB_CRITICAL(LogModule::CATALOG, "表无列定义: {}", name);
     }
     std::sort(pairs.begin(), pairs.end(),
               [](const auto& a, const auto& b) { return a.first < b.first; });
     for (size_t i = 1; i < pairs.size(); ++i) {
         if (pairs[i].first == pairs[i - 1].first) {
-            DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "列序号重复: {}", name);
+            DB_CRITICAL(LogModule::CATALOG, "列序号重复: {}", name);
         }
     }
     std::vector<st::ColumnSpec> cols;
@@ -152,10 +152,10 @@ std::vector<IndexEntry> table_indexes(st::Engine& engine, const std::vector<st::
         const int64_t ordinal = row_int(row.values, 2);
         const int64_t fid = row_int(row.values, 3);
         if (ordinal < 0 || ordinal > UINT16_MAX) {
-            DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "索引列序号非法: {}", ordinal);
+            DB_CRITICAL(LogModule::CATALOG, "索引列序号非法: {}", ordinal);
         }
         if (fid < 0) {
-            DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "索引文件 id 非法: {}", fid);
+            DB_CRITICAL(LogModule::CATALOG, "索引文件 id 非法: {}", fid);
         }
         IndexEntry e;
         e.name = row_str(row.values, 1);
@@ -264,7 +264,7 @@ int64_t Catalog::load_index_meta()
         if (bootstrap_mode_) {
             return 0;
         }
-        DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "db_index 元数据表缺失");
+        DB_CRITICAL(LogModule::CATALOG, "db_index 元数据表缺失");
     }
     // db_index 列定义不硬编码: 从 db_column 载入内存缓存, 后续读写均用缓存
     index_cols_ = collect_columns(engine_, kIndexMetaId, kIndexMetaName);
@@ -456,7 +456,7 @@ void Catalog::delete_meta_rows(uint64_t tid)
         while (scanner.next(&row)) {
             const int64_t* row_tid = std::get_if<int64_t>(&row.values[0]);
             if (row_tid == nullptr) {
-                DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "元数据行损坏");
+                DB_CRITICAL(LogModule::CATALOG, "元数据行损坏");
             }
             if (*row_tid == static_cast<int64_t>(tid)) {
                 refs.push_back(row.ref);
@@ -649,7 +649,7 @@ st::RowId Catalog::insert(const std::string& table, const std::vector<st::Value>
     // 双写该表全部索引: 堆槽不复用使 (键, 行定位) 全局唯一
     for (const IndexEntry& ent : table_indexes(engine_, index_cols_, meta.table_id)) {
         if (ent.col_ordinal >= values.size()) {
-            DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "索引列序号越界: {}", ent.name);
+            DB_CRITICAL(LogModule::CATALOG, "索引列序号越界: {}", ent.name);
         }
         engine_.index_insert(ent.file_id,
                              encode_key(meta.cols[ent.col_ordinal].type, values[ent.col_ordinal]),

@@ -263,7 +263,7 @@ std::vector<std::vector<Value>> Engine::read_rows(uint64_t file_id,
             std::vector<Value> vals;
             const Slot* s = slot_at(pg, i);
             if (!decode_row(cols, record(pg, i), s->len, vals)) {
-                DB_RAISE(db::ErrCode::CorruptData, LogModule::STORAGE, "数据页记录损坏");
+                DB_CRITICAL(LogModule::STORAGE, "数据页记录损坏");
             }
             rows.push_back(std::move(vals));
         }
@@ -307,7 +307,7 @@ bool Engine::read_row(const RowRef& ref, const std::vector<ColumnSpec>& cols, Ro
     const Slot* s = slot_at(pg, ref.slot);
     if (!decode_row(cols, record(pg, ref.slot), s->len, out->values)) {
         pool_.unpin(pg);
-        DB_RAISE(db::ErrCode::CorruptData, LogModule::STORAGE, "数据页记录损坏");
+        DB_CRITICAL(LogModule::STORAGE, "数据页记录损坏");
     }
     out->ref = ref;
     pool_.unpin(pg);
@@ -514,7 +514,7 @@ bool Scanner::next(Row* out)
         if (slot_ < ph->slot_count) {
             const Slot* s = slot_at(cur_data_, slot_);
             if (!decode_row(meta_.cols, record(cur_data_, slot_), s->len, out->values)) {
-                DB_RAISE(db::ErrCode::CorruptData, LogModule::STORAGE, "数据页记录损坏");
+                DB_CRITICAL(LogModule::STORAGE, "数据页记录损坏");
             }
             out->ref = RowRef{cur_page_, slot_};
             ++slot_;

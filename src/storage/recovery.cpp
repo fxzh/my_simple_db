@@ -60,10 +60,10 @@ namespace st {
 
 namespace {
 
-// 记 ERROR 日志并抛 DbError: 用于"CRC 合法但语义非法"的日志内容
+// 记 CRITICAL 日志并退出进程: 用于"CRC 合法但语义非法"的日志内容
 [[noreturn]] void raise_corrupt(const std::string& what)
 {
-    DB_RAISE(db::ErrCode::CorruptData, LogModule::STORAGE, "WAL 记录非法: {}", what);
+    DB_CRITICAL(LogModule::STORAGE, "WAL 记录非法: {}", what);
 }
 
 // 补丁记录语义校验: 定位字段与双向载荷长度合乎约定

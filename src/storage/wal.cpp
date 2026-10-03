@@ -31,6 +31,12 @@ constexpr uint32_t WAL_PAYLOAD_MAX = WAL_PATCH_HEADER_SIZE + 2 * PAGE_SIZE;
     DB_RAISE(db::ErrCode::IoError, LogModule::STORAGE, "{}: {}", what, std::strerror(err));
 }
 
+// 记 CRITICAL 日志并退出进程, 供编译期确认调用点终止
+[[noreturn]] void critical_io(const std::string& what, int err)
+{
+    DB_CRITICAL(LogModule::STORAGE, "{}: {}", what, std::strerror(err));
+}
+
 }  // namespace
 
 // ==================== Wal(写入侧) ====================
@@ -82,7 +88,7 @@ uint64_t Wal::append(WalOp op, uint64_t txn, const char* payload, uint32_t len)
             if (errno == EINTR) {
                 continue;
             }
-            raise_io("写 wal.log 失败", errno);
+            critical_io("写 wal.log 失败", errno);
         }
         done += static_cast<size_t>(n);
     }
@@ -94,7 +100,7 @@ uint64_t Wal::append(WalOp op, uint64_t txn, const char* payload, uint32_t len)
 void Wal::sync()
 {
     if (::fsync(fd_) != 0) {
-        raise_io("fsync wal.log 失败", errno);
+        critical_io("fsync wal.log 失败", errno);
     }
 }
 
@@ -104,10 +110,10 @@ void Wal::reset()
     // 历史 LSN 语义(新记录必须比旧记录大), 清空文件只是让"重放起点"归零;
     // 字节计数器随文件清空一并归零
     if (::ftruncate(fd_, 0) != 0) {
-        raise_io("清空 wal.log 失败", errno);
+        critical_io("清空 wal.log 失败", errno);
     }
     if (::fsync(fd_) != 0) {
-        raise_io("fsync wal.log 失败", errno);
+        critical_io("fsync wal.log 失败", errno);
     }
     bytes_since_reset_ = 0;
 }

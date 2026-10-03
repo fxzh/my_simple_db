@@ -1,10 +1,14 @@
 // test_storage.cpp: 存储引擎测试(不包含崩溃测试)
 #include <cstdio>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+#include <sys/wait.h>
+#include <unistd.h>
 
 #include <gtest/gtest.h>
 
@@ -398,8 +402,10 @@ TEST_F(StorageDb, TxnRollbackRestoresContent)
     }
 }
 
-// 运行期读页校验失败: 立即报错且重复读仍报错(损坏页不入缓存), 不静默重建空页
-TEST_F(StorageDb, CorruptDataPageReadFails)
+// 运行期读页校验失败: DB_CRITICAL 记 CRITICAL 日志后退出进程, 不静默重建空页;
+// 经 fork+exec 重跑本二进制的子进程模式验证(exec 后无残留线程, 退出排空日志不挂死),
+// 子进程 stderr 捕获 CRITICAL 文本, 退出码断言 EXIT_FAILURE
+TEST_F(StorageDb, CorruptDataPageReadExits)
 {
     const std::vector<ColumnSpec> cols = {{"id", ColType::Int, 0, true}};
     constexpr uint64_t fid = 200;
@@ -430,22 +436,48 @@ TEST_F(StorageDb, CorruptDataPageReadFails)
         std::fclose(f);
     }
 
-    Engine engine(dir.path);
+    ASSERT_EQ(setenv("MSDB_CORRUPT_PAGE_DIR", dir.path.c_str(), 1), 0);
+    int fds[2];
+    ASSERT_EQ(pipe(fds), 0);
+    const pid_t pid = fork();
+    ASSERT_GE(pid, 0);
+    if (pid == 0) {
+        dup2(fds[1], STDERR_FILENO);
+        close(fds[0]);
+        close(fds[1]);
+        execl("/proc/self/exe", "test_storage",
+              "--gtest_filter=StorageDb.CorruptDataPageReadExitsChild",
+              static_cast<char*>(nullptr));
+        _exit(127);
+    }
+    unsetenv("MSDB_CORRUPT_PAGE_DIR");
+    close(fds[1]);
+    std::string child_err;
+    char buf[512];
+    ssize_t n;
+    while ((n = read(fds[0], buf, sizeof(buf))) > 0) {
+        child_err.append(buf, static_cast<size_t>(n));
+    }
+    close(fds[0]);
+    int status = 0;
+    ASSERT_EQ(waitpid(pid, &status, 0), pid);
+    ASSERT_TRUE(WIFEXITED(status)) << "损坏数据页读取应以进程退出终止";
+    ASSERT_EQ(WEXITSTATUS(status), EXIT_FAILURE);
+    EXPECT_NE(child_err.find("数据页损坏"), std::string::npos) << child_err;
+}
+
+// 子进程模式: 读损坏数据目录触发 DB_CRITICAL 退出, 数据目录经环境变量传入
+TEST_F(StorageDb, CorruptDataPageReadExitsChild)
+{
+    const char* corrupt_dir = std::getenv("MSDB_CORRUPT_PAGE_DIR");
+    if (corrupt_dir == nullptr) {
+        GTEST_SKIP() << "仅由 CorruptDataPageReadExits 以子进程模式运行";
+    }
+    Engine engine(corrupt_dir);
     engine.open();
-    try {
-        engine.row_count(fid);
-        FAIL() << "损坏数据页读取应报错";
-    } catch (const db::DbError& e) {
-        EXPECT_EQ(e.code(), db::ErrCode::CorruptData);
-    }
-    // 同页重复读不命中垃圾缓存, 仍走到校验并报错
-    try {
-        engine.row_count(fid);
-        FAIL() << "损坏数据页重复读取应继续报错";
-    } catch (const db::DbError& e) {
-        EXPECT_EQ(e.code(), db::ErrCode::CorruptData);
-    }
-    engine.close();
+    constexpr uint64_t fid = 200;
+    engine.row_count(fid);
+    FAIL() << "损坏数据页读取应使进程退出";
 }
 
 // 落盘性原语在事务外调用报错

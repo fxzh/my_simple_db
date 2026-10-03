@@ -392,10 +392,8 @@ inline bool decode_command(std::string_view body, CommandTag& tag, uint64_t& cou
 enum class WireErrCode : uint16_t {
     // 以下注释禁止添加括号与括号内的额外说明
     IoError = 1,        // 文件/IO 类失败
-    CorruptCatalog = 2, // 元数据表损坏
     CatalogMissing = 3, // 元数据表缺失
     CatalogExists = 4,  // 元数据表已存在
-    CorruptData = 5,    // 数据页/记录损坏
     InvalidType = 6,    // 列类型非法
     TableNotFound = 7,  // 表不存在
     TableExists = 8,    // 表已存在

@@ -26,6 +26,12 @@ namespace {
     DB_RAISE(db::ErrCode::IoError, LogModule::STORAGE, "{}", msg);
 }
 
+// 记 CRITICAL 日志并退出进程, noreturn 供编译期确认调用点终止
+[[noreturn]] void critical_errno(const std::string& what, int err)
+{
+    DB_CRITICAL(LogModule::STORAGE, "{}", what + std::strerror(err));
+}
+
 }  // namespace
 
 FileManager::FileManager(std::string dir) : dir_(std::move(dir)) {}
@@ -106,7 +112,7 @@ void FileManager::read_page(uint64_t file_id, uint32_t page_no, char* out)
     const off_t off = static_cast<off_t>(static_cast<uint64_t>(page_no) * PAGE_SIZE);
     ssize_t n = ::pread(fd, out, PAGE_SIZE, off);
     if (n < 0) {
-        throw_errno("读页失败 ", errno);
+        critical_errno("读页失败 ", errno);
     }
     if (static_cast<size_t>(n) < PAGE_SIZE) {
         std::memset(out + n, 0, PAGE_SIZE - static_cast<size_t>(n));
@@ -119,10 +125,10 @@ void FileManager::write_page(uint64_t file_id, uint32_t page_no, const char* dat
     const off_t off = static_cast<off_t>(static_cast<uint64_t>(page_no) * PAGE_SIZE);
     ssize_t n = ::pwrite(fd, data, PAGE_SIZE, off);
     if (n < 0) {
-        throw_errno("写页失败 ", errno);
+        critical_errno("写页失败 ", errno);
     }
     if (n != static_cast<ssize_t>(PAGE_SIZE)) {
-        DB_RAISE(db::ErrCode::IoError, LogModule::STORAGE, "写页不完整");
+        DB_CRITICAL(LogModule::STORAGE, "写页不完整");
     }
 }
 
@@ -140,7 +146,7 @@ void FileManager::flush(uint64_t file_id)
         return;
     }
     if (::fsync(it->second) != 0) {
-        throw_errno("fsync 失败 ", errno);
+        critical_errno("fsync 失败 ", errno);
     }
 }
 
@@ -149,7 +155,7 @@ void FileManager::flush_all()
     for (const auto& [file_id, fd] : fds_) {
         (void)file_id;
         if (::fsync(fd) != 0) {
-            throw_errno("fsync 失败 ", errno);
+            critical_errno("fsync 失败 ", errno);
         }
     }
 }
@@ -163,7 +169,7 @@ void FileManager::flush_dir()
     if (::fsync(dfd) != 0) {
         const int err = errno;
         ::close(dfd);
-        throw_errno("fsync 数据目录失败 ", err);
+        critical_errno("fsync 数据目录失败 ", err);
     }
     ::close(dfd);
 }

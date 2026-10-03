@@ -21,10 +21,8 @@ namespace db {
 enum class ErrCode {
     // 以下注释禁止添加括号与括号内的额外说明
     IoError,        // 文件/IO 类失败
-    CorruptCatalog, // 元数据表损坏
     CatalogMissing, // 元数据表缺失
     CatalogExists,  // 元数据表已存在
-    CorruptData,    // 数据页/记录损坏
     InvalidType,    // 列类型非法
     TableNotFound,  // 表不存在
     TableExists,    // 表已存在
@@ -57,10 +55,8 @@ constexpr std::string_view errCodeName(ErrCode code) noexcept
 {
     switch (code) {
         case ErrCode::IoError:        return "IO_ERROR";
-        case ErrCode::CorruptCatalog: return "CORRUPT_CATALOG";
         case ErrCode::CatalogMissing: return "CATALOG_MISSING";
         case ErrCode::CatalogExists:  return "CATALOG_EXISTS";
-        case ErrCode::CorruptData:    return "CORRUPT_DATA";
         case ErrCode::InvalidType:    return "INVALID_TYPE";
         case ErrCode::TableNotFound:  return "TABLE_NOT_FOUND";
         case ErrCode::TableExists:    return "TABLE_EXISTS";
