@@ -48,7 +48,7 @@ void BufferPool::write_back(PageFrame& f, FileManager& files)
     // 却没调 mark_dirty 的代码路径, 把这样的页落盘会让无日志的修改外泄,
     // 崩溃后既无法重放也解释不了来源, 只能当场报错
     if (std::memcmp(f.before, f.data, PAGE_SIZE) != 0) {
-        DB_CRITICAL(LogModule::STORAGE, "脏页存在未记 WAL 的修改");
+        DB_CRASH(LogModule::STORAGE, "脏页存在未记 WAL 的修改");
     }
     files.write_page(f.page.file_id, f.page.page_no, f.data);
     f.dirty = false;

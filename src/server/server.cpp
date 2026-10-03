@@ -280,8 +280,8 @@ int main(int argc, char* argv[])
         std::unique_lock<std::mutex> lock(clients_mutex);
         if (!clients_cv.wait_for(lock, std::chrono::seconds(10),
                                  [] { return clients.empty(); })) {
-            DB_CRITICAL(SYSTEM, "等待客户端退出超时, 剩余 {} 个会话, 崩溃式退出",
-                        clients.size());
+            DB_CRASH(SYSTEM, "等待客户端退出超时, 剩余 {} 个会话, 崩溃式退出",
+                     clients.size());
         }
     }
 

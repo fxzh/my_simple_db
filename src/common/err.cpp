@@ -1,4 +1,4 @@
-// err.cpp: DB_RAISE/DB_CRITICAL 的非模板实现, 格式化与堆栈捕获收敛在库内完成
+// err.cpp: DB_RAISE/DB_CRITICAL/DB_CRASH 的非模板实现, 格式化与堆栈捕获收敛在库内完成
 #include "common/err.h"
 
 #include <boost/stacktrace.hpp>
@@ -31,9 +31,8 @@ static std::string withStacktrace(std::string_view message)
     throw DbError(code, std::move(message), location);
 }
 
-// std::exit 触发 Logger 静态析构, 以写线程 join 语义全量排空后退出
-[[noreturn]] void raise_critical_impl(LogModule module,
-                                      std::string_view fmt, std::format_args args)
+// 记 CRITICAL 日志(带堆栈), exit/abort 两种致命出口共用
+static void log_critical(LogModule module, std::string_view fmt, std::format_args args)
 {
     std::string message;
     try {
@@ -43,7 +42,22 @@ static std::string withStacktrace(std::string_view message)
     }
     Logger::getInstance().log(LogLevel::CRITICAL, module, "%s",
                               withStacktrace(message).c_str());
+}
+
+// std::exit 触发 Logger 静态析构, 以写线程 join 语义全量排空后退出
+[[noreturn]] void raise_critical_impl(LogModule module,
+                                      std::string_view fmt, std::format_args args)
+{
+    log_critical(module, fmt, args);
     std::exit(EXIT_FAILURE);
+}
+
+// 立即 abort: 不走静态析构与全量排空, 取证依赖 stderr 同步回显与 core dump
+[[noreturn]] void raise_crash_impl(LogModule module,
+                                   std::string_view fmt, std::format_args args)
+{
+    log_critical(module, fmt, args);
+    std::abort();
 }
 
 }  // namespace detail
