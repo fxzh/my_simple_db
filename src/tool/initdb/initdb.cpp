@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -24,18 +25,6 @@
 
 namespace {
 
-// 默认配置文件内容
-constexpr char kDefaultConf[] = R"(# my_simple_db 服务端配置
-# 语法: 一行一项 key = value, '#' 之后为注释
-# port           监听端口, 1~65535
-# control_socket 控制通道 socket 路径, 不配置时为数据目录/server.sock
-# buffer_pool_frames 缓冲池帧数, 16~1048576, 不配置时为 8192
-# wal_checkpoint_bytes 运行期检查点阈值(字节), 65536~1073741824, 不配置时为 16777216(16MB)
-# server_log_level 服务端日志级别, debug5~critical 之一(大小写不敏感), 不配置时为 info
-
-port = 8123
-)";
-
 // initdb 失败时日志的保留路径
 constexpr char kFailedLogPath[] = "/tmp/simple.log";
 
@@ -43,7 +32,7 @@ constexpr char kFailedLogPath[] = "/tmp/simple.log";
 constexpr int kPortLineTimeoutSec = 10;
 constexpr int kServerStopTimeoutSec = 10;
 
-// 在指定路径写入默认配置文件, 已存在或写入失败返回 false 并填充错误描述
+// 读伴生 db.conf.template 原样写入指定路径, 已存在/读取或写入失败返回 false 并填充错误描述
 bool write_default_conf(const std::string& path, std::string& error)
 {
     std::error_code ec;
@@ -55,12 +44,26 @@ bool write_default_conf(const std::string& path, std::string& error)
         error = "无法访问路径: " + path;
         return false;
     }
+    std::string template_path;
+    if (!utils::companion_path("db.conf.template", template_path, error)) {
+        return false;
+    }
+    std::ifstream in(template_path);
+    if (!in.is_open()) {
+        error = "无法打开配置模板: " + template_path;
+        return false;
+    }
+    std::string content{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+    if (in.bad()) {
+        error = "读取配置模板失败: " + template_path;
+        return false;
+    }
     std::ofstream out(path);
     if (!out.is_open()) {
         error = "无法创建配置文件: " + path;
         return false;
     }
-    out << kDefaultConf;
+    out << content;
     out.close();
     if (out.fail()) {
         std::filesystem::remove(path, ec);  // 清理写坏的残留文件

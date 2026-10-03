@@ -1,0 +1,9 @@
+# my_simple_db 服务端配置
+# 语法: 一行一项 key = value, '#' 之后为注释
+# 取消注释并修改值即可生效, 未配置的项使用默认值
+
+# port = 8123  # 监听端口, 1~65535
+# control_socket 控制通道 socket 路径, 不配置时为数据目录/server.sock
+# buffer_pool_frames = 8192  # 缓冲池帧数, 16~1048576
+# wal_checkpoint_bytes = 16777216  # 运行期检查点阈值(字节), 65536~1073741824(16MB)
+# server_log_level = info  # 服务端日志级别, debug5~critical 之一(大小写不敏感)
