@@ -145,7 +145,7 @@ bool send_result_stream(int sock, exec::ExecResult& result, int client_id, LogLe
     // 执行结果消息先于结束帧发出, 归入本条语句的响应流
     std::string exec_log = "ID:" + std::to_string(client_id) + " SQL执行结果: 返回 "
                          + std::to_string(total) + " 行";
-    LOG(INFO, EXECUTOR, "%s", exec_log.c_str());
+    LOG(DEBUG, EXECUTOR, "%s", exec_log.c_str());
     send_notice(sock, session_level, DEBUG, "执行结果: 返回 " + std::to_string(total) + " 行");
     if (!proto::send_frame(sock, proto::MsgType::ResultSetEnd, proto::encode_rs_end(total))) {
         return false;
@@ -187,7 +187,7 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
             break;
         }
         std::string log_msg = "来自 ID:" + std::to_string(client_id) + " 的SQL: " + msg_str;
-        LOG(INFO, NETWORK, "%s", log_msg.c_str());
+        LOG(DEBUG, NETWORK, "%s", log_msg.c_str());
         send_notice(client_socket, client_msg_level, DEBUG, "收到 SQL: " + msg_str);
 
         // 检查是否收到退出指令
@@ -216,7 +216,7 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
             continue;
         }
         std::string ok_log = "SQL解析成功 ID:" + std::to_string(client_id) + ": " + msg_str;
-        LOG(INFO, PARSER, "%s", ok_log.c_str());
+        LOG(DEBUG2, PARSER, "%s", ok_log.c_str());
         send_notice(client_socket, client_msg_level, DEBUG, "解析成功: " + msg_str);
         if (!stmt) {
             // 空输入或仅 ";", 无实际语句
@@ -377,7 +377,7 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
                 exec_log += " " + std::to_string(result.count);
                 exec_msg += " " + std::to_string(result.count);
             }
-            LOG(INFO, EXECUTOR, "%s", exec_log.c_str());
+            LOG(DEBUG, EXECUTOR, "%s", exec_log.c_str());
             send_notice(client_socket, client_msg_level, DEBUG, exec_msg);
             proto::send_frame(client_socket, proto::MsgType::Ok,
                               proto::encode_command(result.tag, result.count));
