@@ -243,17 +243,8 @@ void Catalog::open()
         DB_RAISE(db::ErrCode::CatalogMissing, LogModule::CATALOG, "数据目录未初始化或初始化未完成: {}",
                  dir_);
     }
-    // 索引文件同占 file_id 段: 并入分配起点; bootstrap 模式 db_index 由 bootstrap.sql 在
-    // open 之后创建, 缺失即尚未创建; 正常模式初始化完成后必存在, 缺失即元数据损坏
-    if (engine_.table_file_exists(kIndexMetaId)) {
-        // db_index 列定义不硬编码: 从 db_column 载入内存缓存, 后续读写均用缓存
-        index_cols_ = collect_columns(engine_, kIndexMetaId, kIndexMetaName);
-        for (const std::vector<st::Value>& row : engine_.read_rows(kIndexMetaId, index_cols_)) {
-            max_fid = std::max(max_fid, row_int(row, 3));
-        }
-    } else if (!bootstrap_mode_) {
-        DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "db_index 元数据表缺失");
-    }
+    // 索引文件同占 file_id 段: 并入分配起点
+    max_fid = std::max(max_fid, load_index_meta());
     next_file_id_.store(static_cast<uint64_t>(max_fid) + 1);
     next_table_id_.store(static_cast<uint64_t>(
             std::max(max_tid + 1, static_cast<int64_t>(kFirstUserTableId))));
@@ -262,6 +253,26 @@ void Catalog::open()
         max_sid = std::max(max_sid, row_int(row, 0));
     }
     next_schema_id_.store(static_cast<uint64_t>(max_sid) + 1);
+}
+
+// 加载 db_index 元数据并返回现存最大 file_id: 列定义从 db_column 载入内存缓存;
+// bootstrap 模式 db_index 由 bootstrap.sql 在 open 之后创建, 缺失返回 0;
+// 正常模式初始化完成后必存在, 缺失即元数据损坏
+int64_t Catalog::load_index_meta()
+{
+    if (!engine_.table_file_exists(kIndexMetaId)) {
+        if (bootstrap_mode_) {
+            return 0;
+        }
+        DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "db_index 元数据表缺失");
+    }
+    // db_index 列定义不硬编码: 从 db_column 载入内存缓存, 后续读写均用缓存
+    index_cols_ = collect_columns(engine_, kIndexMetaId, kIndexMetaName);
+    int64_t max_fid = 0;
+    for (const std::vector<st::Value>& row : engine_.read_rows(kIndexMetaId, index_cols_)) {
+        max_fid = std::max(max_fid, row_int(row, 3));
+    }
+    return max_fid;
 }
 
 void Catalog::close()
@@ -319,17 +330,9 @@ st::TableMeta Catalog::table_meta(const std::string& name)
 uint64_t Catalog::create_table(const std::string& name, const std::vector<st::ColumnSpec>& cols)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
-    // bootstrap 模式: 用 SET 的显式 table_id 建表, 未 set 与重复 id 报错; 正常模式自动分配
+    // bootstrap 模式走 SET 的显式 id 路径, 正常模式自动分配
     if (bootstrap_mode_) {
-        if (bootstrap_table_id_ == 0) {
-            DB_RAISE(db::ErrCode::InvalidDdl, LogModule::CATALOG,
-                     "bootstrap 模式 create table 前须 SET table_id");
-        }
-        if (has_table_id(bootstrap_table_id_)) {
-            DB_RAISE(db::ErrCode::TableExists, LogModule::CATALOG, "table_id 已被占用: {}",
-                     bootstrap_table_id_);
-        }
-        return create_table_impl(name, cols, bootstrap_table_id_);
+        return create_table_bootstrap(name, cols);
     }
     return create_table_impl(name, cols, alloc_table_id());
 }
@@ -383,6 +386,22 @@ uint64_t Catalog::create_table_impl(const std::string& name,
     // 先建数据文件, 再写元数据行, 保证元数据可见时数据文件必有效
     engine_.init_table_file(fid);
     write_meta_rows(kSystemSchemaId, tid, fid, name, cols);
+    return tid;
+}
+
+// bootstrap 模式建表(须持锁): 用 SET 的显式 table_id, 未 set 或 id 被占用报错
+uint64_t Catalog::create_table_bootstrap(const std::string& name,
+                                         const std::vector<st::ColumnSpec>& cols)
+{
+    if (bootstrap_table_id_ == 0) {
+        DB_RAISE(db::ErrCode::InvalidDdl, LogModule::CATALOG,
+                 "bootstrap 模式 create table 前须 SET table_id");
+    }
+    if (has_table_id(bootstrap_table_id_)) {
+        DB_RAISE(db::ErrCode::TableExists, LogModule::CATALOG, "table_id 已被占用: {}",
+                 bootstrap_table_id_);
+    }
+    const uint64_t tid = create_table_impl(name, cols, bootstrap_table_id_);
     if (tid == kIndexMetaId) {
         // bootstrap 建 db_index: 填充内存列定义缓存(open 时该表尚不存在)
         index_cols_ = cols;

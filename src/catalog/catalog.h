@@ -92,9 +92,16 @@ public:
     void set_bootstrap_table_id(uint64_t v) { bootstrap_table_id_ = v; }
 
 private:
+    // 加载 db_index 并返回现存最大 file_id(open 期不持锁调用): 列定义载入内存缓存,
+    // bootstrap 模式缺失返回 0(尚未由 bootstrap.sql 创建), 正常模式缺失报错
+    int64_t load_index_meta();
     // 建表公共路径(须持锁): 校验后按指定 table_id 建数据文件、写元数据行, file_id 内部分配
     uint64_t create_table_impl(const std::string& name, const std::vector<st::ColumnSpec>& cols,
                                uint64_t tid);
+    // bootstrap 模式建表(须持锁): 用 SET 的显式 table_id, 未 set 或被占用报错,
+    // 建 db_index 时填充内存列定义缓存
+    uint64_t create_table_bootstrap(const std::string& name,
+                                    const std::vector<st::ColumnSpec>& cols);
     // 写入指定表的元数据行(须持锁): db_table 一行, db_column 每列一行, 引导与建表共用
     void write_meta_rows(uint64_t sid, uint64_t tid, uint64_t fid, const std::string& name,
                          const std::vector<st::ColumnSpec>& cols);
