@@ -23,14 +23,20 @@ struct StorageDb : ::testing::Test {
     tcommon::TempDir dir;
 };
 
-// 引导数据目录(元数据表 + db_version 完成标记)后干净关闭, 供测试起步
+// 引导数据目录(元数据表 + db_index + db_version 完成标记)后干净关闭, 供测试起步;
+// 建表语句与 bootstrap.sql 保持一致
 inline void bootstrap_version_marker(const std::string& path)
 {
     ct::Catalog db(path, true);
     db.create();
     db.open();
-    db.set_bootstrap_table_id(5);
+    db.set_bootstrap_table_id(4);
     db.begin_txn();
+    db.create_table(ct::kIndexMetaName, {{"table_id", st::ColType::BigInt, 0, true},
+                                         {"index_name", st::ColType::VarChar, 64, true},
+                                         {"col_ordinal", st::ColType::Int, 0, true},
+                                         {"file_id", st::ColType::BigInt, 0, true}});
+    db.set_bootstrap_table_id(5);
     db.create_table(ct::kVersionMetaName, {{"version", st::ColType::BigInt, 0, true}});
     db.commit_txn();
     db.close();

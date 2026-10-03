@@ -31,6 +31,8 @@ enum class ErrCode {
     SchemaNotFound, // schema 不存在
     SchemaExists,   // schema 已存在
     SchemaNotEmpty, // 非空 schema 禁止删除
+    IndexExists,    // 索引已存在
+    IndexNotFound,  // 索引不存在
     ProtectedTable, // 保留段表禁止删除
     InvalidDdl,     // 建表参数非法
     ValueMismatch,  // 插入值与列类型不匹配
@@ -65,6 +67,8 @@ constexpr std::string_view errCodeName(ErrCode code) noexcept
         case ErrCode::SchemaNotFound: return "SCHEMA_NOT_FOUND";
         case ErrCode::SchemaExists:   return "SCHEMA_EXISTS";
         case ErrCode::SchemaNotEmpty: return "SCHEMA_NOT_EMPTY";
+        case ErrCode::IndexExists:    return "INDEX_EXISTS";
+        case ErrCode::IndexNotFound:  return "INDEX_NOT_FOUND";
         case ErrCode::ProtectedTable: return "PROTECTED_TABLE";
         case ErrCode::InvalidDdl:     return "INVALID_DDL";
         case ErrCode::ValueMismatch:  return "VALUE_MISMATCH";

@@ -68,17 +68,8 @@ TEST(HeapPage, DeleteCompact)
 // 建表/插入/删除/删表全链路, 各阶段经 close+open 验证持久化
 TEST_F(StorageDb, ReopenLifecycle)
 {
-    {
-        // bootstrap 模式建 db_version 完成标记(模拟 bootstrap.sql 结尾), 之后各阶段走正常模式
-        Catalog db(dir.path, true);
-        db.create();
-        db.open();
-        db.set_bootstrap_table_id(5);
-        db.begin_txn();
-        db.create_table(kVersionMetaName, {{"version", ColType::BigInt, 0, true}});
-        db.commit_txn();
-        db.close();
-    }
+    // 引导元数据表与 db_version 完成标记(模拟 bootstrap.sql), 之后各阶段走正常模式
+    bootstrap_version_marker(dir.path);
     {
         Catalog db(dir.path);
         db.open();

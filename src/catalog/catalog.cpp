@@ -98,6 +98,100 @@ std::pair<int64_t, st::ColumnSpec> parse_column_row(const std::vector<st::Value>
                                             static_cast<uint16_t>(length), not_null == 1}};
 }
 
+// 收集指定表的列定义(须持锁): 扫 db_column 匹配 tid 并按 ordinal 排序, 无列定义或序号重复报错
+std::vector<st::ColumnSpec> collect_columns(st::Engine& engine, uint64_t tid,
+                                            const std::string& name)
+{
+    std::vector<std::pair<int64_t, st::ColumnSpec>> pairs;
+    for (const std::vector<st::Value>& row : engine.read_rows(kColumnMetaId, column_meta_cols())) {
+        if (row_int(row, 0) == static_cast<int64_t>(tid)) {
+            pairs.push_back(parse_column_row(row));
+        }
+    }
+    if (pairs.empty()) {
+        DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "表无列定义: {}", name);
+    }
+    std::sort(pairs.begin(), pairs.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
+    for (size_t i = 1; i < pairs.size(); ++i) {
+        if (pairs[i].first == pairs[i - 1].first) {
+            DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "列序号重复: {}", name);
+        }
+    }
+    std::vector<st::ColumnSpec> cols;
+    cols.reserve(pairs.size());
+    for (std::pair<int64_t, st::ColumnSpec>& p : pairs) {
+        cols.push_back(std::move(p.second));
+    }
+    return cols;
+}
+
+// db_index 行条目: 索引定义 + db_index 内的行位置
+struct IndexEntry {
+    std::string name;
+    uint16_t col_ordinal = 0;
+    uint64_t file_id = 0;
+    st::RowRef row_ref;
+};
+
+// 该表全部索引(须持锁): 扫 db_index 匹配 table_id, 行值非法当场报错; cols 为 db_index 列定义
+std::vector<IndexEntry> table_indexes(st::Engine& engine, const std::vector<st::ColumnSpec>& cols,
+                                      uint64_t tid)
+{
+    st::TableMeta meta;
+    meta.table_id = kIndexMetaId;
+    meta.file_id = kIndexMetaId;
+    meta.cols = cols;
+    std::vector<IndexEntry> out;
+    st::Scanner scanner(&engine, meta);
+    st::Row row;
+    while (scanner.next(&row)) {
+        if (row_int(row.values, 0) != static_cast<int64_t>(tid)) {
+            continue;
+        }
+        const int64_t ordinal = row_int(row.values, 2);
+        const int64_t fid = row_int(row.values, 3);
+        if (ordinal < 0 || ordinal > UINT16_MAX) {
+            DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "索引列序号非法: {}", ordinal);
+        }
+        if (fid < 0) {
+            DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "索引文件 id 非法: {}", fid);
+        }
+        IndexEntry e;
+        e.name = row_str(row.values, 1);
+        e.col_ordinal = static_cast<uint16_t>(ordinal);
+        e.file_id = static_cast<uint64_t>(fid);
+        e.row_ref = row.ref;
+        out.push_back(std::move(e));
+    }
+    return out;
+}
+
+// 表内索引名是否已存在(须持锁): 全扫 db_index 匹配 table_id 与索引名
+bool has_index_name(st::Engine& engine, const std::vector<st::ColumnSpec>& cols, uint64_t tid,
+                    const std::string& name)
+{
+    for (const std::vector<st::Value>& row : engine.read_rows(kIndexMetaId, cols)) {
+        if (row_int(row, 0) == static_cast<int64_t>(tid) && row_str(row, 1) == name) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// 表内按名查索引(须持锁): 命中返回 true 并带出条目
+bool find_index(st::Engine& engine, const std::vector<st::ColumnSpec>& cols, uint64_t tid,
+                const std::string& name, IndexEntry& out)
+{
+    for (const IndexEntry& e : table_indexes(engine, cols, tid)) {
+        if (e.name == name) {
+            out = e;
+            return true;
+        }
+    }
+    return false;
+}
+
 }  // namespace
 
 // ==================== Catalog ====================
@@ -132,7 +226,8 @@ void Catalog::open()
                  "数据目录未初始化或初始化未完成: {}", dir_);
     }
     engine_.open();
-    // 此处先于客户端线程, 不持锁; 扫 db_table 取现存最大 file_id/table_id, 扫 db_schema 取现存最大 schema_id 作分配起点
+    // 此处先于客户端线程, 不持锁; 扫 db_table 取现存最大 file_id/table_id, 扫 db_schema 取现存最大
+    // schema_id, 扫 db_index 把索引文件 id 并入 file_id 分配起点
     int64_t max_fid = 0;
     int64_t max_tid = 0;
     bool has_version = false;
@@ -147,6 +242,17 @@ void Catalog::open()
     if (!bootstrap_mode_ && !has_version) {
         DB_RAISE(db::ErrCode::CatalogMissing, LogModule::CATALOG, "数据目录未初始化或初始化未完成: {}",
                  dir_);
+    }
+    // 索引文件同占 file_id 段: 并入分配起点; bootstrap 模式 db_index 由 bootstrap.sql 在
+    // open 之后创建, 缺失即尚未创建; 正常模式初始化完成后必存在, 缺失即元数据损坏
+    if (engine_.table_file_exists(kIndexMetaId)) {
+        // db_index 列定义不硬编码: 从 db_column 载入内存缓存, 后续读写均用缓存
+        index_cols_ = collect_columns(engine_, kIndexMetaId, kIndexMetaName);
+        for (const std::vector<st::Value>& row : engine_.read_rows(kIndexMetaId, index_cols_)) {
+            max_fid = std::max(max_fid, row_int(row, 3));
+        }
+    } else if (!bootstrap_mode_) {
+        DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "db_index 元数据表缺失");
     }
     next_file_id_.store(static_cast<uint64_t>(max_fid) + 1);
     next_table_id_.store(static_cast<uint64_t>(
@@ -277,6 +383,10 @@ uint64_t Catalog::create_table_impl(const std::string& name,
     // 先建数据文件, 再写元数据行, 保证元数据可见时数据文件必有效
     engine_.init_table_file(fid);
     write_meta_rows(kSystemSchemaId, tid, fid, name, cols);
+    if (tid == kIndexMetaId) {
+        // bootstrap 建 db_index: 填充内存列定义缓存(open 时该表尚不存在)
+        index_cols_ = cols;
+    }
     return tid;
 }
 
@@ -357,31 +467,11 @@ st::TableMeta Catalog::find_table_meta(const std::string& name)
         DB_RAISE(db::ErrCode::TableNotFound, LogModule::CATALOG, "表不存在: {}", name);
     }
 
-    std::vector<std::pair<int64_t, st::ColumnSpec>> pairs;
-    for (const std::vector<st::Value>& row : engine_.read_rows(kColumnMetaId, column_meta_cols())) {
-        if (row_int(row, 0) == static_cast<int64_t>(tid)) {
-            pairs.push_back(parse_column_row(row));
-        }
-    }
-    if (pairs.empty()) {
-        DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "表无列定义: {}", name);
-    }
-    std::sort(pairs.begin(), pairs.end(),
-              [](const auto& a, const auto& b) { return a.first < b.first; });
-    for (size_t i = 1; i < pairs.size(); ++i) {
-        if (pairs[i].first == pairs[i - 1].first) {
-            DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "列序号重复: {}", name);
-        }
-    }
-
     st::TableMeta meta;
     meta.table_id = tid;
     meta.file_id = fid;
     meta.name = name;
-    meta.cols.reserve(pairs.size());
-    for (std::pair<int64_t, st::ColumnSpec>& p : pairs) {
-        meta.cols.push_back(std::move(p.second));
-    }
+    meta.cols = collect_columns(engine_, tid, name);
     return meta;
 }
 
@@ -443,6 +533,11 @@ void Catalog::drop_table(const std::string& name)
     if (meta.table_id <= kReservedMaxTableId) {
         DB_RAISE(db::ErrCode::ProtectedTable, LogModule::CATALOG, "保留表禁止删除: {}", name);
     }
+    // 连带删除该表全部索引: 先删 db_index 行再删索引文件(与建索引顺序相反)
+    for (const IndexEntry& ent : table_indexes(engine_, index_cols_, meta.table_id)) {
+        engine_.delete_row(ent.row_ref);
+        engine_.remove_index_file(ent.file_id);
+    }
     delete_meta_rows(meta.table_id);
     engine_.remove_table_file(meta.file_id);
 }
@@ -480,12 +575,68 @@ void Catalog::drop_schema(const std::string& name)
     engine_.delete_row(ref);
 }
 
+void Catalog::create_index(const std::string& table, const std::string& index, uint16_t col_ordinal)
+{
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    const st::TableMeta meta = find_table_meta(table);
+    if (meta.table_id <= kReservedMaxTableId) {
+        DB_RAISE(db::ErrCode::ProtectedTable, LogModule::CATALOG, "保留表禁止建索引: {}", table);
+    }
+    if (index.empty()) {
+        DB_RAISE(db::ErrCode::InvalidDdl, LogModule::CATALOG, "索引名为空");
+    }
+    if (index.size() > kMetaNameLen) {
+        DB_RAISE(db::ErrCode::InvalidDdl, LogModule::CATALOG, "索引名超过 {} 字节上限", kMetaNameLen);
+    }
+    if (has_index_name(engine_, index_cols_, meta.table_id, index)) {
+        DB_RAISE(db::ErrCode::IndexExists, LogModule::CATALOG, "索引已存在: {}", index);
+    }
+    if (col_ordinal >= meta.cols.size()) {
+        DB_RAISE(db::ErrCode::Internal, LogModule::CATALOG, "索引列序号越界: {}", col_ordinal);
+    }
+    const uint64_t fid = alloc_file_id();
+    // 先建索引文件并全表回填, 再写元数据行, 保证元数据可见时索引文件必有效
+    engine_.init_index_file(fid);
+    engine_.build_index(meta.file_id, meta.cols, col_ordinal, fid);
+    st::RowRef ref;
+    engine_.insert_row(kIndexMetaId, index_cols_,
+                       {st::Value{static_cast<int64_t>(meta.table_id)}, st::Value{index},
+                        st::Value{static_cast<int64_t>(col_ordinal)},
+                        st::Value{static_cast<int64_t>(fid)}}, &ref);
+}
+
+void Catalog::drop_index(const std::string& table, const std::string& index)
+{
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    const st::TableMeta meta = find_table_meta(table);
+    if (meta.table_id <= kReservedMaxTableId) {
+        DB_RAISE(db::ErrCode::ProtectedTable, LogModule::CATALOG, "保留表禁止删索引: {}", table);
+    }
+    IndexEntry ent;
+    if (!find_index(engine_, index_cols_, meta.table_id, index, ent)) {
+        DB_RAISE(db::ErrCode::IndexNotFound, LogModule::CATALOG, "索引不存在: {}", index);
+    }
+    // 先删元数据行再删索引文件, 与建索引顺序相反
+    engine_.delete_row(ent.row_ref);
+    engine_.remove_index_file(ent.file_id);
+}
+
 st::RowId Catalog::insert(const std::string& table, const std::vector<st::Value>& values)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
     const st::TableMeta meta = find_table_meta(table);
     st::RowRef ref;
-    return engine_.insert_row(meta.file_id, meta.cols, values, &ref);
+    const st::RowId rid = engine_.insert_row(meta.file_id, meta.cols, values, &ref);
+    // 双写该表全部索引: 堆槽不复用使 (键, 行定位) 全局唯一
+    for (const IndexEntry& ent : table_indexes(engine_, index_cols_, meta.table_id)) {
+        if (ent.col_ordinal >= values.size()) {
+            DB_RAISE(db::ErrCode::CorruptCatalog, LogModule::CATALOG, "索引列序号越界: {}", ent.name);
+        }
+        engine_.index_insert(ent.file_id,
+                             encode_key(meta.cols[ent.col_ordinal].type, values[ent.col_ordinal]),
+                             ref);
+    }
+    return rid;
 }
 
 size_t Catalog::delete_by_ref(const st::RowRef& ref)

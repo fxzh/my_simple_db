@@ -70,6 +70,10 @@ public:
     void create_schema(const std::string& name);
     // 删 schema, 不存在的拒绝, 非空拒绝(不级联)
     void drop_schema(const std::string& name);
+    // 建索引: 建索引文件并全表回填后写 db_index 行, 索引名表内唯一, 列序号由绑定层解析
+    void create_index(const std::string& table, const std::string& index, uint16_t col_ordinal);
+    // 删索引, 表不存在/索引不存在当场报错, 先删 db_index 行再删索引文件
+    void drop_index(const std::string& table, const std::string& index);
     st::RowId insert(const std::string& table, const std::vector<st::Value>& values);
     // 删除单行(按扫描得到的物理位置), 已删引用返回 0, 无效引用报错
     size_t delete_by_ref(const st::RowRef& ref);
@@ -122,6 +126,7 @@ private:
     std::atomic<uint64_t> next_schema_id_{0};  // 下一个 schema_id, open() 扫 db_schema 取最大值+1 初始化
     bool bootstrap_mode_ = false;        // bootstrap 模式标志, 构造时由 server --bootstrap 传入
     uint64_t bootstrap_table_id_ = 0;    // SET table_id 变量, 0 表示未 set, 与 next_table_id_ 分配器无关
+    std::vector<st::ColumnSpec> index_cols_;  // db_index 列定义缓存, open 从 db_column 载入, bootstrap 建表时填充
 };
 
 }  // namespace ct

@@ -48,6 +48,8 @@ const char* tag_log_name(proto::CommandTag tag)
     case proto::CommandTag::DropTable: return "DROP";
     case proto::CommandTag::CreateSchema: return "CREATE_SCHEMA";
     case proto::CommandTag::DropSchema: return "DROP_SCHEMA";
+    case proto::CommandTag::CreateIndex: return "CREATE_INDEX";
+    case proto::CommandTag::DropIndex: return "DROP_INDEX";
     case proto::CommandTag::Insert: return "INSERT";
     case proto::CommandTag::Delete: return "DELETE";
     case proto::CommandTag::Set: return "SET";
@@ -73,6 +75,8 @@ proto::WireErrCode to_wire(db::ErrCode code)
     case db::ErrCode::SchemaNotFound: return proto::WireErrCode::SchemaNotFound;
     case db::ErrCode::SchemaExists:   return proto::WireErrCode::SchemaExists;
     case db::ErrCode::SchemaNotEmpty: return proto::WireErrCode::SchemaNotEmpty;
+    case db::ErrCode::IndexExists:    return proto::WireErrCode::IndexExists;
+    case db::ErrCode::IndexNotFound:  return proto::WireErrCode::IndexNotFound;
     case db::ErrCode::ProtectedTable: return proto::WireErrCode::ProtectedTable;
     case db::ErrCode::InvalidDdl:     return proto::WireErrCode::InvalidDdl;
     case db::ErrCode::ValueMismatch:  return proto::WireErrCode::ValueMismatch;

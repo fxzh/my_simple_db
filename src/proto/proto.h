@@ -46,6 +46,8 @@ enum class CommandTag : uint8_t {
     Begin = 8,        // 事务开始
     Commit = 9,       // 事务提交
     Rollback = 10,    // 事务回滚
+    CreateIndex = 11, // 建索引
+    DropIndex = 12,   // 删索引
 };
 
 // 读满 len 字节: 对端关闭或系统错误返回 false, EINTR 自动重试
@@ -372,7 +374,7 @@ inline bool decode_command(std::string_view body, CommandTag& tag, uint64_t& cou
         return false;
     }
     const auto t = static_cast<unsigned char>(body[0]);
-    if (t > static_cast<unsigned char>(CommandTag::Rollback)) {
+    if (t > static_cast<unsigned char>(CommandTag::DropIndex)) {
         return false;  // 未知 tag
     }
     tag = static_cast<CommandTag>(t);
@@ -417,6 +419,8 @@ enum class WireErrCode : uint16_t {
     BootstrapMode = 26,  // bootstrap 模式限制
     TooManyClients = 27, // 连接数超限
     InvalidVarValue = 28, // SET 变量值非法
+    IndexExists = 29,   // 索引已存在
+    IndexNotFound = 30, // 索引不存在
 };
 
 // Error body 布局: [code u16 大端][错误文案(余量全体)]
@@ -434,7 +438,7 @@ inline bool decode_error(std::string_view body, WireErrCode& code, std::string& 
     std::size_t off = 0;
     uint16_t v = 0;
     if (!take_u16(body, off, v) || v == 0
-        || v > static_cast<uint16_t>(WireErrCode::InvalidVarValue)) {
+        || v > static_cast<uint16_t>(WireErrCode::IndexNotFound)) {
         return false;
     }
     code = static_cast<WireErrCode>(v);

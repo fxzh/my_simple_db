@@ -90,7 +90,7 @@ rowid：表内自增 int64，由表文件头页计数器分配并随 insert 返�
 
 目录不是独立文件, 而是保留段元数据表, schema 硬编码引导, 不存于自身; 目录逻辑位于 src/catalog(ct::Catalog), 存储引擎只提供须持锁的按 file_id 原语。db_table(table_id, table_name, file_id, schema_id) 与 db_column(table_id, col_name, ordinal, type, length, not_null) 已实现: 元数据行为唯一事实来源, 无内存缓存, 查找实时全扫; create_table 先建数据文件再写元数据行, drop_table 反向; 引导与 open 校验见 catalog。db_schema(schema_id, schema_name) 引导写入唯一行 system(id=1); db_table.schema_id 现阶段所有表一律挂 system 名下, schema 名字解析未接入。
 
-M3 新增 db_index(table_id, index_name, col_ordinal, file_id): 每索引一行, 单列索引, col_ordinal 指向 db_column。DDL 规则: create_index 先建索引文件并全表回填再写元数据行, drop_index 反向, drop_table 连带删该表全部索引; 引导与 open 校验随之扩为四表。
+M3 新增 db_index(table_id, index_name, col_ordinal, file_id): 每索引一行, 单列索引, col_ordinal 指向 db_column, 索引名表内唯一(跨表可同名)。DDL 规则(已实现): create_index 先建索引文件并全表回填再写元数据行, drop_index 与 drop_table(连带删该表全部索引)反向; insert 对该表全部索引双写条目; open 扫 db_table 与 db_index 取 file_id 分配起点(bootstrap 模式 db_index 由 bootstrap.sql 在 open 后创建, 缺失跳过; 正常模式缺失即元数据损坏)。
 
 ## 7. 缓冲池 Buffer Pool
 
@@ -189,10 +189,10 @@ Commit(提交) / Abort(中止): 空 payload
 
 ## 11. SQL 链路接入（M5，规划）
 
-存储层索引就位后，文法与执行器按下述接入；本节为规划，暂不实现：
+存储层索引就位后，文法与执行器按下述接入；文法/绑定/DDL 执行已接入，本节其余为规划，暂不实现：
 
 - 文法（parser）：已接入 `CREATE INDEX name ON table (col);` 与 `DROP INDEX name ON table;`，单列，索引名表内唯一，UNIQUE 不做
-- 语义分析（analyzer）：已接入绑定：表/列存在性、索引列类型限 int/bigint/float/double、保留表拦截；执行暂报未实现；索引名表内查重与索引存在性校验待 catalog 写入方接入时实现
+- 语义分析（analyzer）：已接入绑定：表/列存在性、索引列类型限 int/bigint/float/double、保留表拦截；索引名表内查重与索引存在性校验在 catalog 持锁完成（DDL 执行已接入，executor 经 catalog 门面 create_index/drop_index）
 - 计划（planner）：现有 Project[Filter[SeqScan]] 之上，Filter 含 `col θ const`（θ ∈ =, <, ≤, >, ≥, BETWEEN）且该列有索引时，生成 IndexScan{键下界, 上界} 替换 SeqScan 并摘除该谓词，其余谓词留在 Filter；无适用索引维持 SeqScan（访问路径选择，非降级）
 - 执行（executor）：IndexScan 迭代 = 树范围扫描 → 回表取整行 → 堆槽墓碑跳过 → 残余 Filter 过滤 → 上抛 Project；UNIQUE 索引在 insert 前对键做等值预查，命中非墓碑行即拒绝
 - 依赖方向不变：executor 经 catalog 新增门面（create_index/drop_index/索引扫描原语）访问存储层
@@ -205,7 +205,7 @@ Commit(提交) / Abort(中止): 空 payload
 | M2 | 删除(墓碑标记)；页 checksum 校验读盘 | DELETE 行 |
 | M3 | 存储层二级索引：db_index 元数据表、索引文件生命周期、insert 双写、等值/范围查找与回表、建索引回填；键限 int/bigint/float/double 定长编码 | 存储层可建/维护/查询索引 |
 | M4 | WAL + checkpoint + recovery，接入 buffer_pool 刷盘判定（含索引页补丁与索引 DDL 记录）。已实现：物理 redo 补丁、检查点、启动重放 | 抗崩溃，事务提交语义 |
-| M5 | SQL 链路：CREATE/DROP INDEX 文法与绑定、planner 索引选择、IndexScan 执行、UNIQUE 索引（见 §11） | 客户端可建/用索引 |
+| M5 | SQL 链路：CREATE/DROP INDEX 文法与绑定、DDL 执行已实现；planner 索引选择、IndexScan 执行、UNIQUE 索引未做（见 §11） | 客户端可建/删/维护索引 |
 | M6 | 索引全类型键（char/varchar 变长编码，节点单元格布局）；条目删除与下溢合并；空闲页链表与 vacuum | varchar 索引、空间回收 |
 | M7(可选) | 表级锁 → 页闩锁 → MVCC | 并发读/写正确性 |
 

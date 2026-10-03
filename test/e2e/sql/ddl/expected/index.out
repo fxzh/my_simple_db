@@ -1,9 +1,9 @@
 CREATE TABLE idx_t (id int, name varchar(20), score double);
 CREATE
 CREATE INDEX idx_a ON idx_t (id);
-ERROR: CREATE INDEX 暂未实现
+CREATE
 create index idx_a on idx_t (score);
-ERROR: CREATE INDEX 暂未实现
+ERROR: 索引已存在: idx_a
 CREATE INDEX idx_b ON idx_t (name);
 ERROR: 索引列类型不支持: name
 CREATE INDEX idx_c ON idx_t (no_col);
@@ -18,17 +18,42 @@ CREATE INDEX idx_f idx_t (id);
 ERROR: 1.20-24: syntax error, unexpected IDENTIFIER, expecting ON
 CREATE INDEX idx_g ON idx_t id;
 ERROR: 1.29-30: syntax error, unexpected IDENTIFIER, expecting '('
+INSERT INTO idx_t VALUES (1, 'a', 1.5);
+INSERT 1
+INSERT INTO idx_t VALUES (2, NULL, NULL);
+INSERT 1
+DROP INDEX idx_z ON idx_t;
+ERROR: 索引不存在: idx_z
 DROP INDEX idx_a ON idx_t;
-ERROR: DROP INDEX 暂未实现
+DROP
+DROP INDEX idx_a ON idx_t;
+ERROR: 索引不存在: idx_a
 DROP INDEX idx_a ON no_table;
 ERROR: 表不存在: no_table
 DROP INDEX idx_a ON db_table;
 ERROR: 保留表名禁止使用: db_table
 DROP INDEX idx_a;
 ERROR: 1.17: syntax error, unexpected ';', expecting ON
+CREATE TABLE idx_u (v bigint);
+CREATE
+CREATE INDEX idx_a ON idx_u (v);
+CREATE
 BEGIN;
 BEGIN
 CREATE INDEX idx_h ON idx_t (id);
 ERROR: 事务内不允许 DDL 或 SET 语句, 事务已回滚
+CREATE INDEX idx_a ON idx_t (score);
+CREATE
+SELECT * FROM idx_t;
+ id | name | score
+----+------+-------
+ 1  | a    | 1.5
+ 2  | NULL | NULL
+(2 行)
+DROP TABLE idx_u;
+DROP
 DROP TABLE idx_t;
 DROP
+SELECT * FROM db_index;
+ table_id | index_name | col_ordinal | file_id
+(0 行)
