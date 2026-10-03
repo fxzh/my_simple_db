@@ -324,6 +324,31 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
             continue;
         }
 
+        // server_log_level 全局变量: 会话层短路处理, 调整服务端日志级别阈值, 对所有会话生效
+        if (kind == StmtKind::Set
+            && static_cast<const SetStmt&>(*stmt).var_name() == "server_log_level") {
+            const SetStmt& ss = static_cast<const SetStmt&>(*stmt);
+            const std::optional<LogLevel> lvl = levelFromString(ss.value());
+            if (!lvl.has_value()) {
+                std::string err_log = "ID:" + std::to_string(client_id)
+                                     + " server_log_level 值非法: " + ss.value();
+                LOG(WARNING, NETWORK, "%s", err_log.c_str());
+                send_error(client_socket, db::ErrCode::InvalidVarValue,
+                           "server_log_level 值非法: " + ss.value());
+                continue;
+            }
+            Logger::getInstance().setLevelThreshold(*lvl);
+            std::string set_log = "ID:" + std::to_string(client_id)
+                                + " 全局变量 server_log_level = "
+                                + std::string(levelToString(*lvl));
+            LOG(INFO, NETWORK, "%s", set_log.c_str());
+            send_notice(client_socket, client_msg_level, DEBUG,
+                        "server_log_level = " + std::string(levelToString(*lvl)));
+            proto::send_frame(client_socket, proto::MsgType::Ok,
+                              proto::encode_command(proto::CommandTag::Set, 0));
+            continue;
+        }
+
         // 事务开启: 自动提交语句为单语句事务, 显式事务首条语句取锁长持至 COMMIT/ROLLBACK
         if (in_txn) {
             if (!txn_started) {

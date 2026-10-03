@@ -57,3 +57,26 @@ TEST(Config, BadBufferPoolFrames)
     EXPECT_NE(r.exit_code, 0);
     EXPECT_NE(r.err.find("buffer_pool_frames 超出范围 16~1048576"), std::string::npos) << r.err;
 }
+
+// server_log_level 值非法时 server 拒绝启动
+TEST(Config, BadServerLogLevel)
+{
+    TempDir dir;
+    std::string error;
+    ASSERT_TRUE(dir.create("msdb_conf", error)) << error;
+    std::string data = (std::filesystem::path(dir.path) / "data").string();
+
+    ProcessResult r;
+    ASSERT_TRUE(run_ok({bin("initdb"), "-D", data}, 10000, r));
+    ASSERT_EQ(r.exit_code, 0) << r.err;
+
+    {
+        std::ofstream out(std::filesystem::path(data) / "db.conf");
+        out << "port = " << kTestPort << "\n"
+            << "server_log_level = banana\n";
+    }
+
+    ASSERT_TRUE(run_ok({bin("server"), "-D", data}, 5000, r));
+    EXPECT_NE(r.exit_code, 0);
+    EXPECT_NE(r.err.find("server_log_level 值非法"), std::string::npos) << r.err;
+}

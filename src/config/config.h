@@ -12,6 +12,7 @@ struct Config {
     std::string control_socket;  // 控制通道 socket 路径; 空串表示未配置, 缺省为数据目录/server.sock
     size_t buffer_pool_frames = 8192;  // 缓冲池帧数(页数)
     size_t wal_checkpoint_bytes = 16 * 1024 * 1024;  // 运行期检查点阈值(字节): WAL 自上次清空累计写入达到该值时在提交点做检查点
+    std::string server_log_level = "info";  // 服务端日志级别阈值(LogLevel 名, 大小写不敏感)
 };
 
 // 全局配置变量: load() 写入, 启动后只读

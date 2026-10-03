@@ -6,6 +6,7 @@
 
 // 初始化静态成员
 std::string Logger::log_path_;
+LogLevel Logger::init_level_ = LogLevel::INFO;
 
 // 私有构造函数
 Logger::Logger()
@@ -14,6 +15,9 @@ Logger::Logger()
     for (size_t i = 0; i <= static_cast<size_t>(LogModule::GENERAL); ++i) {
         modules_enabled_[i] = true;
     }
+
+    // 级别阈值取构造前设置的初值
+    level_threshold_.store(init_level_);
 
     // 打开日志文件
     if (log_path_.empty()) {
@@ -152,6 +156,9 @@ void Logger::echoCritical(const std::string& message)
 // 记录日志的主函数
 void Logger::log(LogLevel level, LogModule module, const char* format, ...)
 {
+    if (level < level_threshold_.load()) {
+        return;
+    }
     if (level < LogLevel::ERROR &&
         (!enabled_ || !modules_enabled_[static_cast<size_t>(module)])) {
         return;
@@ -182,6 +189,9 @@ void Logger::log(LogLevel level, LogModule module, const char* format, ...)
 void Logger::logWithSource(LogLevel level, LogModule module,
                            const std::source_location& location, const char* format, ...)
 {
+    if (level < level_threshold_.load()) {
+        return;
+    }
     if (level < LogLevel::ERROR &&
         (!enabled_ || !modules_enabled_[static_cast<size_t>(module)])) {
         return;
@@ -216,6 +226,9 @@ void Logger::logWithSource(LogLevel level, LogModule module,
 void Logger::logCppImpl(LogLevel level, LogModule module, std::string_view fmt,
                         std::format_args args)
 {
+    if (level < level_threshold_.load()) {
+        return;
+    }
     if (level < LogLevel::ERROR &&
         (!enabled_ || !modules_enabled_[static_cast<size_t>(module)])) {
         return;

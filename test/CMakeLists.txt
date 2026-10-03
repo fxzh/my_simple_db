@@ -81,6 +81,7 @@ target_compile_definitions(test_config PRIVATE
 )
 
 add_test(NAME config_bad_frames COMMAND test_config --gtest_filter=Config.BadBufferPoolFrames)
+add_test(NAME config_bad_log_level COMMAND test_config --gtest_filter=Config.BadServerLogLevel)
 
 # L2 SQL : 以 client -a -c 的 stdout 全文 diff 为唯一通过判据;
 # 实际输出与 diff 落盘至 e2e_out/<功能目录>_<stem>.{out,diff}

@@ -8,6 +8,7 @@
 #include <thread>
 #include <mutex>
 #include <atomic>
+#include <optional>
 #include <csignal>
 #include <sys/socket.h>
 #include <sys/file.h>
@@ -115,6 +116,15 @@ int main(int argc, char* argv[])
         }
     }
     Logger::initPath(log_path);
+
+    // 日志级别阈值初值来自 db.conf(缺省 info); config 已校验, 解析失败仍立即报错,
+    // 此时日志未构造, 报错只走控制台
+    const std::optional<LogLevel> log_level = levelFromString(config::cfg.server_log_level);
+    if (!log_level.has_value()) {
+        std::cerr << "server_log_level 值非法: " << config::cfg.server_log_level << std::endl;
+        return -1;
+    }
+    Logger::initLevel(*log_level);
 
     // 单实例锁: flock(pidfile), 锁随 fd 在进程生命周期内持有
     std::string pidfile = (data_dir_abs / "server.pid").string();

@@ -103,6 +103,9 @@ private:
     // 日志文件路径, 单例构造前由 initPath 设置
     static std::string log_path_;
 
+    // 级别阈值初值, 单例构造前由 initLevel 设置
+    static LogLevel init_level_;
+
     // 线程安全的日志队列
     std::queue<std::shared_ptr<LogMessage>> queue_;
     mutable std::mutex queue_mutex_;
@@ -118,6 +121,7 @@ private:
     
     // 日志控制
     std::atomic<bool> enabled_{true};
+    std::atomic<LogLevel> level_threshold_{LogLevel::INFO};
     std::atomic<bool> modules_enabled_[static_cast<size_t>(LogModule::GENERAL) + 1];
     
     // 私有构造函数
@@ -165,6 +169,12 @@ public:
     {
         log_path_ = path;
     }
+
+    // 设置级别阈值初值, 须在单例首次使用前调用
+    static void initLevel(LogLevel level)
+    {
+        init_level_ = level;
+    }
     
     // 记录日志的主函数
     void log(LogLevel level, LogModule module, const char* format, ...);
@@ -184,6 +194,12 @@ public:
     void setEnabled(bool enabled)
     {
         enabled_ = enabled;
+    }
+
+    // 运行期调整级别阈值, 低于阈值的日志整条丢弃
+    void setLevelThreshold(LogLevel level)
+    {
+        level_threshold_.store(level);
     }
     
     // 启用/禁用特定模块的日志

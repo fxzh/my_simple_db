@@ -56,6 +56,30 @@ std::string_view trim(std::string_view s)
     return s;
 }
 
+// 日志级别名集合(小写), 与 log 模块 LogLevel 枚举名一致, 修改须两侧同步
+constexpr std::string_view kLogLevelNames[] = {
+    "debug5", "debug4", "debug3", "debug2", "debug", "info",
+    "notice", "warning", "error", "critical",
+};
+
+// 判断值是否为合法日志级别名, 大小写不敏感
+bool is_log_level(std::string_view value)
+{
+    const auto lower = [](char c) {
+        return static_cast<char>(c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c);
+    };
+    for (std::string_view known : kLogLevelNames) {
+        bool match = value.size() == known.size();
+        for (std::size_t j = 0; match && j < value.size(); ++j) {
+            match = lower(value[j]) == known[j];
+        }
+        if (match) {
+            return true;
+        }
+    }
+    return false;
+}
+
 }  // namespace
 
 std::string conf_path(const std::string& data_dir)
@@ -143,6 +167,13 @@ bool load(const std::string& path, std::string& error)
             cfg.wal_checkpoint_bytes = static_cast<size_t>(num);
         } else if (key == "control_socket") {
             cfg.control_socket = std::string(value);
+        } else if (key == "server_log_level") {
+            if (!is_log_level(value)) {
+                error = "第 " + std::to_string(line_no) + " 行: " + std::string(key)
+                        + " 值非法";
+                return false;
+            }
+            cfg.server_log_level = std::string(value);
         } else {
             error = "第 " + std::to_string(line_no) + " 行: 未知配置项 " + std::string(key);
             return false;
