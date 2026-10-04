@@ -1,9 +1,10 @@
 // test_sql.cpp, 用法: test_sql <case.sql> <expected.out>
 // 以 client -a -c 的 stdout 与期望文件全文一致为唯一通过判据;
+// 预期文件缺失按空文件参与 diff 并强制失败, 照常执行 client;
 // 失败时输出行级 diff、client stderr 与服务端日志摘录;
-// 每次运行将实际输出落盘, 不一致时另存 diff(仅 diff 内容本身):
+// 每次运行将实际输出落盘, 失败时另存 diff(仅 diff 内容本身):
 //   <kOutDir>/<功能目录>_<stem>.out / .diff
-// 退出码: 0 一致 / 1 不一致或超时 / 2 用法与文件读取错误
+// 退出码: 0 一致 / 1 不一致或超时 / 2 用法与文件读取错误 / 3 预期文件缺失
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -121,9 +122,16 @@ int main(int argc, char* argv[])
         std::cerr << "读取用例失败: " << argv[1] << std::endl;
         return 2;
     }
+    // 期望缺失按空文件参与 diff; 存在但读失败/状态无法判定仍为硬错误
+    bool miss_expected = false;
     if (!read_file(argv[2], expected)) {
-        std::cerr << "读取期望失败: " << argv[2] << std::endl;
-        return 2;
+        std::error_code ex_ec;
+        const bool present = std::filesystem::exists(argv[2], ex_ec);
+        if (ex_ec || present) {
+            std::cerr << "读取期望失败: " << argv[2] << std::endl;
+            return 2;
+        }
+        miss_expected = true;
     }
 
     const std::string client = (std::filesystem::path(kBinDir) / "client").string();
@@ -136,7 +144,7 @@ int main(int argc, char* argv[])
         return 2;
     }
 
-    // 产物落盘: 实际输出始终保存(超时为部分输出也照存), 不一致时另存 diff,
+    // 产物落盘: 实际输出始终保存(超时为部分输出也照存), 失败时另存 diff,
     // 一致时清掉上轮失败残留的旧 diff; 落盘失败仅告警, 不影响判定
     std::error_code ec;
     std::filesystem::create_directories(kOutDir, ec);
@@ -147,7 +155,7 @@ int main(int argc, char* argv[])
         std::cerr << "警告: 实际输出落盘失败: " << actual_path << std::endl;
     }
 
-    if (!r.timed_out && r.out == expected) {
+    if (!miss_expected && !r.timed_out && r.out == expected) {
         std::error_code rm_ec;
         std::filesystem::remove(diff_path, rm_ec);  // 旧 diff 不存在时无副作用
         return 0;
@@ -157,7 +165,11 @@ int main(int argc, char* argv[])
     if (!write_file(diff_path, diff)) {
         std::cerr << "警告: diff 落盘失败: " << diff_path << std::endl;
     }
-    std::cerr << "diff 不一致: " << argv[1] << std::endl;
+    if (miss_expected) {
+        std::cerr << "预期文件缺失: " << argv[2] << std::endl;
+    } else {
+        std::cerr << "diff 不一致: " << argv[1] << std::endl;
+    }
     if (r.timed_out) {
         std::cerr << "client 超时被杀" << std::endl;
     }
@@ -170,5 +182,5 @@ int main(int argc, char* argv[])
     if (tcommon::read_file_tail(log, 4096, tail, error)) {
         std::cerr << "-- 服务端日志尾 --" << std::endl << tail;
     }
-    return 1;
+    return miss_expected ? 3 : 1;
 }
