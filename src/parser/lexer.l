@@ -120,7 +120,13 @@ WS       [ \t\r]
 }
 
 {ID} {
-    yylval->build<std::string>(yytext);
+    // 裸标识符: ASCII 大写字母折叠为小写
+    std::string val;
+    for (int i = 0; i < yyleng; ++i) {
+        char c = yytext[i];
+        val += c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+    }
+    yylval->build<std::string>(std::move(val));
     return yy::parser::token::IDENTIFIER;
 }
 
