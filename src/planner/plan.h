@@ -13,8 +13,8 @@ namespace pl {
 
 // 计划节点种类, 供执行层按类型分派
 enum class PlanKind {
-    SeqScan, Filter, Project, Insert, Delete, CreateTable, DropTable, CreateSchema, DropSchema,
-    CreateIndex, DropIndex, Set,
+    SeqScan, Filter, Project, Insert, Delete, Update, CreateTable, DropTable, CreateSchema,
+    DropSchema, CreateIndex, DropIndex, Set,
 };
 
 // 计划节点基类: 表达式为绑定树, 由计划节点持有
@@ -55,6 +55,14 @@ struct DeletePlan : PlanNode {
     std::string table;
     std::unique_ptr<PlanNode> child;
     PlanKind kind() const override { return PlanKind::Delete; }
+};
+
+// 更新: 赋值右值基于旧行求值后替换目标列; child 为空表示全表更新, 非空为 Filter(SeqScan) 子树
+struct UpdatePlan : PlanNode {
+    std::string table;
+    std::vector<ana::BoundUpdateItem> assigns;
+    std::unique_ptr<PlanNode> child;
+    PlanKind kind() const override { return PlanKind::Update; }
 };
 
 // 建表: 列规格已完成类型映射与长度校验

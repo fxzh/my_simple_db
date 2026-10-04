@@ -21,7 +21,7 @@ struct ProjCol {
 // 绑定语句种类, 供执行层按类型分派
 enum class BoundKind {
     CreateTable, DropTable, CreateSchema, DropSchema, CreateIndex, DropIndex, Insert, Delete,
-    Select, Set,
+    Update, Select, Set,
 };
 
 // 绑定语句基类: 表达式为绑定树, 由语句对象持有
@@ -82,6 +82,20 @@ struct BoundDelete : BoundStmt {
     std::string table;
     std::unique_ptr<BoundExpr> where;
     BoundKind kind() const override { return BoundKind::Delete; }
+};
+
+// UPDATE 赋值项: 目标列行内下标 + 新值绑定表达式
+struct BoundUpdateItem {
+    size_t col_idx = 0;
+    std::unique_ptr<BoundExpr> value;
+};
+
+// UPDATE: 赋值右值为行上下文绑定树, 全部基于同一旧行求值后替换目标列; where 为空表示全表更新
+struct BoundUpdate : BoundStmt {
+    std::string table;
+    std::vector<BoundUpdateItem> assigns;
+    std::unique_ptr<BoundExpr> where;
+    BoundKind kind() const override { return BoundKind::Update; }
 };
 
 // SELECT: 投影已展开(star 列定位/输出列名), where 为空表示无过滤

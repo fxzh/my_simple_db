@@ -97,6 +97,21 @@ std::unique_ptr<PlanNode> build(ana::BoundStmt& bound)
         }
         return p;
     }
+    case ana::BoundKind::Update: {
+        auto& bs = static_cast<ana::BoundUpdate&>(bound);
+        auto p = std::make_unique<UpdatePlan>();
+        p->table = bs.table;
+        p->assigns = std::move(bs.assigns);
+        if (bs.where != nullptr) {
+            auto scan = std::make_unique<SeqScanPlan>();
+            scan->table = bs.table;
+            auto filter = std::make_unique<FilterPlan>();
+            filter->pred = std::move(bs.where);
+            filter->child = std::move(scan);
+            p->child = std::move(filter);
+        }
+        return p;
+    }
     case ana::BoundKind::Select:
         return build_select(static_cast<ana::BoundSelect&>(bound));
     case ana::BoundKind::Set: {

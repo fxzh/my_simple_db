@@ -120,6 +120,9 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt)
         const uint64_t n = p.child != nullptr ? run_delete_where(db, p) : db.delete_all(p.table);
         return tag_result(proto::CommandTag::Delete, n);
     }
+    case pl::PlanKind::Update:
+        // UPDATE 执行暂缺, 语义层已就绪
+        DB_RAISE(db::ErrCode::NotImplemented, LogModule::EXECUTOR, "UPDATE 执行暂未实现");
     case pl::PlanKind::Project:
         return run_select(db, std::move(plan));
     case pl::PlanKind::Set: {

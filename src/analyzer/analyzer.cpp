@@ -227,6 +227,40 @@ bool may_be_null(const Expr& expr)
     DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知表达式节点");
 }
 
+// 表达式是否引用列: 含标识符节点即非纯常量, 可空性与字面量长度/范围不再可静态判定
+bool has_col_ref(const Expr& expr)
+{
+    switch (expr.kind()) {
+    case ExprKind::Int:
+    case ExprKind::Float:
+    case ExprKind::String:
+    case ExprKind::Null:
+        return false;
+    case ExprKind::Identifier:
+        return true;
+    case ExprKind::BinaryOp: {
+        const auto& e = static_cast<const BinaryOpExpr&>(expr);
+        return has_col_ref(*e.left) || has_col_ref(*e.right);
+    }
+    case ExprKind::UnaryOp:
+        return has_col_ref(*static_cast<const UnaryOpExpr&>(expr).operand);
+    case ExprKind::Compare: {
+        const auto& e = static_cast<const CompareExpr&>(expr);
+        return has_col_ref(*e.left) || has_col_ref(*e.right);
+    }
+    case ExprKind::Logic: {
+        const auto& e = static_cast<const LogicExpr&>(expr);
+        return has_col_ref(*e.left) || has_col_ref(*e.right);
+    }
+    case ExprKind::Not:
+        return has_col_ref(*static_cast<const NotExpr&>(expr).operand);
+    case ExprKind::IsNull:
+        return has_col_ref(*static_cast<const IsNullExpr&>(expr).operand);
+    }
+    // 不可达: 全部表达式种类已在上方穷尽
+    DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知表达式节点");
+}
+
 // WHERE 条件绑定: 须为布尔(NULL 视为 UNKNOWN 放行), 返回绑定谓词树
 std::unique_ptr<BoundExpr> bind_where(const Expr& where, const Schema& schema)
 {
@@ -277,6 +311,29 @@ void check_value_type(const Expr& expr, ExprType t, const st::ColumnSpec& col)
         ok = t == ExprType::String
              && (col.length == 0
                  || static_cast<const StringExpr&>(expr).value.size() <= col.length);
+        break;
+    }
+    if (!ok) {
+        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "值与列类型不匹配");
+    }
+}
+
+// 行上下文右值与列的静态类型匹配: NULL 静态类型放行, 空值/长度/范围留待执行期
+void check_update_type(ExprType t, const st::ColumnSpec& col)
+{
+    bool ok = false;
+    switch (col.type) {
+    case st::ColType::Int:
+    case st::ColType::BigInt:
+        ok = t == ExprType::Int || t == ExprType::Null;
+        break;
+    case st::ColType::Float:
+    case st::ColType::Double:
+        ok = t == ExprType::Double || t == ExprType::Null;
+        break;
+    case st::ColType::Char:
+    case st::ColType::VarChar:
+        ok = t == ExprType::String || t == ExprType::Null;
         break;
     }
     if (!ok) {
@@ -374,7 +431,7 @@ std::vector<std::unique_ptr<BoundExpr>> bind_insert_row(
     return row;
 }
 
-// 保留表名拦截: 系统元数据表禁止 drop/insert/delete
+// 保留表名拦截: 系统元数据表禁止 drop/insert/delete/update
 // (select 可查元数据, create 由存储层按表已存在拒绝)
 void check_reserved_table(const std::string& name)
 {
@@ -518,9 +575,53 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt)
         }
         return b;
     }
-    case StmtKind::Update:
-        // UPDATE 语法已接入, 语义与执行暂缺
-        DB_RAISE(db::ErrCode::NotImplemented, LogModule::ANALYZER, "UPDATE 语句暂不支持");
+    case StmtKind::Update: {
+        const auto& us = static_cast<const UpdateStmt&>(stmt);
+        check_reserved_table(us.table_name());
+        const st::TableMeta meta = db.table_meta(us.table_name());
+        const Schema schema = build_schema(meta);
+        auto b = std::make_unique<BoundUpdate>();
+        b->table = us.table_name();
+        b->assigns.reserve(us.assignments().size());
+        for (const UpdateItem& item : us.assignments()) {
+            const auto it = schema.cols.find(item.column);
+            if (it == schema.cols.end()) {
+                DB_RAISE(db::ErrCode::UnknownColumn, LogModule::ANALYZER, "列不存在: {}",
+                         item.column);
+            }
+            for (const BoundUpdateItem& a : b->assigns) {
+                if (a.col_idx == it->second) {
+                    DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
+                             "更新列清单中列重复: {}", item.column);
+                }
+            }
+            BoundUpdateItem a;
+            a.col_idx = it->second;
+            ExprType t;
+            // 行上下文: 右值基于旧行求值, 赋值间互不可见
+            a.value = bind_expr(*item.value, &schema, t);
+            if (t == ExprType::Bool && !may_be_null(*item.value)) {
+                DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
+                         "布尔值不可作为存储或输出值");
+            }
+            const st::ColumnSpec& col = meta.cols[it->second];
+            if (has_col_ref(*item.value)) {
+                check_update_type(t, col);
+            } else {
+                // 纯常量右值: 与插入同构的 NOT NULL/长度/范围检查
+                if (col.not_null && may_be_null(*item.value)) {
+                    DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
+                             "NOT NULL 列不允许 NULL: {}", col.name);
+                }
+                check_value_type(*item.value, t, col);
+            }
+            b->assigns.push_back(std::move(a));
+        }
+        if (us.where_expr() != nullptr) {
+            b->where = bind_where(*us.where_expr(), schema);
+        }
+        return b;
+    }
     case StmtKind::Select: {
         const auto& ss = static_cast<const SelectStmt&>(stmt);
         const st::TableMeta meta = db.table_meta(ss.table_name());
