@@ -68,8 +68,8 @@ public:
     // 提交: 有记录则追加 Commit 并 fsync(持久化边界), 之后统一 unlink
     // pending_drops 登记的文件, 清除事务上下文
     void commit_txn();
-    // 回滚: 按 undo 列表逆序把 before 字节覆写回磁盘页, 有记录则追加 Abort,
-    // 取消 pending_drops(不删文件), 清除事务上下文
+    // 回滚: 按 undo 列表逆序把 before 字节覆写回磁盘页并逆序恢复尾页跟踪,
+    // 有记录则追加 Abort, 取消 pending_drops(不删文件), 清除事务上下文
     void rollback_txn();
     // 是否存在活动事务
     bool in_txn() const { return txn_ != nullptr; }
@@ -116,6 +116,9 @@ private:
     void check_txn(uint64_t fid = 0) const;
     // 建首个数据页(页号 1)并链到文件头页, 返回新页号
     uint32_t link_header_to_first_data_page(uint64_t file_id);
+    // 磁盘尾页号: 从最高页起向下跳过全零页(页分配被回滚或崩溃恢复撤销的残留),
+    // 无有效数据页返回 0
+    uint32_t disk_tail_page(uint64_t file_id);
     // 校验行引用页位置: 缺页位置/页 0/页号越界当场报错
     void check_row_ref(const RowRef& ref) const;
 
@@ -123,7 +126,7 @@ private:
     FileManager files_;
     Wal wal_;                                            // 预写日志, 须先于 pool_ 声明(池持其引用)
     BufferPool pool_;
-    std::unordered_map<uint64_t, uint32_t> tail_pages_;  // 文件 -> 最高页号(含仅存内存的页)
+    std::unordered_map<uint64_t, uint32_t> tail_pages_;  // 文件 -> 最高页号(含仅存内存的页, 随事务回滚恢复)
     std::unordered_map<uint64_t, BTree> trees_;          // 索引文件 -> 树(根页号与页分配跟踪)
     std::unique_ptr<TxnContext> txn_;                    // 活动事务上下文, 至多一个
     bool open_ = false;

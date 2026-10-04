@@ -122,6 +122,15 @@ void Engine::rollback_txn()
         pool_.restore_region(PageId{it->fid, it->page_no}, it->off, it->len, it->before.data(),
                              files_);
     }
+    // 尾页跟踪同样逆序恢复: 本事务新分配的页已随字节 undo 还原为全零,
+    // 残留的尾页号会让后续插行写进游离于页链之外的页
+    for (auto it = txn_->tail_undo.rbegin(); it != txn_->tail_undo.rend(); ++it) {
+        if (it->had) {
+            tail_pages_[it->fid] = it->old_tail;
+        } else {
+            tail_pages_.erase(it->fid);
+        }
+    }
     // Abort 不 fsync: 崩溃丢失时按崩溃中止处理, 恢复期重放 undo 幂等无害
     if (txn_->wrote) {
         wal_.append(WalOp::Abort, txn_->txn_id, nullptr, 0);
@@ -183,6 +192,23 @@ uint32_t Engine::link_header_to_first_data_page(uint64_t file_id)
     return new_no;
 }
 
+// 磁盘尾页号(须持锁): 从最高页起向下跳过全零页(页分配被回滚或崩溃恢复撤销的
+// 残留, 不在页链上), 无有效数据页返回 0
+uint32_t Engine::disk_tail_page(uint64_t file_id)
+{
+    const uint32_t pages = files_.page_count(file_id);
+    uint32_t tail = pages == 0 ? 0 : pages - 1;
+    char buf[PAGE_SIZE];
+    while (tail > 0) {
+        files_.read_page(file_id, tail, buf);
+        if (!page_all_zero(buf)) {
+            break;
+        }
+        --tail;
+    }
+    return tail;
+}
+
 // 插行(须持锁且在事务内): 值合法性由调用方保证, 编码后追加并分配 rowid, ref 输出新行物理位置
 RowId Engine::insert_row(uint64_t file_id, const std::vector<ColumnSpec>& cols,
                          const std::vector<Value>& values, RowRef* ref)
@@ -205,15 +231,17 @@ RowId Engine::insert_row(uint64_t file_id, const std::vector<ColumnSpec>& cols,
     pool_.mark_dirty(h);
     pool_.unpin(h);
 
-    // 尾页可能只在内存中(尚未落盘), 用 tail_pages_ 记住最高页号
+    // 尾页可能只在内存中(尚未落盘), 用 tail_pages_ 记住最高页号;
+    // 磁盘推导经 disk_tail_page 跳过尾部全零孤儿页
     uint32_t tail = 0;
     auto it = tail_pages_.find(file_id);
     if (it != tail_pages_.end()) {
         tail = it->second;
-    } else if (files_.page_count(file_id) == 1) {
-        tail = link_header_to_first_data_page(file_id);
     } else {
-        tail = files_.page_count(file_id) - 1;
+        tail = disk_tail_page(file_id);
+    }
+    if (tail == 0) {
+        tail = link_header_to_first_data_page(file_id);
     }
 
     for (;;) {
@@ -223,6 +251,9 @@ RowId Engine::insert_row(uint64_t file_id, const std::vector<ColumnSpec>& cols,
         if (heap_append(pg, rec.data(), static_cast<uint16_t>(rec.size()), &slot)) {
             pool_.mark_dirty(pg);
             pool_.unpin(pg);
+            const auto old = tail_pages_.find(file_id);
+            const bool had = old != tail_pages_.end();
+            txn_->tail_undo.push_back(TailUndo{file_id, had, had ? old->second : 0});
             tail_pages_[file_id] = tail;
             *ref = RowRef{pid, slot};
             return rid;

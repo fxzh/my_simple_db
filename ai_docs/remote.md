@@ -13,7 +13,7 @@
 无error(所有warning被视为error), 如果某种必要的写法触发了某项编译warning, 停止工作并报告
 
 # 远程启停
-当前已支持服务端控制程序 serverctl
+当前已支持服务端控制程序(二进制) serverctl
 ./serverctl start 启动数据库
 ./serverctl stop 关闭数据库
 

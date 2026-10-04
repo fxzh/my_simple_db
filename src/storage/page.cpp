@@ -73,6 +73,12 @@ bool page_valid(const char* page, uint32_t magic)
     return header(page)->checksum == page_checksum(page);
 }
 
+bool page_all_zero(const char* page)
+{
+    static const char zero_page[PAGE_SIZE] = {};
+    return std::memcmp(page, zero_page, PAGE_SIZE) == 0;
+}
+
 PageHeader* header(char* page)
 {
     return reinterpret_cast<PageHeader*>(page);

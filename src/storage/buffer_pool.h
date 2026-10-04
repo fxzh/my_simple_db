@@ -37,12 +37,20 @@ struct UndoEntry {
     std::vector<char> before;
 };
 
+// 尾页跟踪回滚条目: tail_pages_ 写入前的旧值, had 为 false 表示原先无记录
+struct TailUndo {
+    uint64_t fid;
+    bool had;
+    uint32_t old_tail;
+};
+
 // 活动事务上下文: Engine 持有并注入缓冲池; log_page_diff 产出的补丁把 before 侧
-// 追加进 undo, 延迟 unlink 的 fid 登记进 pending_drops
+// 追加进 undo, 延迟 unlink 的 fid 登记进 pending_drops, 尾页跟踪的旧值登记进 tail_undo
 struct TxnContext {
     uint64_t txn_id = 0;                  // Wal 分配的事务号
     bool wrote = false;                   // 是否已产生 WAL 记录
     std::vector<UndoEntry> undo;          // 回滚时逆序回放
+    std::vector<TailUndo> tail_undo;      // 尾页跟踪旧值, 回滚时逆序恢复
     std::vector<uint64_t> pending_drops;  // 已记 DropFile、待提交后 unlink 的 fid
 };
 

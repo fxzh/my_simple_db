@@ -56,6 +56,9 @@ uint32_t crc32(const char* data, size_t len);
 // 校验页: 魔数与校验和同时正确
 bool page_valid(const char* page, uint32_t magic);
 
+// 判断整页是否全零
+bool page_all_zero(const char* page);
+
 // 页头指针
 PageHeader* header(char* page);
 const PageHeader* header(const char* page);
