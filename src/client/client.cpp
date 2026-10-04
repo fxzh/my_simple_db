@@ -77,7 +77,7 @@ std::string cell_text(const proto::CellVal& cell)
     return "NULL";
 }
 
-// 命令标签展示文本: 标签关键词, insert/delete 附影响行数
+// 命令标签展示文本: 标签关键词, insert/delete/update 附影响行数
 std::string command_display(proto::CommandTag tag, uint64_t count)
 {
     switch (tag) {
@@ -97,6 +97,8 @@ std::string command_display(proto::CommandTag tag, uint64_t count)
         return "INSERT " + std::to_string(count);
     case proto::CommandTag::Delete:
         return "DELETE " + std::to_string(count);
+    case proto::CommandTag::Update:
+        return "UPDATE " + std::to_string(count);
     case proto::CommandTag::Set:
         return "SET";
     case proto::CommandTag::Begin:

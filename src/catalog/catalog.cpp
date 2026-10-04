@@ -671,6 +671,34 @@ size_t Catalog::delete_by_ref(const st::RowRef& ref)
     return engine_.delete_row(ref);
 }
 
+size_t Catalog::update_rows(const std::string& table, const std::vector<RowUpdate>& rows)
+{
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    const st::TableMeta meta = find_table_meta(table);
+    const std::vector<IndexEntry> indexes = table_indexes(engine_, index_cols_, meta.table_id);
+    for (const RowUpdate& r : rows) {
+        if (r.ref.page.file_id != meta.file_id) {
+            DB_RAISE(db::ErrCode::Internal, LogModule::CATALOG, "更新引用与目标表文件不符: fid={}",
+                     r.ref.page.file_id);
+        }
+        if (engine_.delete_row(r.ref) == 0) {
+            DB_RAISE(db::ErrCode::Internal, LogModule::CATALOG, "更新引用指向已删行");
+        }
+        st::RowRef new_ref;
+        engine_.insert_row(meta.file_id, meta.cols, r.values, &new_ref);
+        // 新行位置已变, 该表全部索引(不只被更新列)都要补新条目
+        for (const IndexEntry& ent : indexes) {
+            if (ent.col_ordinal >= r.values.size()) {
+                DB_CRITICAL(LogModule::CATALOG, "索引列序号越界: {}", ent.name);
+            }
+            engine_.index_insert(
+                    ent.file_id,
+                    encode_key(meta.cols[ent.col_ordinal].type, r.values[ent.col_ordinal]), new_ref);
+        }
+    }
+    return rows.size();
+}
+
 size_t Catalog::delete_all(const std::string& table)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);

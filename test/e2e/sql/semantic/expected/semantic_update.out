@@ -1,0 +1,24 @@
+UPDATE no_table SET a = 1;
+ERROR: 表不存在: no_table
+UPDATE db_table SET table_name = 'x';
+ERROR: 保留表名禁止使用: db_table
+CREATE TABLE t_sem (id int NOT NULL, name varchar(8), score double);
+CREATE
+UPDATE t_sem SET no_col = 1;
+ERROR: 列不存在: no_col
+UPDATE t_sem SET id = 1, id = 2;
+ERROR: 更新列清单中列重复: id
+UPDATE t_sem SET id = NULL;
+ERROR: NOT NULL 列不允许 NULL: id
+UPDATE t_sem SET id = 'abc';
+ERROR: 值与列类型不匹配
+UPDATE t_sem SET id = 1.5;
+ERROR: 值与列类型不匹配
+UPDATE t_sem SET name = 'abcdefghijk';
+ERROR: 值与列类型不匹配
+UPDATE t_sem SET id = id > 1;
+ERROR: 布尔值不可作为存储或输出值
+UPDATE t_sem SET id = 1 WHERE id + 1;
+ERROR: WHERE 条件不是布尔表达式
+DROP TABLE t_sem;
+DROP

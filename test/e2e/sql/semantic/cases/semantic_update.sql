@@ -1,0 +1,12 @@
+UPDATE no_table SET a = 1;
+UPDATE db_table SET table_name = 'x';
+CREATE TABLE t_sem (id int NOT NULL, name varchar(8), score double);
+UPDATE t_sem SET no_col = 1;
+UPDATE t_sem SET id = 1, id = 2;
+UPDATE t_sem SET id = NULL;
+UPDATE t_sem SET id = 'abc';
+UPDATE t_sem SET id = 1.5;
+UPDATE t_sem SET name = 'abcdefghijk';
+UPDATE t_sem SET id = id > 1;
+UPDATE t_sem SET id = 1 WHERE id + 1;
+DROP TABLE t_sem;

@@ -63,6 +63,30 @@ uint64_t run_delete_where(ct::Catalog& db, const pl::DeletePlan& dp)
     return deleted;
 }
 
+// UPDATE: 抽干子树算子收集旧行(引用+值), 逐行求值赋值生成新行后批量墓碑+追加,
+// 返回更新行数; 堆追加式, 扫描与修改必须两阶段否则会扫到本语句新追加的行
+uint64_t run_update(ct::Catalog& db, const pl::UpdatePlan& up)
+{
+    std::vector<st::Row> olds;
+    std::unique_ptr<Operator> op = make_operator(db, *up.child);
+    op->open();
+    st::Row row;
+    while (op->next(&row)) {
+        olds.push_back(std::move(row));
+    }
+    op->close();
+    std::vector<ct::RowUpdate> rows;
+    rows.reserve(olds.size());
+    for (const st::Row& old : olds) {
+        std::vector<st::Value> vals = old.values;
+        for (const ana::BoundUpdateItem& a : up.assigns) {
+            vals[a.col_idx] = to_st_value(eval_row(*a.value, old));
+        }
+        rows.push_back(ct::RowUpdate{old.ref, std::move(vals)});
+    }
+    return db.update_rows(up.table, rows);
+}
+
 }  // namespace
 
 ExecResult execute(ct::Catalog& db, const SQLStatement& stmt)
@@ -120,9 +144,10 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt)
         const uint64_t n = p.child != nullptr ? run_delete_where(db, p) : db.delete_all(p.table);
         return tag_result(proto::CommandTag::Delete, n);
     }
-    case pl::PlanKind::Update:
-        // UPDATE 执行暂缺, 语义层已就绪
-        DB_RAISE(db::ErrCode::NotImplemented, LogModule::EXECUTOR, "UPDATE 执行暂未实现");
+    case pl::PlanKind::Update: {
+        const auto& p = static_cast<const pl::UpdatePlan&>(*plan);
+        return tag_result(proto::CommandTag::Update, run_update(db, p));
+    }
     case pl::PlanKind::Project:
         return run_select(db, std::move(plan));
     case pl::PlanKind::Set: {

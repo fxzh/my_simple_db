@@ -216,7 +216,7 @@ delete_statement:
         }
     ;
 
-// update 表名 set 赋值列表 [where 条件](语法已接入, 语义暂缺)
+// update 表名 set 赋值列表 [where 条件]
 update_statement:
         UPDATE IDENTIFIER SET update_assignments where_opt
         {

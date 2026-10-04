@@ -102,13 +102,15 @@ std::unique_ptr<PlanNode> build(ana::BoundStmt& bound)
         auto p = std::make_unique<UpdatePlan>();
         p->table = bs.table;
         p->assigns = std::move(bs.assigns);
+        auto scan = std::make_unique<SeqScanPlan>();
+        scan->table = bs.table;
         if (bs.where != nullptr) {
-            auto scan = std::make_unique<SeqScanPlan>();
-            scan->table = bs.table;
             auto filter = std::make_unique<FilterPlan>();
             filter->pred = std::move(bs.where);
             filter->child = std::move(scan);
             p->child = std::move(filter);
+        } else {
+            p->child = std::move(scan);
         }
         return p;
     }

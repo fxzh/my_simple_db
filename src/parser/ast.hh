@@ -484,7 +484,7 @@ struct UpdateItem {
     std::unique_ptr<Expr> value;
 };
 
-// UPDATE 表名 SET 列 = 表达式 [, ...] [WHERE 条件](语法已接入, 语义暂缺)
+// UPDATE 表名 SET 列 = 表达式 [, ...] [WHERE 条件]
 class UpdateStmt : public SQLStatement {
     std::string table;
     std::vector<UpdateItem> assignments_;

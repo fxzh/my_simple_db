@@ -57,7 +57,7 @@ struct DeletePlan : PlanNode {
     PlanKind kind() const override { return PlanKind::Delete; }
 };
 
-// 更新: 赋值右值基于旧行求值后替换目标列; child 为空表示全表更新, 非空为 Filter(SeqScan) 子树
+// 更新: 赋值右值基于旧行求值后替换目标列; child 为 Filter(SeqScan), 无 WHERE 时为 SeqScan
 struct UpdatePlan : PlanNode {
     std::string table;
     std::vector<ana::BoundUpdateItem> assigns;

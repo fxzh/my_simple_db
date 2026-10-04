@@ -48,6 +48,7 @@ enum class CommandTag : uint8_t {
     Rollback = 10,    // 事务回滚
     CreateIndex = 11, // 建索引
     DropIndex = 12,   // 删索引
+    Update = 13,      // count 为匹配行数
 };
 
 // 读满 len 字节: 对端关闭或系统错误返回 false, EINTR 自动重试
@@ -374,7 +375,7 @@ inline bool decode_command(std::string_view body, CommandTag& tag, uint64_t& cou
         return false;
     }
     const auto t = static_cast<unsigned char>(body[0]);
-    if (t > static_cast<unsigned char>(CommandTag::DropIndex)) {
+    if (t > static_cast<unsigned char>(CommandTag::Update)) {
         return false;  // 未知 tag
     }
     tag = static_cast<CommandTag>(t);

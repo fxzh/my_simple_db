@@ -52,6 +52,7 @@ const char* tag_log_name(proto::CommandTag tag)
     case proto::CommandTag::DropIndex: return "DROP_INDEX";
     case proto::CommandTag::Insert: return "INSERT";
     case proto::CommandTag::Delete: return "DELETE";
+    case proto::CommandTag::Update: return "UPDATE";
     case proto::CommandTag::Set: return "SET";
     case proto::CommandTag::Begin: return "BEGIN";
     case proto::CommandTag::Commit: return "COMMIT";

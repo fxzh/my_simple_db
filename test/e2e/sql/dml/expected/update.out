@@ -1,0 +1,141 @@
+CREATE TABLE t_upd (id int, name varchar, score double);
+CREATE
+INSERT INTO t_upd VALUES (1, 'alice', 90.5), (2, 'bob', 60.0), (3, 'carol', 75.0);
+INSERT 3
+UPDATE t_upd SET score = 100.0 WHERE id = 1;
+UPDATE 1
+SELECT * FROM t_upd;
+ id | name  | score
+----+-------+-------
+ 2  | bob   | 60
+ 3  | carol | 75
+ 1  | alice | 100
+(3 行)
+UPDATE t_upd SET name = 'dave' WHERE id > 1;
+UPDATE 2
+SELECT * FROM t_upd;
+ id | name  | score
+----+-------+-------
+ 1  | alice | 100
+ 2  | dave  | 60
+ 3  | dave  | 75
+(3 行)
+UPDATE t_upd SET score = score + 0.5;
+UPDATE 3
+SELECT * FROM t_upd;
+ id | name  | score
+----+-------+-------
+ 1  | alice | 100.5
+ 2  | dave  | 60.5
+ 3  | dave  | 75.5
+(3 行)
+UPDATE t_upd SET id = 9 WHERE id = 100;
+UPDATE 0
+UPDATE t_upd SET id = id + 10, score = score * 2.0 WHERE id <= 12;
+UPDATE 3
+SELECT * FROM t_upd;
+ id | name  | score
+----+-------+-------
+ 11 | alice | 201
+ 12 | dave  | 121
+ 13 | dave  | 151
+(3 行)
+DROP TABLE t_upd;
+DROP
+CREATE TABLE t_swap (a int, b int);
+CREATE
+INSERT INTO t_swap VALUES (1, 2), (3, 4);
+INSERT 2
+UPDATE t_swap SET a = b, b = a;
+UPDATE 2
+SELECT * FROM t_swap;
+ a | b
+---+---
+ 2 | 1
+ 4 | 3
+(2 行)
+DROP TABLE t_swap;
+DROP
+CREATE TABLE t_err (id int NOT NULL, n int, name varchar(8));
+CREATE
+INSERT INTO t_err VALUES (1, 10, 'alice'), (2, NULL, 'bob');
+INSERT 2
+UPDATE t_err SET id = n;
+ERROR: 值与列类型不匹配
+SELECT * FROM t_err;
+ id | n    | name
+----+------+-------
+ 1  | 10   | alice
+ 2  | NULL | bob
+(2 行)
+UPDATE t_err SET id = n WHERE name = 'alice';
+UPDATE 1
+SELECT * FROM t_err;
+ id | n    | name
+----+------+-------
+ 2  | NULL | bob
+ 10 | 10   | alice
+(2 行)
+UPDATE t_err SET name = 'xx';
+UPDATE 2
+SELECT * FROM t_err;
+ id | n    | name
+----+------+------
+ 2  | NULL | xx
+ 10 | 10   | xx
+(2 行)
+DROP TABLE t_err;
+DROP
+CREATE TABLE t_len (short varchar(4), src varchar(10));
+CREATE
+INSERT INTO t_len VALUES ('ab', 'abcdefghij');
+INSERT 1
+UPDATE t_len SET short = src;
+ERROR: 值与列类型不匹配
+SELECT * FROM t_len;
+ short | src
+-------+------------
+ ab    | abcdefghij
+(1 行)
+UPDATE t_len SET src = short;
+UPDATE 1
+SELECT * FROM t_len;
+ short | src
+-------+-----
+ ab    | ab
+(1 行)
+DROP TABLE t_len;
+DROP
+CREATE TABLE t_ovf (id int);
+CREATE
+INSERT INTO t_ovf VALUES (1);
+INSERT 1
+UPDATE t_ovf SET id = 2000000000 + 2000000000;
+ERROR: 值与列类型不匹配
+SELECT * FROM t_ovf;
+ id
+----
+ 1
+(1 行)
+DROP TABLE t_ovf;
+DROP
+CREATE TABLE t_char (c char(6), v varchar(6));
+CREATE
+INSERT INTO t_char VALUES ('ab', 'xy');
+INSERT 1
+UPDATE t_char SET v = c;
+UPDATE 1
+SELECT * FROM t_char;
+ c  | v
+----+----
+ ab | ab
+(1 行)
+UPDATE t_char SET c = v;
+UPDATE 1
+SELECT c FROM t_char;
+ c
+----
+ ab
+(1 行)
+DROP TABLE t_char;
+DROP

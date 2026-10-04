@@ -38,7 +38,13 @@ constexpr const char* kVersionMetaName = "db_version";
 constexpr uint64_t kSystemSchemaId = 1;
 constexpr const char* kSystemSchemaName = "system";
 
-// 数据目录门面: 打开/关闭, 建表/删表/插入/删除/全表扫描
+// 单行更新任务: 旧行物理位置 + 新行全量值(赋值右值已按旧行求值完毕)
+struct RowUpdate {
+    st::RowRef ref;
+    std::vector<st::Value> values;
+};
+
+// 数据目录门面: 打开/关闭, 建表/删表/插入/删除/更新/全表扫描
 // 元数据以 db_table/db_column/db_schema 三张表为唯一事实来源, 查找实时扫描, 无目录文件与内存缓存
 class Catalog {
 public:
@@ -77,6 +83,9 @@ public:
     st::RowId insert(const std::string& table, const std::vector<st::Value>& values);
     // 删除单行(按扫描得到的物理位置), 已删引用返回 0, 无效引用报错
     size_t delete_by_ref(const st::RowRef& ref);
+    // 批量更新: 旧行位置打墓碑后追加新值行, 新行全量双写该表全部索引(旧行索引条目残留,
+    // 回表按墓碑过滤), 返回更新行数; 值合法性由存储层编码校验, 引用已删/指向他表当场报错
+    size_t update_rows(const std::string& table, const std::vector<RowUpdate>& rows);
     // 删除表中全部行, 返回删除行数
     size_t delete_all(const std::string& table);
 
