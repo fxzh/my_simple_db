@@ -55,7 +55,7 @@
 // Token定义
 %token END 0 "end of file"
 %token TOK_ERROR
-%token CREATE TABLE DROP SCHEMA INSERT INTO VALUES DELETE FROM INDEX ON
+%token CREATE TABLE DROP SCHEMA INSERT INTO VALUES DELETE FROM UPDATE INDEX ON
 %token INT BIGINT FLOAT CHAR VARCHAR DOUBLE
 %token SELECT AS NULL_T WHERE AND OR NOT IS SET
 %token BEGIN_TXN START TRANSACTION COMMIT WORK ROLLBACK
@@ -80,7 +80,7 @@
 %right UMINUS
 
 // 类型声明
-%type <std::unique_ptr<SQLStatement>> statement create_statement drop_statement insert_statement delete_statement create_table_statement drop_table_statement create_schema_statement drop_schema_statement create_index_statement drop_index_statement select_statement set_statement txn_statement begin_statement commit_statement rollback_statement
+%type <std::unique_ptr<SQLStatement>> statement create_statement drop_statement insert_statement delete_statement update_statement create_table_statement drop_table_statement create_schema_statement drop_schema_statement create_index_statement drop_index_statement select_statement set_statement txn_statement begin_statement commit_statement rollback_statement
 %type <std::vector<ColumnDef>> column_definitions
 %type <ColumnDef> column_definition
 %type <TypeInfo> type_specifier
@@ -91,6 +91,8 @@
 %type <std::string> set_value
 %type <std::vector<SelectItem>> select_list select_items
 %type <SelectItem> select_item
+%type <std::vector<UpdateItem>> update_assignments
+%type <UpdateItem> update_assignment
 %type <std::string> alias_opt
 %type <std::vector<std::string>> columns_opt column_name_list
 
@@ -116,6 +118,7 @@ statement:
     |   drop_statement    { $$ = std::move($1); }
     |   insert_statement  { $$ = std::move($1); }
     |   delete_statement  { $$ = std::move($1); }
+    |   update_statement  { $$ = std::move($1); }
     |   select_statement  { $$ = std::move($1); }
     |   set_statement     { $$ = std::move($1); }
     |   txn_statement     { $$ = std::move($1); }
@@ -210,6 +213,36 @@ delete_statement:
         DELETE FROM IDENTIFIER where_opt
         {
             $$ = std::make_unique<DeleteStmt>(std::move($3), std::move($4));
+        }
+    ;
+
+// update 表名 set 赋值列表 [where 条件](语法已接入, 语义暂缺)
+update_statement:
+        UPDATE IDENTIFIER SET update_assignments where_opt
+        {
+            $$ = std::make_unique<UpdateStmt>(std::move($2), std::move($4), std::move($5));
+        }
+    ;
+
+// update 赋值列表: 逗号连接的 列 = 表达式
+update_assignments:
+        update_assignments ',' update_assignment
+        {
+            $1.push_back(std::move($3));
+            $$ = std::move($1);
+        }
+    |   update_assignment
+        {
+            $$ = std::vector<UpdateItem>();
+            $$.push_back(std::move($1));
+        }
+    ;
+
+// 单个赋值: 列 = 表达式
+update_assignment:
+        IDENTIFIER EQ expression
+        {
+            $$ = UpdateItem{ std::move($1), std::move($3) };
         }
     ;
 

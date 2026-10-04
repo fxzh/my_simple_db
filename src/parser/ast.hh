@@ -292,6 +292,7 @@ enum class StmtKind {
     DropIndex,
     Insert,
     Delete,
+    Update,
     Select,
     Set,
     Begin,
@@ -475,6 +476,41 @@ public:
     }
 
     StmtKind kind() const override { return StmtKind::Delete; }
+};
+
+// UPDATE 赋值项: 列名 + 新值表达式
+struct UpdateItem {
+    std::string column;
+    std::unique_ptr<Expr> value;
+};
+
+// UPDATE 表名 SET 列 = 表达式 [, ...] [WHERE 条件](语法已接入, 语义暂缺)
+class UpdateStmt : public SQLStatement {
+    std::string table;
+    std::vector<UpdateItem> assignments_;
+    std::unique_ptr<Expr> where_;   // 无 WHERE 时为空
+public:
+    UpdateStmt(std::string name, std::vector<UpdateItem> assigns, std::unique_ptr<Expr> where)
+        : table(std::move(name)), assignments_(std::move(assigns)), where_(std::move(where)) {}
+
+    const std::string& table_name() const { return table; }
+    const std::vector<UpdateItem>& assignments() const { return assignments_; }
+    const Expr* where_expr() const { return where_.get(); }
+
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "Update: " << table << std::endl;
+        for (const UpdateItem& item : assignments_) {
+            os << std::string(static_cast<std::size_t>(indent + 4), ' ') << "Assign: "
+               << item.column << std::endl;
+            item.value->print(os, indent + 8);
+        }
+        if (where_) {
+            where_->print(os, indent + 4);
+        }
+    }
+
+    StmtKind kind() const override { return StmtKind::Update; }
 };
 
 // SELECT 投影项: star 为 true 时 expr 为空, 且 items 中仅允许一个这样的元素

@@ -60,6 +60,7 @@ WS       [ \t\r]
 "insert"   { return yy::parser::token::INSERT; }
 "into"     { return yy::parser::token::INTO; }
 "values"   { return yy::parser::token::VALUES; }
+"update"   { return yy::parser::token::UPDATE; }
 "int"      { return yy::parser::token::INT; }
 "bigint"   { return yy::parser::token::BIGINT; }
 "float"    { return yy::parser::token::FLOAT; }

@@ -518,6 +518,9 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt)
         }
         return b;
     }
+    case StmtKind::Update:
+        // UPDATE 语法已接入, 语义与执行暂缺
+        DB_RAISE(db::ErrCode::NotImplemented, LogModule::ANALYZER, "UPDATE 语句暂不支持");
     case StmtKind::Select: {
         const auto& ss = static_cast<const SelectStmt&>(stmt);
         const st::TableMeta meta = db.table_meta(ss.table_name());
