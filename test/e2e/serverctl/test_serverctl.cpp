@@ -80,11 +80,21 @@ TEST(Ctl, Start)
 
 TEST(Ctl, StatusRunning)
 {
-    // status 为占位实现: 固定回复且退出码 2, 富状态字段实现后同步更新
+    // 前序 Ctl.Start 已起服: pid 应与 pidfile 一致, 端口应与 db.conf 写入的测试端口一致
     ProcessResult r;
     ASSERT_TRUE(ctl(state_data_dir(), "status", 5000, r));
-    EXPECT_EQ(r.exit_code, 2);
-    EXPECT_EQ(r.out, "ERROR: status 暂不支持\n");
+    EXPECT_EQ(r.exit_code, 0);
+    EXPECT_NE(r.out.find("RUNNING"), std::string::npos) << r.out;
+    std::string pid_text;
+    {
+        std::ifstream in(std::filesystem::path(state_data_dir()) / "server.pid");
+        ASSERT_TRUE(in.is_open()) << "pidfile 缺失";
+        std::getline(in, pid_text);
+    }
+    EXPECT_NE(r.out.find("pid=" + pid_text), std::string::npos) << r.out;
+    EXPECT_NE(r.out.find("port=" + std::to_string(kTestPort)), std::string::npos) << r.out;
+    EXPECT_NE(r.out.find("uptime="), std::string::npos) << r.out;
+    EXPECT_NE(r.out.find("clients="), std::string::npos) << r.out;
 }
 
 TEST(Ctl, DoubleStart)

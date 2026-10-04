@@ -122,7 +122,7 @@ int cmd_status(const std::string& sock_path)
         return 1;
     }
     std::cout << reply << std::endl;
-    return 2;  // 占位: 富状态字段后续扩展
+    return 0;
 }
 
 }  // namespace

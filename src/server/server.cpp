@@ -216,6 +216,9 @@ int main(int argc, char* argv[])
         std::cout << "bootstrap_port=" << listen_port << std::endl;
     }
 
+    // status 回复快照: 登记实际监听端口与就绪时刻
+    set_control_status_info(listen_port);
+
     // 主循环: poll 双 socket(数据连接 + 控制连接)
     pollfd fds[2];
     fds[0].fd = server_fd;

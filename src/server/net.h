@@ -13,4 +13,7 @@ int create_control_listener(const std::string& ctl_sock);
 // 受理一条控制通道连接并处理命令, 不建线程; 返回是否收到 shutdown
 bool accept_control_command(int control_fd);
 
+// 登记控制通道 status 回复所需的实际监听端口并记录就绪时刻, 进入主循环前调用一次
+void set_control_status_info(int listen_port);
+
 #endif

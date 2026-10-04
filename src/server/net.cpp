@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cstring>
 #include <string>
 #include <sys/socket.h>
@@ -12,10 +13,29 @@
 #include "config/config.h"
 #include "log/log.h"
 #include "net.h"
+#include "session.h"
 
 using enum LogModule;
 
 namespace {
+
+// status 回复快照: set_control_status_info 在主循环前写入
+int status_port = 0;
+std::chrono::steady_clock::time_point status_start;
+
+// uptime 人读格式: 高位为 0 的单位跳过, 全 0 时显示 0s
+std::string format_uptime(long long secs)
+{
+    const long long units[] = {secs / 86400, secs / 3600 % 24, secs / 60 % 60, secs % 60};
+    const char* names[] = {"d", "h", "m", "s"};
+    std::string out;
+    for (int i = 0; i < 4; ++i) {
+        if (units[i] > 0) {
+            out += std::to_string(units[i]) + names[i];
+        }
+    }
+    return out.empty() ? "0s" : out;
+}
 
 // 控制通道命令: 一次连接一条命令, 返回是否收到 shutdown
 bool handle_control_command(int cfd)
@@ -34,7 +54,18 @@ bool handle_control_command(int cfd)
     if (cmd == "ping") {
         reply = "PONG";
     } else if (cmd == "status") {
-        reply = "ERROR: status 暂不支持";  // 占位: 富状态字段后续扩展, 协议沿用一行回复
+        // 只读启动快照/短锁/进程量, 不碰随事务长持的 catalog 锁(会卡死主循环)
+        size_t conns;
+        {
+            std::lock_guard<std::mutex> lock(clients_mutex);
+            conns = clients.size();
+        }
+        long long secs = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now() - status_start).count();
+        reply = "RUNNING pid=" + std::to_string(getpid())
+              + " port=" + std::to_string(status_port)
+              + " uptime=" + format_uptime(secs)
+              + " clients=" + std::to_string(conns) + "/" + std::to_string(MAX_CLIENTS);
     } else if (cmd == "shutdown") {
         reply = "OK";
     } else {
@@ -151,4 +182,10 @@ bool accept_control_command(int control_fd)
     tv.tv_usec = 0;
     setsockopt(control_conn, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));  // 输入防护, 防挂死
     return handle_control_command(control_conn);
+}
+
+void set_control_status_info(int listen_port)
+{
+    status_port = listen_port;
+    status_start = std::chrono::steady_clock::now();
 }

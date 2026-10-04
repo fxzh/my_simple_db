@@ -16,6 +16,7 @@
 当前已支持服务端控制程序(二进制) serverctl
 ./serverctl start 启动数据库
 ./serverctl stop 关闭数据库
+./serverctl status 查看运行状态
 
 # 其他
 环境为测试环境，无需保护测试前已存在的初始化的数据目录、已运行的server程序
