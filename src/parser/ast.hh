@@ -306,6 +306,7 @@ enum class StmtKind {
     Delete,
     Update,
     Select,
+    Explain,
     Set,
     Begin,
     Commit,
@@ -584,6 +585,23 @@ public:
     }
 
     StmtKind kind() const override { return StmtKind::Select; }
+};
+
+// EXPLAIN 语句: 包裹被解释语句(可解释范围为 DML/DDL/嵌套 explain, 由语法层限定)
+class ExplainStmt : public SQLStatement {
+    std::unique_ptr<SQLStatement> inner_;
+public:
+    explicit ExplainStmt(std::unique_ptr<SQLStatement> inner) : inner_(std::move(inner)) {}
+
+    const SQLStatement& inner() const { return *inner_; }
+
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "Explain" << std::endl;
+        inner_->print(os, indent + 4);
+    }
+
+    StmtKind kind() const override { return StmtKind::Explain; }
 };
 
 // SET 值形态: 值文本的字面量来源, 接收侧按形态做值域校验

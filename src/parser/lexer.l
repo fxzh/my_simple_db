@@ -67,6 +67,7 @@ WS       [ \t\r]
 "char"     { return yy::parser::token::CHAR; }
 "varchar"  { return yy::parser::token::VARCHAR; }
 "double"   { return yy::parser::token::DOUBLE; }
+"explain"  { return yy::parser::token::EXPLAIN; }
 "select"   { return yy::parser::token::SELECT; }
 "as"       { return yy::parser::token::AS; }
 "null"     { return yy::parser::token::NULL_T; }

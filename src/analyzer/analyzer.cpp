@@ -656,6 +656,8 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
         b->projs = build_projs(ss, meta, schema);
         return b;
     }
+    case StmtKind::Explain:
+        DB_RAISE(db::ErrCode::NotImplemented, LogModule::ANALYZER, "EXPLAIN 暂不支持");
     case StmtKind::Set: {
         const auto& ss = static_cast<const SetStmt&>(stmt);
         if (!db.bootstrap_mode()) {

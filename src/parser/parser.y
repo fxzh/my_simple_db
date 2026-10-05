@@ -57,7 +57,7 @@
 %token TOK_ERROR
 %token CREATE TABLE DROP SCHEMA INSERT INTO VALUES DELETE FROM UPDATE INDEX ON
 %token INT BIGINT FLOAT CHAR VARCHAR DOUBLE
-%token SELECT AS NULL_T WHERE AND OR NOT IS SET
+%token EXPLAIN SELECT AS NULL_T WHERE AND OR NOT IS SET
 %token BEGIN_TXN START TRANSACTION COMMIT WORK ROLLBACK
 %token EQ NE LE GE
 
@@ -80,7 +80,7 @@
 %right UMINUS
 
 // 类型声明
-%type <std::unique_ptr<SQLStatement>> statement create_statement drop_statement insert_statement delete_statement update_statement create_table_statement drop_table_statement create_schema_statement drop_schema_statement create_index_statement drop_index_statement select_statement set_statement txn_statement begin_statement commit_statement rollback_statement
+%type <std::unique_ptr<SQLStatement>> statement create_statement drop_statement insert_statement delete_statement update_statement create_table_statement drop_table_statement create_schema_statement drop_schema_statement create_index_statement drop_index_statement select_statement explain_statement explainable_statement set_statement txn_statement begin_statement commit_statement rollback_statement
 %type <std::vector<ColumnDef>> column_definitions
 %type <ColumnDef> column_definition
 %type <TypeInfo> type_specifier
@@ -121,6 +121,7 @@ statement:
     |   delete_statement  { $$ = std::move($1); }
     |   update_statement  { $$ = std::move($1); }
     |   select_statement  { $$ = std::move($1); }
+    |   explain_statement { $$ = std::move($1); }
     |   set_statement     { $$ = std::move($1); }
     |   txn_statement     { $$ = std::move($1); }
     ;
@@ -260,6 +261,25 @@ select_statement:
             $$ = std::make_unique<SelectStmt>(std::move($4), false, std::move($2), std::move($5),
                                              std::vector<OrderItem>{}, std::nullopt, std::nullopt);
         }
+    ;
+
+// explain 语句: 解释一条可解释语句的计划
+explain_statement:
+        EXPLAIN explainable_statement
+        {
+            $$ = std::make_unique<ExplainStmt>(std::move($2));
+        }
+    ;
+
+// 可被 explain 的语句: DML/DDL 与嵌套 explain(排除事务控制与 SET)
+explainable_statement:
+        create_statement  { $$ = std::move($1); }
+    |   drop_statement    { $$ = std::move($1); }
+    |   insert_statement  { $$ = std::move($1); }
+    |   delete_statement  { $$ = std::move($1); }
+    |   update_statement  { $$ = std::move($1); }
+    |   select_statement  { $$ = std::move($1); }
+    |   explain_statement { $$ = std::move($1); }
     ;
 
 // set 变量 = 值(bootstrap 变量与会话变量共用语法)
