@@ -38,6 +38,18 @@ constexpr const char* kVersionMetaName = "db_version";
 constexpr uint64_t kSystemSchemaId = 1;
 constexpr const char* kSystemSchemaName = "system";
 
+// 限定表名: 名字解析产物; schema 为空表示未限定, 解析时默认挂 system schema
+struct TableRef {
+    std::string schema;
+    std::string name;
+};
+
+// 限定表名转文本(保留输入形态, 未限定仅表名): 供打印与日志使用
+inline std::string table_ref_to_string(const TableRef& t)
+{
+    return t.schema.empty() ? t.name : t.schema + "." + t.name;
+}
+
 // 单行更新任务: 旧行物理位置 + 新行全量值(赋值右值已按旧行求值完毕)
 struct RowUpdate {
     st::RowRef ref;
@@ -68,32 +80,33 @@ public:
     // 回滚事务: 按 undo 逆序复原本事务已发生的修改后解除全局锁
     void rollback_txn();
 
-    // 建表: bootstrap 模式用 SET 的显式 table_id(未 set/重复 id 报错), 正常模式自动分配
-    uint64_t create_table(const std::string& name, const std::vector<st::ColumnSpec>& cols);
+    // 建表: 挂限定名所属 schema(schema 须存在, 未限定挂 system), 表名 schema 内唯一,
+    // bootstrap 模式用 SET 的显式 table_id(未 set/重复 id 报错), 正常模式自动分配
+    uint64_t create_table(const TableRef& table, const std::vector<st::ColumnSpec>& cols);
     // 删表, 保留段表拒绝删除
-    void drop_table(const std::string& name);
+    void drop_table(const TableRef& table);
     // 建 schema, 重名拒绝
     void create_schema(const std::string& name);
     // 删 schema, 不存在的拒绝, 非空拒绝(不级联)
     void drop_schema(const std::string& name);
     // 建索引: 建索引文件并全表回填后写 db_index 行, 索引名表内唯一, 列序号由绑定层解析
-    void create_index(const std::string& table, const std::string& index, uint16_t col_ordinal);
+    void create_index(const TableRef& table, const std::string& index, uint16_t col_ordinal);
     // 删索引, 表不存在/索引不存在当场报错, 先删 db_index 行再删索引文件
-    void drop_index(const std::string& table, const std::string& index);
-    st::RowId insert(const std::string& table, const std::vector<st::Value>& values);
+    void drop_index(const TableRef& table, const std::string& index);
+    st::RowId insert(const TableRef& table, const std::vector<st::Value>& values);
     // 删除单行(按扫描得到的物理位置), 已删引用返回 0, 无效引用报错
     size_t delete_by_ref(const st::RowRef& ref);
     // 批量更新: 旧行位置打墓碑后追加新值行, 新行全量双写该表全部索引(旧行索引条目残留,
     // 回表按墓碑过滤), 返回更新行数; 值合法性由存储层编码校验, 引用已删/指向他表当场报错
-    size_t update_rows(const std::string& table, const std::vector<RowUpdate>& rows);
+    size_t update_rows(const TableRef& table, const std::vector<RowUpdate>& rows);
     // 删除表中全部行, 返回删除行数
-    size_t delete_all(const std::string& table);
+    size_t delete_all(const TableRef& table);
 
-    std::unique_ptr<st::Scanner> scan(const std::string& table);
+    std::unique_ptr<st::Scanner> scan(const TableRef& table);
     // 存活行数统计(便利函数, 供测试与将来执行层使用)
-    size_t row_count(const std::string& table);
-    // 按表名取表元数据(实时扫描元数据表), 表不存在当场报错
-    st::TableMeta table_meta(const std::string& name);
+    size_t row_count(const TableRef& table);
+    // 按限定名取表元数据(实时扫描元数据表), 未限定名解析到 system, 表不存在当场报错
+    st::TableMeta table_meta(const TableRef& table);
 
     // bootstrap 模式标志(server --bootstrap 启动时传入): 管 SET 语句门禁等
     bool bootstrap_mode() const { return bootstrap_mode_; }
@@ -105,11 +118,11 @@ private:
     // bootstrap 模式缺失返回 0(尚未由 bootstrap.sql 创建), 正常模式缺失报错
     int64_t load_index_meta();
     // 建表公共路径(须持锁): 校验后按指定 table_id 建数据文件、写元数据行, file_id 内部分配
-    uint64_t create_table_impl(const std::string& name, const std::vector<st::ColumnSpec>& cols,
-                               uint64_t tid);
+    uint64_t create_table_impl(uint64_t sid, const TableRef& table,
+                               const std::vector<st::ColumnSpec>& cols, uint64_t tid);
     // bootstrap 模式建表(须持锁): 用 SET 的显式 table_id, 未 set 或被占用报错,
     // 建 db_index 时填充内存列定义缓存
-    uint64_t create_table_bootstrap(const std::string& name,
+    uint64_t create_table_bootstrap(uint64_t sid, const TableRef& table,
                                     const std::vector<st::ColumnSpec>& cols);
     // 写入指定表的元数据行(须持锁): db_table 一行, db_column 每列一行, 引导与建表共用
     void write_meta_rows(uint64_t sid, uint64_t tid, uint64_t fid, const std::string& name,
@@ -118,11 +131,13 @@ private:
     void bootstrap_meta_tables();
     // 删除指定表的元数据行(须持锁): 按 table_id 匹配 db_table/db_column
     void delete_meta_rows(uint64_t tid);
-    // 按表名查元数据(须持锁): db_table 定位 id, db_column 收集列并按 ordinal 排序,
-    // 表不存在或元数据行非法当场报错
-    st::TableMeta find_table_meta(const std::string& name);
-    // 表名是否已存在(须持锁): 全扫 db_table 匹配
-    bool has_table_name(const std::string& name);
+    // 按限定名查元数据(须持锁): 解析 schema_id 后 db_table 按 (schema_id, 表名) 定位 id,
+    // db_column 收集列并按 ordinal 排序, 表不存在或元数据行非法当场报错
+    st::TableMeta find_table_meta(const TableRef& table);
+    // 按限定名解析 schema_id(须持锁): 未限定名默认 system, 未命中当场报错
+    uint64_t resolve_schema_id(const TableRef& table);
+    // schema 内表名是否已存在(须持锁): 扫 db_table 匹配 schema_id 与表名
+    bool has_table_name(uint64_t sid, const std::string& name);
     // table_id 是否已被占用(须持锁): 全扫 db_table 匹配, bootstrap 显式 id 建表查重
     bool has_table_id(uint64_t tid);
     // schema 名是否已存在(须持锁): 全扫 db_schema 匹配

@@ -13,7 +13,8 @@ class Catalog;  // 目录层门面, 完整定义见 catalog.h
 
 namespace ana {
 
-// 绑定一条语句: 类型映射与长度校验(create)、保留表名拦截(drop/insert/delete/update)、
+// 绑定一条语句: 限定表名转 TableRef 透传(未限定由 catalog 按 system 解析)、
+// 类型映射与长度校验(create)、system 名下保留表名拦截(drop/insert/delete/update)、
 // SET 模式门禁与变量名绑定(仅 bootstrap 模式可用, 正常模式直接报错)、
 // 表存在性/值类型/长度/范围/NOT NULL/个数/常量性检查(insert)、赋值绑定: 行上下文右值/
 // 静态类型匹配/纯常量右值的 NOT NULL 与长度检查, 列引用右值留执行期、

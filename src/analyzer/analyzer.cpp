@@ -431,24 +431,25 @@ std::vector<std::unique_ptr<BoundExpr>> bind_insert_row(
     return row;
 }
 
-// 保留表名拦截: 系统元数据表禁止 drop/insert/delete/update
-// (select 可查元数据, create 由存储层按表已存在拒绝)
-void check_reserved_table(const std::string& name)
+// 保留表名拦截: system schema 下的元数据表禁止 drop/insert/delete/update
+// (select 可查元数据, create 由 schema 内同名已存在拒绝; 其他 schema 同名表不受限)
+void check_reserved_table(const ct::TableRef& table)
 {
-    if (name == ct::kTableMetaName || name == ct::kColumnMetaName || name == ct::kSchemaMetaName
-        || name == ct::kIndexMetaName || name == ct::kVersionMetaName) {
-        DB_RAISE(db::ErrCode::ProtectedTable, LogModule::ANALYZER, "保留表名禁止使用: {}", name);
+    if (!table.schema.empty() && table.schema != ct::kSystemSchemaName) {
+        return;
+    }
+    if (table.name == ct::kTableMetaName || table.name == ct::kColumnMetaName
+        || table.name == ct::kSchemaMetaName || table.name == ct::kIndexMetaName
+        || table.name == ct::kVersionMetaName) {
+        DB_RAISE(db::ErrCode::ProtectedTable, LogModule::ANALYZER, "保留表名禁止使用: {}",
+                 table_ref_to_string(table));
     }
 }
 
-// 限定名拦截: 带 schema 前缀即报错, 返回裸对象名(名字解析未接入)
-std::string require_unqualified(const QualifiedName& name)
+// AST 限定名转 catalog 表引用: schema 为空表示未限定, 由 catalog 按 system 解析
+ct::TableRef to_table_ref(const QualifiedName& name)
 {
-    if (!name.schema.empty()) {
-        DB_RAISE(db::ErrCode::NotImplemented, LogModule::ANALYZER, "schema 限定名暂不支持: {}",
-                 qualified_to_string(name));
-    }
-    return name.name;
+    return {name.schema, name.name};
 }
 
 // 绑定行结构: 列名定位表 + 列静态类型 + char 定长列标记
@@ -502,13 +503,13 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt)
     case StmtKind::CreateTable: {
         const auto& cs = static_cast<const CreateTableStmt&>(stmt);
         auto b = std::make_unique<BoundCreateTable>();
-        b->table = require_unqualified(cs.table_name());
+        b->table = to_table_ref(cs.table_name());
         convert_columns(cs.column_defs(), b->cols);
         return b;
     }
     case StmtKind::DropTable: {
         const auto& ds = static_cast<const DropTableStmt&>(stmt);
-        const std::string table = require_unqualified(ds.table_name());
+        const ct::TableRef table = to_table_ref(ds.table_name());
         check_reserved_table(table);
         auto b = std::make_unique<BoundDropTable>();
         b->table = table;
@@ -528,7 +529,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt)
     }
     case StmtKind::CreateIndex: {
         const auto& cs = static_cast<const CreateIndexStmt&>(stmt);
-        const std::string table = require_unqualified(cs.table_name());
+        const ct::TableRef table = to_table_ref(cs.table_name());
         check_reserved_table(table);
         const st::TableMeta meta = db.table_meta(table);
         size_t ordinal = meta.cols.size();
@@ -556,7 +557,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt)
     }
     case StmtKind::DropIndex: {
         const auto& ds = static_cast<const DropIndexStmt&>(stmt);
-        const std::string table = require_unqualified(ds.table_name());
+        const ct::TableRef table = to_table_ref(ds.table_name());
         check_reserved_table(table);
         db.table_meta(table);
         auto b = std::make_unique<BoundDropIndex>();
@@ -566,7 +567,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt)
     }
     case StmtKind::Insert: {
         const auto& is = static_cast<const InsertStmt&>(stmt);
-        const std::string table = require_unqualified(is.table_name());
+        const ct::TableRef table = to_table_ref(is.table_name());
         check_reserved_table(table);
         const st::TableMeta meta = db.table_meta(table);
         const InsertTargets targets = resolve_insert_targets(is.columns(), meta);
@@ -580,7 +581,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt)
     }
     case StmtKind::Delete: {
         const auto& ds = static_cast<const DeleteStmt&>(stmt);
-        const std::string table = require_unqualified(ds.table_name());
+        const ct::TableRef table = to_table_ref(ds.table_name());
         check_reserved_table(table);
         auto b = std::make_unique<BoundDelete>();
         b->table = table;
@@ -592,7 +593,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt)
     }
     case StmtKind::Update: {
         const auto& us = static_cast<const UpdateStmt&>(stmt);
-        const std::string table = require_unqualified(us.table_name());
+        const ct::TableRef table = to_table_ref(us.table_name());
         check_reserved_table(table);
         const st::TableMeta meta = db.table_meta(table);
         const Schema schema = build_schema(meta);
@@ -640,7 +641,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt)
     }
     case StmtKind::Select: {
         const auto& ss = static_cast<const SelectStmt&>(stmt);
-        const std::string table = require_unqualified(ss.table_name());
+        const ct::TableRef table = to_table_ref(ss.table_name());
         const st::TableMeta meta = db.table_meta(table);
         auto b = std::make_unique<BoundSelect>();
         b->table = table;

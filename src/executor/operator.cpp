@@ -19,10 +19,10 @@ namespace {
 // 顺序扫描: open 时经 catalog 建扫描器, 扫描器析构自会释放页 pin
 struct SeqScanOp : Operator {
     ct::Catalog& db;
-    std::string table;
+    ct::TableRef table;
     std::unique_ptr<st::Scanner> scanner;
 
-    SeqScanOp(ct::Catalog& db_, std::string table_) : db(db_), table(std::move(table_)) {}
+    SeqScanOp(ct::Catalog& db_, ct::TableRef table_) : db(db_), table(std::move(table_)) {}
 
     void open() override { scanner = db.scan(table); }
     bool next(st::Row* out) override { return scanner->next(out); }

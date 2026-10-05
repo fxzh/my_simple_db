@@ -1,3 +1,4 @@
+-- create/drop schema 生命周期与重名/保护行为
 CREATE SCHEMA s_test;
 CREATE
 CREATE SCHEMA s_test;
@@ -14,3 +15,78 @@ DROP SCHEMA s_test;
 DROP
 DROP SCHEMA s_test;
 ERROR: schema 不存在: s_test
+-- 限定名建表挂所属 schema, 未限定名默认挂 system, 表名 schema 内唯一
+CREATE SCHEMA s_q;
+CREATE
+CREATE TABLE s_q.t_q (id int not null, name varchar(8));
+CREATE
+CREATE TABLE s_q.t_q (id int not null, name varchar(8));
+ERROR: 表已存在: s_q.t_q
+CREATE TABLE t_q (id int not null, name varchar(8));
+CREATE
+INSERT INTO s_q.t_q VALUES (1, 'a'), (2, 'b');
+INSERT 2
+INSERT INTO t_q VALUES (9, 'z');
+INSERT 1
+UPDATE s_q.t_q SET name = 'x' WHERE id = 1;
+UPDATE 1
+DELETE FROM s_q.t_q WHERE id = 2;
+DELETE 1
+SELECT * FROM s_q.t_q;
+ id | name
+----+------
+ 1  | x
+(1 行)
+SELECT * FROM t_q;
+ id | name
+----+------
+ 9  | z
+(1 行)
+SELECT * FROM system.t_q;
+ id | name
+----+------
+ 9  | z
+(1 行)
+DROP SCHEMA s_q;
+ERROR: schema 非空禁止删除: s_q
+DROP TABLE s_q.t_q;
+DROP
+DROP TABLE t_q;
+DROP
+DROP SCHEMA s_q;
+DROP
+-- 未限定名只解析 system, schema 不存在当场报错
+CREATE SCHEMA s_u;
+CREATE
+CREATE TABLE s_u.t_u (id int);
+CREATE
+SELECT * FROM t_u;
+ERROR: 表不存在: t_u
+SELECT * FROM no_such.t_u;
+ERROR: schema 不存在: no_such
+CREATE TABLE no_such.t_u (id int);
+ERROR: schema 不存在: no_such
+DROP TABLE no_such.t_u;
+ERROR: schema 不存在: no_such
+DROP TABLE s_u.t_u;
+DROP
+DROP SCHEMA s_u;
+DROP
+-- 保留表拦截仅限 system 名下
+CREATE SCHEMA s_r;
+CREATE
+CREATE TABLE s_r.db_table (id int);
+CREATE
+INSERT INTO s_r.db_table VALUES (1);
+INSERT 1
+SELECT * FROM s_r.db_table;
+ id
+----
+ 1
+(1 行)
+DROP TABLE system.db_table;
+ERROR: 保留表名禁止使用: system.db_table
+DROP TABLE s_r.db_table;
+DROP
+DROP SCHEMA s_r;
+DROP

@@ -234,11 +234,12 @@ void Catalog::open()
     for (const std::vector<st::Value>& row : engine_.read_rows(kTableMetaId, table_meta_cols())) {
         max_fid = std::max(max_fid, row_int(row, 2));
         max_tid = std::max(max_tid, row_int(row, 0));
-        if (row_str(row, 1) == kVersionMetaName) {
+        if (row_str(row, 1) == kVersionMetaName && row_int(row, 3) == kSystemSchemaId) {
             has_version = true;
         }
     }
-    // 完成标记: db_version 行存在代表 bootstrap.sql 全部执行成功, 仅正常模式要求
+    // 完成标记: system 名下的 db_version 行存在代表 bootstrap.sql 全部执行成功,
+    // 用户 schema 同名表不算数, 仅正常模式要求
     if (!bootstrap_mode_ && !has_version) {
         DB_RAISE(db::ErrCode::CatalogMissing, LogModule::CATALOG, "数据目录未初始化或初始化未完成: {}",
                  dir_);
@@ -321,20 +322,21 @@ void Catalog::rollback_txn()
     engine_.rollback_txn();
 }
 
-st::TableMeta Catalog::table_meta(const std::string& name)
+st::TableMeta Catalog::table_meta(const TableRef& table)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
-    return find_table_meta(name);
+    return find_table_meta(table);
 }
 
-uint64_t Catalog::create_table(const std::string& name, const std::vector<st::ColumnSpec>& cols)
+uint64_t Catalog::create_table(const TableRef& table, const std::vector<st::ColumnSpec>& cols)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
+    const uint64_t sid = resolve_schema_id(table);
     // bootstrap 模式走 SET 的显式 id 路径, 正常模式自动分配
     if (bootstrap_mode_) {
-        return create_table_bootstrap(name, cols);
+        return create_table_bootstrap(sid, table, cols);
     }
-    return create_table_impl(name, cols, alloc_table_id());
+    return create_table_impl(sid, table, cols, alloc_table_id());
 }
 
 void Catalog::create_schema(const std::string& name)
@@ -354,17 +356,18 @@ void Catalog::create_schema(const std::string& name)
                        {st::Value{static_cast<int64_t>(alloc_schema_id())}, st::Value{name}}, &ref);
 }
 
-uint64_t Catalog::create_table_impl(const std::string& name,
+uint64_t Catalog::create_table_impl(uint64_t sid, const TableRef& table,
                                     const std::vector<st::ColumnSpec>& cols, uint64_t tid)
 {
-    if (name.empty()) {
+    if (table.name.empty()) {
         DB_RAISE(db::ErrCode::InvalidDdl, LogModule::CATALOG, "表名为空");
     }
-    if (name.size() > kMetaNameLen) {
+    if (table.name.size() > kMetaNameLen) {
         DB_RAISE(db::ErrCode::InvalidDdl, LogModule::CATALOG, "表名超过 {} 字节上限", kMetaNameLen);
     }
-    if (has_table_name(name)) {
-        DB_RAISE(db::ErrCode::TableExists, LogModule::CATALOG, "表已存在: {}", name);
+    if (has_table_name(sid, table.name)) {
+        DB_RAISE(db::ErrCode::TableExists, LogModule::CATALOG, "表已存在: {}",
+                 table_ref_to_string(table));
     }
     if (cols.empty()) {
         DB_RAISE(db::ErrCode::InvalidDdl, LogModule::CATALOG, "表至少需要一列");
@@ -385,12 +388,12 @@ uint64_t Catalog::create_table_impl(const std::string& name,
     const uint64_t fid = alloc_file_id();
     // 先建数据文件, 再写元数据行, 保证元数据可见时数据文件必有效
     engine_.init_table_file(fid);
-    write_meta_rows(kSystemSchemaId, tid, fid, name, cols);
+    write_meta_rows(sid, tid, fid, table.name, cols);
     return tid;
 }
 
 // bootstrap 模式建表(须持锁): 用 SET 的显式 table_id, 未 set 或 id 被占用报错
-uint64_t Catalog::create_table_bootstrap(const std::string& name,
+uint64_t Catalog::create_table_bootstrap(uint64_t sid, const TableRef& table,
                                          const std::vector<st::ColumnSpec>& cols)
 {
     if (bootstrap_table_id_ == 0) {
@@ -401,7 +404,7 @@ uint64_t Catalog::create_table_bootstrap(const std::string& name,
         DB_RAISE(db::ErrCode::TableExists, LogModule::CATALOG, "table_id 已被占用: {}",
                  bootstrap_table_id_);
     }
-    const uint64_t tid = create_table_impl(name, cols, bootstrap_table_id_);
+    const uint64_t tid = create_table_impl(sid, table, cols, bootstrap_table_id_);
     if (tid == kIndexMetaId) {
         // bootstrap 建 db_index: 填充内存列定义缓存(open 时该表尚不存在)
         index_cols_ = cols;
@@ -468,14 +471,28 @@ void Catalog::delete_meta_rows(uint64_t tid)
     }
 }
 
-// 按表名查元数据(须持锁): db_table 定位 id, db_column 收集列并按 ordinal 排序
-st::TableMeta Catalog::find_table_meta(const std::string& name)
+// 按限定名解析 schema_id(须持锁): 未限定名默认 system, 未命中当场报错
+uint64_t Catalog::resolve_schema_id(const TableRef& table)
 {
+    const std::string want = table.schema.empty() ? std::string{kSystemSchemaName} : table.schema;
+    for (const std::vector<st::Value>& row : engine_.read_rows(kSchemaMetaId, schema_meta_cols())) {
+        if (row_str(row, 1) == want) {
+            return static_cast<uint64_t>(row_int(row, 0));
+        }
+    }
+    DB_RAISE(db::ErrCode::SchemaNotFound, LogModule::CATALOG, "schema 不存在: {}", want);
+}
+
+// 按限定名查元数据(须持锁): 解析 schema_id 后 db_table 按 (schema_id, 表名) 定位行,
+// db_column 收集列并按 ordinal 排序
+st::TableMeta Catalog::find_table_meta(const TableRef& table)
+{
+    const uint64_t sid = resolve_schema_id(table);
     uint64_t tid = 0;
     uint64_t fid = 0;
     bool found = false;
     for (const std::vector<st::Value>& row : engine_.read_rows(kTableMetaId, table_meta_cols())) {
-        if (row_str(row, 1) == name) {
+        if (row_int(row, 3) == static_cast<int64_t>(sid) && row_str(row, 1) == table.name) {
             tid = static_cast<uint64_t>(row_int(row, 0));
             fid = static_cast<uint64_t>(row_int(row, 2));
             found = true;
@@ -483,22 +500,23 @@ st::TableMeta Catalog::find_table_meta(const std::string& name)
         }
     }
     if (!found) {
-        DB_RAISE(db::ErrCode::TableNotFound, LogModule::CATALOG, "表不存在: {}", name);
+        DB_RAISE(db::ErrCode::TableNotFound, LogModule::CATALOG, "表不存在: {}",
+                 table_ref_to_string(table));
     }
 
     st::TableMeta meta;
     meta.table_id = tid;
     meta.file_id = fid;
-    meta.name = name;
-    meta.cols = collect_columns(engine_, tid, name);
+    meta.name = table.name;
+    meta.cols = collect_columns(engine_, tid, table.name);
     return meta;
 }
 
-// 表名是否已存在(须持锁): 全扫 db_table 匹配
-bool Catalog::has_table_name(const std::string& name)
+// schema 内表名是否已存在(须持锁): 扫 db_table 匹配 schema_id 与表名
+bool Catalog::has_table_name(uint64_t sid, const std::string& name)
 {
     for (const std::vector<st::Value>& row : engine_.read_rows(kTableMetaId, table_meta_cols())) {
-        if (row_str(row, 1) == name) {
+        if (row_int(row, 3) == static_cast<int64_t>(sid) && row_str(row, 1) == name) {
             return true;
         }
     }
@@ -545,12 +563,13 @@ uint64_t Catalog::alloc_schema_id()
     return next_schema_id_.fetch_add(1);
 }
 
-void Catalog::drop_table(const std::string& name)
+void Catalog::drop_table(const TableRef& table)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
-    const st::TableMeta meta = find_table_meta(name);
+    const st::TableMeta meta = find_table_meta(table);
     if (meta.table_id <= kReservedMaxTableId) {
-        DB_RAISE(db::ErrCode::ProtectedTable, LogModule::CATALOG, "保留表禁止删除: {}", name);
+        DB_RAISE(db::ErrCode::ProtectedTable, LogModule::CATALOG, "保留表禁止删除: {}",
+                 table_ref_to_string(table));
     }
     // 连带删除该表全部索引: 先删 db_index 行再删索引文件(与建索引顺序相反)
     for (const IndexEntry& ent : table_indexes(engine_, index_cols_, meta.table_id)) {
@@ -594,12 +613,13 @@ void Catalog::drop_schema(const std::string& name)
     engine_.delete_row(ref);
 }
 
-void Catalog::create_index(const std::string& table, const std::string& index, uint16_t col_ordinal)
+void Catalog::create_index(const TableRef& table, const std::string& index, uint16_t col_ordinal)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
     const st::TableMeta meta = find_table_meta(table);
     if (meta.table_id <= kReservedMaxTableId) {
-        DB_RAISE(db::ErrCode::ProtectedTable, LogModule::CATALOG, "保留表禁止建索引: {}", table);
+        DB_RAISE(db::ErrCode::ProtectedTable, LogModule::CATALOG, "保留表禁止建索引: {}",
+                 table_ref_to_string(table));
     }
     if (index.empty()) {
         DB_RAISE(db::ErrCode::InvalidDdl, LogModule::CATALOG, "索引名为空");
@@ -624,12 +644,13 @@ void Catalog::create_index(const std::string& table, const std::string& index, u
                         st::Value{static_cast<int64_t>(fid)}}, &ref);
 }
 
-void Catalog::drop_index(const std::string& table, const std::string& index)
+void Catalog::drop_index(const TableRef& table, const std::string& index)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
     const st::TableMeta meta = find_table_meta(table);
     if (meta.table_id <= kReservedMaxTableId) {
-        DB_RAISE(db::ErrCode::ProtectedTable, LogModule::CATALOG, "保留表禁止删索引: {}", table);
+        DB_RAISE(db::ErrCode::ProtectedTable, LogModule::CATALOG, "保留表禁止删索引: {}",
+                 table_ref_to_string(table));
     }
     IndexEntry ent;
     if (!find_index(engine_, index_cols_, meta.table_id, index, ent)) {
@@ -640,7 +661,7 @@ void Catalog::drop_index(const std::string& table, const std::string& index)
     engine_.remove_index_file(ent.file_id);
 }
 
-st::RowId Catalog::insert(const std::string& table, const std::vector<st::Value>& values)
+st::RowId Catalog::insert(const TableRef& table, const std::vector<st::Value>& values)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
     const st::TableMeta meta = find_table_meta(table);
@@ -671,7 +692,7 @@ size_t Catalog::delete_by_ref(const st::RowRef& ref)
     return engine_.delete_row(ref);
 }
 
-size_t Catalog::update_rows(const std::string& table, const std::vector<RowUpdate>& rows)
+size_t Catalog::update_rows(const TableRef& table, const std::vector<RowUpdate>& rows)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
     const st::TableMeta meta = find_table_meta(table);
@@ -699,19 +720,19 @@ size_t Catalog::update_rows(const std::string& table, const std::vector<RowUpdat
     return rows.size();
 }
 
-size_t Catalog::delete_all(const std::string& table)
+size_t Catalog::delete_all(const TableRef& table)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
     const st::TableMeta meta = find_table_meta(table);
     return engine_.delete_all_rows(meta.file_id);
 }
 
-std::unique_ptr<st::Scanner> Catalog::scan(const std::string& table)
+std::unique_ptr<st::Scanner> Catalog::scan(const TableRef& table)
 {
     return std::make_unique<st::Scanner>(&engine_, table_meta(table));
 }
 
-size_t Catalog::row_count(const std::string& table)
+size_t Catalog::row_count(const TableRef& table)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
     const st::TableMeta meta = find_table_meta(table);

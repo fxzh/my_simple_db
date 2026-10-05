@@ -62,7 +62,7 @@ std::string dump_meta_rows(const std::string& dir)
     for (const char* table : {ct::kTableMetaName, ct::kColumnMetaName, ct::kSchemaMetaName}) {
         dump += table;
         dump += '\n';
-        std::unique_ptr<st::Scanner> cursor = db.scan(table);
+        std::unique_ptr<st::Scanner> cursor = db.scan({"", table});
         st::Row row;
         while (cursor->next(&row)) {
             for (const st::Value& v : row.values) {
