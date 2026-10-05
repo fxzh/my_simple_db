@@ -26,6 +26,18 @@ struct TypeInfo {
     std::optional<long long> length;
 };
 
+// 限定名: schema 为空表示未限定
+struct QualifiedName {
+    std::string schema;
+    std::string name;
+};
+
+// 限定名转文本: 供打印与日志使用
+inline std::string qualified_to_string(const QualifiedName& q)
+{
+    return q.schema.empty() ? q.name : q.schema + "." + q.name;
+}
+
 // 列定义: 列名 + 类型说明 + NOT NULL 约束
 struct ColumnDef {
     std::string name;
@@ -311,18 +323,19 @@ public:
 
 // CREATE TABLE 表名 (列定义列表)
 class CreateTableStmt : public SQLStatement {
-    std::string table;
+    QualifiedName table;
     std::vector<ColumnDef> columns;
 public:
-    CreateTableStmt(std::string name, std::vector<ColumnDef> cols)
+    CreateTableStmt(QualifiedName name, std::vector<ColumnDef> cols)
         : table(std::move(name)), columns(std::move(cols)) {}
 
-    const std::string& table_name() const { return table; }
+    const QualifiedName& table_name() const { return table; }
     const std::vector<ColumnDef>& column_defs() const { return columns; }
 
-    void print(std::ostream& os, int indent) const override 
+    void print(std::ostream& os, int indent) const override
     {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "CreateTable: " << table << std::endl;
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "CreateTable: "
+           << qualified_to_string(table) << std::endl;
         for (const auto& col : columns) {
             os << std::string(static_cast<std::size_t>(indent + 4), ' ') << col.name << " "
                << type_to_string(col.type, col.length);
@@ -338,21 +351,22 @@ public:
 
 // DROP TABLE 表名
 class DropTableStmt : public SQLStatement {
-    std::string table;
+    QualifiedName table;
 public:
-    explicit DropTableStmt(std::string name) : table(std::move(name)) {}
+    explicit DropTableStmt(QualifiedName name) : table(std::move(name)) {}
 
-    const std::string& table_name() const { return table; }
+    const QualifiedName& table_name() const { return table; }
 
     void print(std::ostream& os, int indent) const override
     {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "DropTable: " << table << std::endl;
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "DropTable: "
+           << qualified_to_string(table) << std::endl;
     }
 
     StmtKind kind() const override { return StmtKind::DropTable; }
 };
 
-// CREATE SCHEMA 模式名(语法已接入, 执行暂缺)
+// CREATE SCHEMA 模式名
 class CreateSchemaStmt : public SQLStatement {
     std::string schema;
 public:
@@ -368,7 +382,7 @@ public:
     StmtKind kind() const override { return StmtKind::CreateSchema; }
 };
 
-// DROP SCHEMA 模式名(语法已接入, 执行暂缺)
+// DROP SCHEMA 模式名
 class DropSchemaStmt : public SQLStatement {
     std::string schema;
 public:
@@ -384,43 +398,43 @@ public:
     StmtKind kind() const override { return StmtKind::DropSchema; }
 };
 
-// CREATE INDEX 索引名 ON 表名 (列名), 索引名表内唯一(语法已接入, 执行暂缺)
+// CREATE INDEX 索引名 ON 表名 (列名), 索引名表内唯一
 class CreateIndexStmt : public SQLStatement {
     std::string index;
-    std::string table;
+    QualifiedName table;
     std::string column;
 public:
-    CreateIndexStmt(std::string index_name, std::string table_name, std::string column_name)
+    CreateIndexStmt(std::string index_name, QualifiedName table_name, std::string column_name)
         : index(std::move(index_name)), table(std::move(table_name)), column(std::move(column_name)) {}
 
     const std::string& index_name() const { return index; }
-    const std::string& table_name() const { return table; }
+    const QualifiedName& table_name() const { return table; }
     const std::string& column_name() const { return column; }
 
     void print(std::ostream& os, int indent) const override
     {
         os << std::string(static_cast<std::size_t>(indent), ' ') << "CreateIndex: " << index
-           << " ON " << table << " (" << column << ")" << std::endl;
+           << " ON " << qualified_to_string(table) << " (" << column << ")" << std::endl;
     }
 
     StmtKind kind() const override { return StmtKind::CreateIndex; }
 };
 
-// DROP INDEX 索引名 ON 表名(语法已接入, 执行暂缺)
+// DROP INDEX 索引名 ON 表名
 class DropIndexStmt : public SQLStatement {
     std::string index;
-    std::string table;
+    QualifiedName table;
 public:
-    DropIndexStmt(std::string index_name, std::string table_name)
+    DropIndexStmt(std::string index_name, QualifiedName table_name)
         : index(std::move(index_name)), table(std::move(table_name)) {}
 
     const std::string& index_name() const { return index; }
-    const std::string& table_name() const { return table; }
+    const QualifiedName& table_name() const { return table; }
 
     void print(std::ostream& os, int indent) const override
     {
         os << std::string(static_cast<std::size_t>(indent), ' ') << "DropIndex: " << index
-           << " ON " << table << std::endl;
+           << " ON " << qualified_to_string(table) << std::endl;
     }
 
     StmtKind kind() const override { return StmtKind::DropIndex; }
@@ -428,21 +442,22 @@ public:
 
 // INSERT INTO 表名 [(列清单)] VALUES 值行列表
 class InsertStmt : public SQLStatement {
-    std::string table;
+    QualifiedName table;
     std::vector<std::string> columns_;  // 指定列清单, 空表示未指定
     std::vector<std::vector<std::unique_ptr<Expr>>> rows_;
 public:
-    InsertStmt(std::string name, std::vector<std::string> cols,
+    InsertStmt(QualifiedName name, std::vector<std::string> cols,
                std::vector<std::vector<std::unique_ptr<Expr>>> rows)
         : table(std::move(name)), columns_(std::move(cols)), rows_(std::move(rows)) {}
 
-    const std::string& table_name() const { return table; }
+    const QualifiedName& table_name() const { return table; }
     const std::vector<std::string>& columns() const { return columns_; }
     const std::vector<std::vector<std::unique_ptr<Expr>>>& rows() const { return rows_; }
 
     void print(std::ostream& os, int indent) const override
     {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "InsertInto: " << table << std::endl;
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "InsertInto: "
+           << qualified_to_string(table) << std::endl;
         for (const std::string& col : columns_) {
             os << std::string(static_cast<std::size_t>(indent + 4), ' ') << "Column: " << col << std::endl;
         }
@@ -458,18 +473,19 @@ public:
 
 // DELETE FROM 表名 [WHERE 条件]
 class DeleteStmt : public SQLStatement {
-    std::string table;
+    QualifiedName table;
     std::unique_ptr<Expr> where_;   // 无 WHERE 时为空
 public:
-    DeleteStmt(std::string name, std::unique_ptr<Expr> where)
+    DeleteStmt(QualifiedName name, std::unique_ptr<Expr> where)
         : table(std::move(name)), where_(std::move(where)) {}
 
-    const std::string& table_name() const { return table; }
+    const QualifiedName& table_name() const { return table; }
     const Expr* where_expr() const { return where_.get(); }
 
     void print(std::ostream& os, int indent) const override
     {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "DeleteFrom: " << table << std::endl;
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "DeleteFrom: "
+           << qualified_to_string(table) << std::endl;
         if (where_) {
             where_->print(os, indent + 4);
         }
@@ -486,20 +502,21 @@ struct UpdateItem {
 
 // UPDATE 表名 SET 列 = 表达式 [, ...] [WHERE 条件]
 class UpdateStmt : public SQLStatement {
-    std::string table;
+    QualifiedName table;
     std::vector<UpdateItem> assignments_;
     std::unique_ptr<Expr> where_;   // 无 WHERE 时为空
 public:
-    UpdateStmt(std::string name, std::vector<UpdateItem> assigns, std::unique_ptr<Expr> where)
+    UpdateStmt(QualifiedName name, std::vector<UpdateItem> assigns, std::unique_ptr<Expr> where)
         : table(std::move(name)), assignments_(std::move(assigns)), where_(std::move(where)) {}
 
-    const std::string& table_name() const { return table; }
+    const QualifiedName& table_name() const { return table; }
     const std::vector<UpdateItem>& assignments() const { return assignments_; }
     const Expr* where_expr() const { return where_.get(); }
 
     void print(std::ostream& os, int indent) const override
     {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "Update: " << table << std::endl;
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "Update: "
+           << qualified_to_string(table) << std::endl;
         for (const UpdateItem& item : assignments_) {
             os << std::string(static_cast<std::size_t>(indent + 4), ' ') << "Assign: "
                << item.column << std::endl;
@@ -528,7 +545,7 @@ struct OrderItem {
 
 // SELECT [DISTINCT] 投影 FROM 表 [WHERE] [ORDER BY] [LIMIT n [OFFSET m]]
 class SelectStmt : public SQLStatement {
-    std::string table_;
+    QualifiedName table_;
     bool distinct_ = false;
     std::vector<SelectItem> items_;
     std::unique_ptr<Expr> where_;   // 无 WHERE 时为空
@@ -536,13 +553,13 @@ class SelectStmt : public SQLStatement {
     std::optional<long long> limit_;   // 未指定为 nullopt
     std::optional<long long> offset_;  // 未指定为 nullopt
 public:
-    SelectStmt(std::string name, bool distinct, std::vector<SelectItem> items,
+    SelectStmt(QualifiedName name, bool distinct, std::vector<SelectItem> items,
                std::unique_ptr<Expr> where, std::vector<OrderItem> orders,
                std::optional<long long> limit, std::optional<long long> offset)
         : table_(std::move(name)), distinct_(distinct), items_(std::move(items)),
           where_(std::move(where)), orders_(std::move(orders)), limit_(limit), offset_(offset) {}
 
-    const std::string& table_name() const { return table_; }
+    const QualifiedName& table_name() const { return table_; }
     bool distinct() const { return distinct_; }
     const std::vector<SelectItem>& items() const { return items_; }
     const Expr* where_expr() const { return where_.get(); }
@@ -552,7 +569,8 @@ public:
 
     void print(std::ostream& os, int indent) const override
     {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "Select: " << table_ << std::endl;
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "Select: "
+           << qualified_to_string(table_) << std::endl;
         for (const SelectItem& item : items_) {
             if (item.star) {
                 os << std::string(static_cast<std::size_t>(indent + 4), ' ') << "*" << std::endl;

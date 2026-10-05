@@ -134,7 +134,7 @@ WS       [ \t\r]
 ">="       { return yy::parser::token::GE; }
 "=="|"="   { return yy::parser::token::EQ; }
 "<>"|"!="  { return yy::parser::token::NE; }
-"+"|"-"|"*"|"/"|"("|")"|","|";"|"<"|">" {
+"+"|"-"|"*"|"/"|"("|")"|","|";"|"."|"<"|">" {
     return yytext[0];
 }
 

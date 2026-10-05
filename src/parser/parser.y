@@ -84,6 +84,7 @@
 %type <std::vector<ColumnDef>> column_definitions
 %type <ColumnDef> column_definition
 %type <TypeInfo> type_specifier
+%type <QualifiedName> qualified_name
 %type <std::vector<std::unique_ptr<Expr>>> value_list
 %type <std::vector<std::vector<std::unique_ptr<Expr>>>> values_rows
 %type <std::unique_ptr<Expr>> value expression where_opt
@@ -130,8 +131,14 @@ create_statement:
     |   create_index_statement { $$ = std::move($1); }
     ;
 
+// 对象限定名: 裸名或 schema.对象名, schema 部分为空表示未限定
+qualified_name:
+        IDENTIFIER                  { $$ = QualifiedName{ "", std::move($1) }; }
+    |   IDENTIFIER '.' IDENTIFIER   { $$ = QualifiedName{ std::move($1), std::move($3) }; }
+    ;
+
 create_table_statement:
-        CREATE TABLE IDENTIFIER '(' column_definitions ')'
+        CREATE TABLE qualified_name '(' column_definitions ')'
         {
             $$ = std::make_unique<CreateTableStmt>(std::move($3), std::move($5));
         }
@@ -147,7 +154,7 @@ create_schema_statement:
 
 // create index 索引名 on 表名 (单列名)
 create_index_statement:
-        CREATE INDEX IDENTIFIER ON IDENTIFIER '(' IDENTIFIER ')'
+        CREATE INDEX IDENTIFIER ON qualified_name '(' IDENTIFIER ')'
         {
             $$ = std::make_unique<CreateIndexStmt>(std::move($3), std::move($5), std::move($7));
         }
@@ -186,7 +193,7 @@ drop_statement:
     ;
 
 drop_table_statement:
-        DROP TABLE IDENTIFIER
+        DROP TABLE qualified_name
         {
             $$ = std::make_unique<DropTableStmt>(std::move($3));
         }
@@ -202,7 +209,7 @@ drop_schema_statement:
 
 // drop index 索引名 on 表名
 drop_index_statement:
-        DROP INDEX IDENTIFIER ON IDENTIFIER
+        DROP INDEX IDENTIFIER ON qualified_name
         {
             $$ = std::make_unique<DropIndexStmt>(std::move($3), std::move($5));
         }
@@ -210,7 +217,7 @@ drop_index_statement:
 
 // delete from 表名 [where 条件]
 delete_statement:
-        DELETE FROM IDENTIFIER where_opt
+        DELETE FROM qualified_name where_opt
         {
             $$ = std::make_unique<DeleteStmt>(std::move($3), std::move($4));
         }
@@ -218,7 +225,7 @@ delete_statement:
 
 // update 表名 set 赋值列表 [where 条件]
 update_statement:
-        UPDATE IDENTIFIER SET update_assignments where_opt
+        UPDATE qualified_name SET update_assignments where_opt
         {
             $$ = std::make_unique<UpdateStmt>(std::move($2), std::move($4), std::move($5));
         }
@@ -248,7 +255,7 @@ update_assignment:
 
 // select 投影列表 FROM 表名 [where 条件](基础闭环: ORDER BY/LIMIT 随后续里程碑接入)
 select_statement:
-        SELECT select_list FROM IDENTIFIER where_opt
+        SELECT select_list FROM qualified_name where_opt
         {
             $$ = std::make_unique<SelectStmt>(std::move($4), false, std::move($2), std::move($5),
                                              std::vector<OrderItem>{}, std::nullopt, std::nullopt);
@@ -337,7 +344,7 @@ alias_opt:
 
 // insert into 表名 [(列清单)] values 值行列表
 insert_statement:
-        INSERT INTO IDENTIFIER columns_opt VALUES values_rows
+        INSERT INTO qualified_name columns_opt VALUES values_rows
         {
             $$ = std::make_unique<InsertStmt>(std::move($3), std::move($4), std::move($6));
         }
