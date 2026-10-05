@@ -1,0 +1,76 @@
+CREATE TABLE t_ex (a int, b double, c varchar(10));
+CREATE
+-- 计划树: 投影/过滤/扫描
+EXPLAIN SELECT a, b FROM t_ex WHERE a > 1 AND b IS NOT NULL;
+ QUERY PLAN
+---------------------------------------------
+ Project
+   Output: a, b
+   ->  Filter: ((a > 1) AND (b IS NOT NULL))
+         ->  Seq Scan on public.t_ex
+(4 行)
+EXPLAIN SELECT * FROM t_ex;
+ QUERY PLAN
+-------------------------------
+ Project
+   Output: a, b, c
+   ->  Seq Scan on public.t_ex
+(3 行)
+-- DML 计划: 有 WHERE 与无 WHERE 的形态
+EXPLAIN DELETE FROM t_ex WHERE a = 1;
+ QUERY PLAN
+-------------------------------------
+ Delete on public.t_ex
+   ->  Filter: (a = 1)
+         ->  Seq Scan on public.t_ex
+(3 行)
+EXPLAIN DELETE FROM t_ex;
+ QUERY PLAN
+-----------------------
+ Delete on public.t_ex
+(1 行)
+EXPLAIN UPDATE t_ex SET b = b + 1.5 WHERE a > 0;
+ QUERY PLAN
+-------------------------------------
+ Update on public.t_ex
+   Set: b = (b + 1.5)
+   ->  Filter: (a > 0)
+         ->  Seq Scan on public.t_ex
+(4 行)
+EXPLAIN INSERT INTO t_ex VALUES (1, 1.5, 'x');
+ QUERY PLAN
+-----------------------
+ Insert on public.t_ex
+(1 行)
+-- DDL 计划
+EXPLAIN CREATE INDEX idx_ex ON t_ex (a);
+ QUERY PLAN
+----------------------------------------
+ Create Index idx_ex on public.t_ex (a)
+(1 行)
+EXPLAIN DROP INDEX idx_ex ON t_ex;
+ QUERY PLAN
+----------------------------------
+ Drop Index idx_ex on public.t_ex
+(1 行)
+-- 嵌套 explain
+EXPLAIN EXPLAIN SELECT a FROM t_ex;
+ QUERY PLAN
+-------------------------------------
+ Explain
+   ->  Project
+         Output: a
+         ->  Seq Scan on public.t_ex
+(4 行)
+-- 静态校验与真实执行同文案
+EXPLAIN SELECT no_col FROM t_ex;
+ERROR: 列不存在: no_col
+EXPLAIN SELECT a FROM t_missing;
+ERROR: 表不存在: public.t_missing
+-- 事务内解释 DDL: 拒绝并回滚
+BEGIN;
+BEGIN
+EXPLAIN CREATE TABLE t_txn (a int);
+ERROR: 事务内不允许 DDL 或 SET 语句, 事务已回滚
+DROP TABLE t_ex;
+DROP

@@ -18,7 +18,8 @@ namespace ana {
 // SET 模式门禁与变量名绑定(仅 bootstrap 模式可用, 正常模式直接报错)、
 // 表存在性/值类型/长度/范围/NOT NULL/个数/常量性检查(insert)、赋值绑定: 行上下文右值/
 // 静态类型匹配/纯常量右值的 NOT NULL 与长度检查, 列引用右值留执行期、
-// 表达式类型推导与 WHERE 布尔校验(select/delete/update 带 WHERE)、投影展开与投影类型检查(select);
+// 表达式类型推导与 WHERE 布尔校验(select/delete/update 带 WHERE)、投影展开与投影类型检查(select)、
+// EXPLAIN 递归绑定被解释语句(被解释语句的绑定校验与真实执行一致);
 // 绑定错误当场经 DB_RAISE 记日志后抛出;
 // 产物持有绑定表达式树(名字已解析为行内下标), 绑定后不依赖 stmt
 std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,

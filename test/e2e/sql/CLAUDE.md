@@ -9,6 +9,9 @@ sql 用例按功能分目录
 # select
 单表查询
 
+# explain
+计划解释
+
 # where
 条件过滤
 

@@ -14,7 +14,7 @@ namespace pl {
 // 计划节点种类, 供执行层按类型分派
 enum class PlanKind {
     SeqScan, Filter, Project, Insert, Delete, Update, CreateTable, DropTable, CreateSchema,
-    DropSchema, CreateIndex, DropIndex, Set,
+    DropSchema, CreateIndex, DropIndex, Set, Explain,
 };
 
 // 计划节点基类: 表达式为绑定树, 由计划节点持有
@@ -110,6 +110,12 @@ struct SetPlan : PlanNode {
     ana::SetVar var;
     uint64_t value;
     PlanKind kind() const override { return PlanKind::Set; }
+};
+
+// 解释: 持被解释语句的计划, 执行期渲染为文本行结果集
+struct ExplainPlan : PlanNode {
+    std::unique_ptr<PlanNode> child;
+    PlanKind kind() const override { return PlanKind::Explain; }
 };
 
 }  // namespace pl

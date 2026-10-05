@@ -12,6 +12,7 @@
 #include "analyzer.h"
 #include "planner.h"
 #include "expr_eval.h"
+#include "explain.h"
 #include "operator.h"
 
 namespace exec {
@@ -150,6 +151,8 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt, const std::string&
     }
     case pl::PlanKind::Project:
         return run_select(db, std::move(plan));
+    case pl::PlanKind::Explain:
+        return run_explain(db, static_cast<const pl::ExplainPlan&>(*plan));
     case pl::PlanKind::Set: {
         const auto& p = static_cast<const pl::SetPlan&>(*plan);
         switch (p.var) {

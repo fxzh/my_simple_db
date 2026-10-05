@@ -315,6 +315,32 @@ bool handle_session_set(SessionCtx& s, const SetStmt& ss)
     return false;
 }
 
+// 事务内禁用语句判定: DDL/SET 拒绝, EXPLAIN 递归判被解释语句(嵌套解释随内层一并判)
+bool txn_forbidden_stmt(const SQLStatement& stmt)
+{
+    switch (stmt.kind()) {
+    case StmtKind::CreateTable:
+    case StmtKind::DropTable:
+    case StmtKind::CreateSchema:
+    case StmtKind::DropSchema:
+    case StmtKind::CreateIndex:
+    case StmtKind::DropIndex:
+    case StmtKind::Set:
+        return true;
+    case StmtKind::Explain:
+        return txn_forbidden_stmt(static_cast<const ExplainStmt&>(stmt).inner());
+    case StmtKind::Insert:
+    case StmtKind::Delete:
+    case StmtKind::Update:
+    case StmtKind::Select:
+    case StmtKind::Begin:
+    case StmtKind::Commit:
+    case StmtKind::Rollback:
+        return false;
+    }
+    return false;  // 不可达: 全部语句种类已在上方穷尽
+}
+
 // 执行一条语句: 开事务/执行/自动提交/结果分流; false = 结果集发送失败(对端已断)
 bool exec_statement(SessionCtx& s, const SQLStatement& stmt)
 {
@@ -454,11 +480,8 @@ void handle_client(int client_socket, int client_id, const std::string& client_i
             continue;
         }
 
-        if (ctx.in_txn && (kind == StmtKind::CreateTable || kind == StmtKind::DropTable
-                           || kind == StmtKind::CreateSchema || kind == StmtKind::DropSchema
-                           || kind == StmtKind::CreateIndex || kind == StmtKind::DropIndex
-                           || kind == StmtKind::Set)) {
-            // 显式事务内拒绝 DDL 与 SET: 报错即整事务回滚
+        if (ctx.in_txn && txn_forbidden_stmt(*stmt)) {
+            // 显式事务内拒绝 DDL 与 SET(含解释形态): 报错即整事务回滚
             LOG(WARNING, EXECUTOR, "ID:%d 事务内 DDL/SET 被拒, 事务已回滚", client_id);
             rollback_session_txn(ctx);
             send_error(client_socket, db::ErrCode::DdlInTxn,
