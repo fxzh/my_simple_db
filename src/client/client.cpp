@@ -113,7 +113,7 @@ std::string command_display(proto::CommandTag tag, uint64_t count)
     return "";  // 不可达: 全部标签已在上方穷尽
 }
 
-// 结果集渲染为表格: 列宽取表头与各单元格的最大字节宽, 全左对齐,
+// 结果集渲染为表格: 列宽取表头与各单元格的最大字节宽, 数据行左对齐, 表头列内居中,
 // 每列前后各一空格且补齐列宽, 列间 '|' 分隔, 表头下每列 '-' × (列宽+2) 以 '+' 连接,
 // 末列不补尾空格, 末行输出 (N 行)
 void render_result_set(const proto::ResultSet& rs)
@@ -138,24 +138,23 @@ void render_result_set(const proto::ResultSet& rs)
         cells.push_back(std::move(texts));
     }
 
-    // 输出一行: 每列前后各一空格且补齐列宽, 列间 '|' 连接, 末列不补尾空格
-    const auto print_row = [&](const std::vector<std::string>& texts) {
+    // 输出一行: 每列前后各一空格且补齐列宽, 列间 '|' 连接, 末列不补尾空格; 居中时前导补 (列宽-文本宽)/2 空格
+    const auto print_row = [&](const std::vector<std::string>& texts, bool centered) {
         for (std::size_t c = 0; c < ncol; ++c) {
             if (c > 0) {
                 std::cout << '|';
             }
-            std::cout << ' ' << texts[c];
+            const std::size_t pad = widths[c] > texts[c].size() ? widths[c] - texts[c].size() : 0;
+            const std::size_t lead = centered ? pad / 2 : 0;
+            std::cout << ' ' << std::string(lead, ' ') << texts[c];
             if (c + 1 < ncol) {
-                if (texts[c].size() < widths[c]) {
-                    std::cout << std::string(widths[c] - texts[c].size(), ' ');
-                }
-                std::cout << ' ';
+                std::cout << std::string(pad - lead, ' ') << ' ';
             }
         }
         std::cout << "\n";
     };
 
-    print_row(rs.cols);
+    print_row(rs.cols, true);
 
     // 空结果: 仅表头 + 行数
     if (rs.rows.empty()) {
@@ -173,7 +172,7 @@ void render_result_set(const proto::ResultSet& rs)
     std::cout << "\n";
 
     for (const std::vector<std::string>& texts : cells) {
-        print_row(texts);
+        print_row(texts, false);
     }
     std::cout << "(" << rs.rows.size() << " 行)" << std::endl;
 }

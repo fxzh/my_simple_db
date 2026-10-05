@@ -19,7 +19,7 @@ INSERT 1
 INSERT INTO t_nullable VALUES (NULL, 'carol', 75.0);
 INSERT 1
 SELECT * FROM t_nullable;
- id   | name  | score
+  id  | name  | score
 ------+-------+-------
  1    | alice | 90.5
  NULL | NULL  | NULL
@@ -46,7 +46,7 @@ SELECT id + 1 FROM t_nullable;
  NULL
 (7 行)
 SELECT * FROM t_nullable;
- id   | name  | score
+  id  | name  | score
 ------+-------+-------
  1    | alice | 90.5
  NULL | NULL  | NULL
@@ -75,7 +75,7 @@ INSERT 1
 INSERT INTO t_cols (id, score) VALUES (4, 10 + 5.5);
 INSERT 1
 SELECT * FROM t_cols;
- id   | name  | score
+  id  | name  | score
 ------+-------+-------
  1    | alice | 90.5
  2    | NULL  | NULL
@@ -96,7 +96,7 @@ INSERT 2
 INSERT INTO t_multi VALUES (5, 'eve', 50 + 25.5), (6, 'frank', NULL / 0);
 INSERT 2
 SELECT * FROM t_multi;
- id   | name  | score
+  id  | name  | score
 ------+-------+-------
  1    | alice | 90.5
  2    | bob   | 60
@@ -115,7 +115,7 @@ INSERT 2
 INSERT INTO t_multi (id, score) VALUES (14, 4.0), (15);
 ERROR: 值的数量与列数不符
 SELECT * FROM t_multi;
- id   | name  | score
+  id  | name  | score
 ------+-------+-------
  1    | alice | 90.5
  2    | bob   | 60

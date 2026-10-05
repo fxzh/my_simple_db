@@ -31,7 +31,7 @@ ERROR: 表不存在: public.nosuch_si
 INSERT INTO t_si VALUES (1, 2, 3.0, 4.0, 'ab', 'abcde');
 INSERT 1
 SELECT * FROM t_si;
- a    | b | c | f | s  | v
+  a   | b | c | f | s  |   v
 ------+---+---+---+----+-------
  NULL | 1 | 1 | 1 | a  | a
  1    | 2 | 3 | 4 | ab | abcde
@@ -59,7 +59,7 @@ ERROR: 常量上下文不允许引用列: b
 INSERT INTO t_ic (a, s) VALUES (NULL, 'ok');
 INSERT 1
 SELECT * FROM t_ic;
- a    | b    | s
+  a   |  b   | s
 ------+------+----
  NULL | NULL | ok
 (1 行)
@@ -82,7 +82,7 @@ ERROR: NOT NULL 列不允许 NULL: a
 INSERT INTO t_sn VALUES (3, 4, 'ok'), (5, 6, 'no');
 INSERT 2
 SELECT * FROM t_sn;
- a | b    | s
+ a |  b   | s
 ---+------+----
  1 | NULL | x
  3 | 4    | ok

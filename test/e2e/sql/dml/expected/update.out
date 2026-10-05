@@ -63,7 +63,7 @@ INSERT 2
 UPDATE t_err SET id = n;
 ERROR: 值与列类型不匹配
 SELECT * FROM t_err;
- id | n    | name
+ id |  n   | name
 ----+------+-------
  1  | 10   | alice
  2  | NULL | bob
@@ -71,7 +71,7 @@ SELECT * FROM t_err;
 UPDATE t_err SET id = n WHERE name = 'alice';
 UPDATE 1
 SELECT * FROM t_err;
- id | n    | name
+ id |  n   | name
 ----+------+-------
  2  | NULL | bob
  10 | 10   | alice
@@ -79,7 +79,7 @@ SELECT * FROM t_err;
 UPDATE t_err SET name = 'xx';
 UPDATE 2
 SELECT * FROM t_err;
- id | n    | name
+ id |  n   | name
 ----+------+------
  2  | NULL | xx
  10 | 10   | xx
@@ -93,7 +93,7 @@ INSERT 1
 UPDATE t_len SET short = src;
 ERROR: 值与列类型不匹配
 SELECT * FROM t_len;
- short | src
+ short |    src
 -------+------------
  ab    | abcdefghij
 (1 行)

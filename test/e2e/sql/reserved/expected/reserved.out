@@ -70,7 +70,7 @@ SELECT table_name FROM system.db_table;
  t_reserved
 (6 行)
 SELECT col_name, ordinal, type, length, not_null FROM system.db_column;
- col_name    | ordinal | type | length | not_null
+  col_name   | ordinal | type | length | not_null
 -------------+---------+------+--------+----------
  table_id    | 0       | 2    | 0      | 1
  table_name  | 1       | 4    | 64     | 1
