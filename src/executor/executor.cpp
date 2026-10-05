@@ -89,10 +89,10 @@ uint64_t run_update(ct::Catalog& db, const pl::UpdatePlan& up)
 
 }  // namespace
 
-ExecResult execute(ct::Catalog& db, const SQLStatement& stmt)
+ExecResult execute(ct::Catalog& db, const SQLStatement& stmt, const std::string& current_schema)
 {
     // 绑定期: 名字解析/类型映射/投影展开
-    std::unique_ptr<ana::BoundStmt> bound = ana::analyze(db, stmt);
+    std::unique_ptr<ana::BoundStmt> bound = ana::analyze(db, stmt, current_schema);
     // 计划期: 绑定语句转计划节点树
     std::unique_ptr<pl::PlanNode> plan = pl::build(*bound);
     switch (plan->kind()) {

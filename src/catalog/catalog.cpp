@@ -471,16 +471,19 @@ void Catalog::delete_meta_rows(uint64_t tid)
     }
 }
 
-// 按限定名解析 schema_id(须持锁): 未限定名默认 system, 未命中当场报错
+// 按限定名解析 schema_id(须持锁): schema 不存在当场报错, 空 schema 为调用方构造错误
 uint64_t Catalog::resolve_schema_id(const TableRef& table)
 {
-    const std::string want = table.schema.empty() ? std::string{kSystemSchemaName} : table.schema;
+    if (table.schema.empty()) {
+        DB_RAISE(db::ErrCode::Internal, LogModule::CATALOG, "TableRef schema 为空: {}",
+                 table.name);
+    }
     for (const std::vector<st::Value>& row : engine_.read_rows(kSchemaMetaId, schema_meta_cols())) {
-        if (row_str(row, 1) == want) {
+        if (row_str(row, 1) == table.schema) {
             return static_cast<uint64_t>(row_int(row, 0));
         }
     }
-    DB_RAISE(db::ErrCode::SchemaNotFound, LogModule::CATALOG, "schema 不存在: {}", want);
+    DB_RAISE(db::ErrCode::SchemaNotFound, LogModule::CATALOG, "schema 不存在: {}", table.schema);
 }
 
 // 按限定名查元数据(须持锁): 解析 schema_id 后 db_table 按 (schema_id, 表名) 定位行,

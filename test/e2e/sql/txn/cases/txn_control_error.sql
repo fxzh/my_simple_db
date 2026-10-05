@@ -3,7 +3,7 @@ ROLLBACK;
 CREATE TABLE t_ctl (id int);
 BEGIN;
 CREATE TABLE t_ddl (id int);
-SELECT table_name FROM db_table;
+SELECT table_name FROM system.db_table;
 BEGIN;
 SET x = 1;
 SELECT * FROM t_ctl;

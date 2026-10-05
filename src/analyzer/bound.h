@@ -31,7 +31,7 @@ struct BoundStmt {
     virtual BoundKind kind() const = 0;
 };
 
-// CREATE TABLE: 限定表名(schema 空为未限定) + 列规格已完成类型映射与长度校验
+// CREATE TABLE: 限定表名(未限定已填 current_schema) + 列规格已完成类型映射与长度校验
 struct BoundCreateTable : BoundStmt {
     ct::TableRef table;
     std::vector<st::ColumnSpec> cols;

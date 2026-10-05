@@ -34,11 +34,16 @@ constexpr const char* kIndexMetaName = "db_index";
 // bootstrap.sql 末尾创建的完成标记表: 行存在即代表初始化全程成功, 正常模式 open() 按名检查
 constexpr const char* kVersionMetaName = "db_version";
 
-// system schema 固定 id: 引导写入 db_schema 首行, 现阶段所有表的 schema_id 均挂其名下
+// system schema 固定 id: 引导写入 db_schema 首行, 元数据表均挂其名下
 constexpr uint64_t kSystemSchemaId = 1;
 constexpr const char* kSystemSchemaName = "system";
 
-// 限定表名: 名字解析产物; schema 为空表示未限定, 解析时默认挂 system schema
+// public schema: bootstrap.sql 经正常路径创建, 是会话 current_schema 的缺省值;
+// 无固定 id, 允许删除与重建
+constexpr const char* kPublicSchemaName = "public";
+
+// 限定表名: 名字解析产物; SQL 路径的未限定名由 analyzer 填入 current_schema,
+// 空 schema 仅来自 catalog 直连调用方的构造错误
 struct TableRef {
     std::string schema;
     std::string name;
@@ -80,7 +85,7 @@ public:
     // 回滚事务: 按 undo 逆序复原本事务已发生的修改后解除全局锁
     void rollback_txn();
 
-    // 建表: 挂限定名所属 schema(schema 须存在, 未限定挂 system), 表名 schema 内唯一,
+    // 建表: 挂限定名所属 schema(schema 须存在), 表名 schema 内唯一,
     // bootstrap 模式用 SET 的显式 table_id(未 set/重复 id 报错), 正常模式自动分配
     uint64_t create_table(const TableRef& table, const std::vector<st::ColumnSpec>& cols);
     // 删表, 保留段表拒绝删除
@@ -105,7 +110,7 @@ public:
     std::unique_ptr<st::Scanner> scan(const TableRef& table);
     // 存活行数统计(便利函数, 供测试与将来执行层使用)
     size_t row_count(const TableRef& table);
-    // 按限定名取表元数据(实时扫描元数据表), 未限定名解析到 system, 表不存在当场报错
+    // 按限定名取表元数据(实时扫描元数据表), 表不存在当场报错
     st::TableMeta table_meta(const TableRef& table);
 
     // bootstrap 模式标志(server --bootstrap 启动时传入): 管 SET 语句门禁等
@@ -134,7 +139,7 @@ private:
     // 按限定名查元数据(须持锁): 解析 schema_id 后 db_table 按 (schema_id, 表名) 定位 id,
     // db_column 收集列并按 ordinal 排序, 表不存在或元数据行非法当场报错
     st::TableMeta find_table_meta(const TableRef& table);
-    // 按限定名解析 schema_id(须持锁): 未限定名默认 system, 未命中当场报错
+    // 按限定名解析 schema_id(须持锁): schema 不存在当场报错, 空 schema 为调用方构造错误
     uint64_t resolve_schema_id(const TableRef& table);
     // schema 内表名是否已存在(须持锁): 扫 db_table 匹配 schema_id 与表名
     bool has_table_name(uint64_t sid, const std::string& name);

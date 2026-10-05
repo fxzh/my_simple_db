@@ -1,43 +1,55 @@
+-- 元数据同名表在 public 下可建可用, system 名下 create 报已存在且 drop/insert/delete 拦截
 CREATE TABLE db_table (id int);
-ERROR: 表已存在: db_table
-CREATE TABLE db_column (id int);
-ERROR: 表已存在: db_column
-CREATE TABLE db_schema (id int);
-ERROR: 表已存在: db_schema
+CREATE
+INSERT INTO db_table VALUES (1);
+INSERT 1
+SELECT * FROM db_table;
+ id
+----
+ 1
+(1 行)
 DROP TABLE db_table;
-ERROR: 保留表名禁止使用: db_table
-DROP TABLE db_column;
-ERROR: 保留表名禁止使用: db_column
-DROP TABLE db_schema;
-ERROR: 保留表名禁止使用: db_schema
-INSERT INTO db_table VALUES (1, 'x');
-ERROR: 保留表名禁止使用: db_table
-INSERT INTO db_column VALUES (1, 'x', 0, 1, 0, 1);
-ERROR: 保留表名禁止使用: db_column
-INSERT INTO db_schema VALUES (1, 'x');
-ERROR: 保留表名禁止使用: db_schema
-DELETE FROM db_table;
-ERROR: 保留表名禁止使用: db_table
-DELETE FROM db_column;
-ERROR: 保留表名禁止使用: db_column
-DELETE FROM db_schema;
-ERROR: 保留表名禁止使用: db_schema
-CREATE TABLE db_index (id int);
-ERROR: 表已存在: db_index
-CREATE TABLE db_version (id int);
-ERROR: 表已存在: db_version
-DROP TABLE db_index;
-ERROR: 保留表名禁止使用: db_index
-DROP TABLE db_version;
-ERROR: 保留表名禁止使用: db_version
-INSERT INTO db_index VALUES (1);
-ERROR: 保留表名禁止使用: db_index
-INSERT INTO db_version VALUES (1);
-ERROR: 保留表名禁止使用: db_version
-DELETE FROM db_index;
-ERROR: 保留表名禁止使用: db_index
-DELETE FROM db_version;
-ERROR: 保留表名禁止使用: db_version
+DROP
+CREATE TABLE system.db_table (id int);
+ERROR: 表已存在: system.db_table
+CREATE TABLE system.db_column (id int);
+ERROR: 表已存在: system.db_column
+CREATE TABLE system.db_schema (id int);
+ERROR: 表已存在: system.db_schema
+DROP TABLE system.db_table;
+ERROR: 保留表名禁止使用: system.db_table
+DROP TABLE system.db_column;
+ERROR: 保留表名禁止使用: system.db_column
+DROP TABLE system.db_schema;
+ERROR: 保留表名禁止使用: system.db_schema
+INSERT INTO system.db_table VALUES (1, 'x');
+ERROR: 保留表名禁止使用: system.db_table
+INSERT INTO system.db_column VALUES (1, 'x', 0, 1, 0, 1);
+ERROR: 保留表名禁止使用: system.db_column
+INSERT INTO system.db_schema VALUES (1, 'x');
+ERROR: 保留表名禁止使用: system.db_schema
+DELETE FROM system.db_table;
+ERROR: 保留表名禁止使用: system.db_table
+DELETE FROM system.db_column;
+ERROR: 保留表名禁止使用: system.db_column
+DELETE FROM system.db_schema;
+ERROR: 保留表名禁止使用: system.db_schema
+CREATE TABLE system.db_index (id int);
+ERROR: 表已存在: system.db_index
+CREATE TABLE system.db_version (id int);
+ERROR: 表已存在: system.db_version
+DROP TABLE system.db_index;
+ERROR: 保留表名禁止使用: system.db_index
+DROP TABLE system.db_version;
+ERROR: 保留表名禁止使用: system.db_version
+INSERT INTO system.db_index VALUES (1);
+ERROR: 保留表名禁止使用: system.db_index
+INSERT INTO system.db_version VALUES (1);
+ERROR: 保留表名禁止使用: system.db_version
+DELETE FROM system.db_index;
+ERROR: 保留表名禁止使用: system.db_index
+DELETE FROM system.db_version;
+ERROR: 保留表名禁止使用: system.db_version
 CREATE TABLE t_reserved (id int);
 CREATE
 INSERT INTO t_reserved VALUES (7);
@@ -47,17 +59,17 @@ SELECT * FROM t_reserved;
 ----
  7
 (1 行)
-SELECT table_name, schema_id FROM db_table;
- table_name | schema_id
-------------+-----------
- db_table   | 1
- db_column  | 1
- db_schema  | 1
- db_index   | 1
- db_version | 1
- t_reserved | 1
+SELECT table_name FROM system.db_table;
+ table_name
+------------
+ db_table
+ db_column
+ db_schema
+ db_index
+ db_version
+ t_reserved
 (6 行)
-SELECT col_name, ordinal, type, length, not_null FROM db_column;
+SELECT col_name, ordinal, type, length, not_null FROM system.db_column;
  col_name    | ordinal | type | length | not_null
 -------------+---------+------+--------+----------
  table_id    | 0       | 2    | 0      | 1
@@ -79,25 +91,26 @@ SELECT col_name, ordinal, type, length, not_null FROM db_column;
  version     | 0       | 2    | 0      | 1
  id          | 0       | 1    | 0      | 0
 (18 行)
-SELECT * FROM db_schema;
- schema_id | schema_name
------------+-------------
- 1         | system
-(1 行)
-SELECT * FROM db_index;
+SELECT schema_name FROM system.db_schema;
+ schema_name
+-------------
+ system
+ public
+(2 行)
+SELECT * FROM system.db_index;
  table_id | index_name | col_ordinal | file_id
 (0 行)
-SELECT * FROM db_version;
+SELECT * FROM system.db_version;
  version
 (0 行)
 DROP TABLE t_reserved;
 DROP
-SELECT table_name, schema_id FROM db_table;
- table_name | schema_id
-------------+-----------
- db_table   | 1
- db_column  | 1
- db_schema  | 1
- db_index   | 1
- db_version | 1
+SELECT table_name FROM system.db_table;
+ table_name
+------------
+ db_table
+ db_column
+ db_schema
+ db_index
+ db_version
 (5 行)

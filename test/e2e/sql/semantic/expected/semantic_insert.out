@@ -27,7 +27,7 @@ INSERT 1
 INSERT INTO t_si VALUES (a, 1, 1.0, 1.0, 'a', 'a');
 ERROR: 常量上下文不允许引用列: a
 INSERT INTO nosuch_si VALUES (1);
-ERROR: 表不存在: nosuch_si
+ERROR: 表不存在: public.nosuch_si
 INSERT INTO t_si VALUES (1, 2, 3.0, 4.0, 'ab', 'abcde');
 INSERT 1
 SELECT * FROM t_si;

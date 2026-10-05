@@ -29,11 +29,11 @@ struct ExecResult {
     std::unique_ptr<Operator> stream;                  // 已 open 的结果集算子, 拉尽后 close
 };
 
-// 执行一条已解析的语句:
+// 执行一条已解析的语句(current_schema 为会话当前 schema, 透传给绑定层解析未限定名):
 // 建表/删表/插行/删行回命令标签与影响行数(insert 为实际行数, delete 为实际删除数);
 // 查询回列名与已 open 的算子(计划树随行携带, 算子引用其中数据), 调用方逐行拉取流式发送, 用毕 close;
 // 执行错误当场经 log.h 记录后以 std::exception 抛出, 由调用方回客户端 "ERROR: <原因>"
-ExecResult execute(ct::Catalog& db, const SQLStatement& stmt);
+ExecResult execute(ct::Catalog& db, const SQLStatement& stmt, const std::string& current_schema);
 
 }  // namespace exec
 

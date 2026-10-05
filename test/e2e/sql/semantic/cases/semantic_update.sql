@@ -1,5 +1,5 @@
 UPDATE no_table SET a = 1;
-UPDATE db_table SET table_name = 'x';
+UPDATE system.db_table SET table_name = 'x';
 CREATE TABLE t_sem (id int NOT NULL, name varchar(8), score double);
 UPDATE t_sem SET no_col = 1;
 UPDATE t_sem SET id = 1, id = 2;

@@ -89,7 +89,7 @@
 %type <std::vector<std::vector<std::unique_ptr<Expr>>>> values_rows
 %type <std::unique_ptr<Expr>> value expression where_opt
 %type <bool> null_not_opt not_null_opt
-%type <std::string> set_value
+%type <std::pair<std::string, SetValueForm>> set_value
 %type <std::vector<SelectItem>> select_list select_items
 %type <SelectItem> select_item
 %type <std::vector<UpdateItem>> update_assignments
@@ -266,17 +266,17 @@ select_statement:
 set_statement:
         SET IDENTIFIER EQ set_value
         {
-            $$ = std::make_unique<SetStmt>(std::move($2), $4);
+            $$ = std::make_unique<SetStmt>(std::move($2), std::move($4.first), $4.second);
         }
     ;
 
 // set 值: 整数(可带符号)、标识符或字符串字面量, 值域不在语法层校验
 set_value:
-        INTEGER      { $$ = std::to_string($1); }
-    |   '-' INTEGER  { $$ = std::to_string(-$2); }
-    |   '+' INTEGER  { $$ = std::to_string($2); }
-    |   IDENTIFIER   { $$ = std::move($1); }
-    |   STRING       { $$ = std::move($1); }
+        INTEGER      { $$ = std::make_pair(std::to_string($1), SetValueForm::Int); }
+    |   '-' INTEGER  { $$ = std::make_pair(std::to_string(-$2), SetValueForm::Int); }
+    |   '+' INTEGER  { $$ = std::make_pair(std::to_string($2), SetValueForm::Int); }
+    |   IDENTIFIER   { $$ = std::make_pair(std::move($1), SetValueForm::Ident); }
+    |   STRING       { $$ = std::make_pair(std::move($1), SetValueForm::Str); }
     ;
 
 // 事务控制语句: begin / commit / rollback(会话层短路处理, 不进执行层)

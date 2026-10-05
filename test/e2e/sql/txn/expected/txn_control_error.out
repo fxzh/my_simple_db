@@ -8,7 +8,7 @@ BEGIN;
 BEGIN
 CREATE TABLE t_ddl (id int);
 ERROR: 事务内不允许 DDL 或 SET 语句, 事务已回滚
-SELECT table_name FROM db_table;
+SELECT table_name FROM system.db_table;
  table_name
 ------------
  db_table

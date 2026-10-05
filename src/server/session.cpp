@@ -167,6 +167,8 @@ struct SessionCtx {
     bool txn_started = false;
     // 会话变量: 本连接消息级别, 缺省 info
     LogLevel client_msg_level = LogLevel::INFO;
+    // 会话变量: 当前 schema, 未限定名解析到这里, 缺省 public; 不校验所指 schema 存在
+    std::string current_schema = ct::kPublicSchemaName;
 };
 
 // 报错路径的整事务回滚: 引擎事务上下文已建立才调引擎, 会话状态无条件复位
@@ -269,6 +271,25 @@ bool handle_session_set(SessionCtx& s, const SetStmt& ss)
                           proto::encode_command(proto::CommandTag::Set, 0));
         return true;
     }
+    if (ss.var_name() == "current_schema") {
+        // 整数字面量或空值拒绝, 其余原样收下(不校验所指 schema 存在)
+        if (ss.form() == SetValueForm::Int || ss.value().empty()) {
+            std::string err_log = "ID:" + std::to_string(s.client_id)
+                                 + " current_schema 值非法: " + ss.value();
+            LOG(WARNING, NETWORK, "%s", err_log.c_str());
+            send_error(s.sock, db::ErrCode::InvalidVarValue,
+                       "current_schema 值非法: " + ss.value());
+            return true;
+        }
+        s.current_schema = ss.value();
+        std::string set_log = "ID:" + std::to_string(s.client_id)
+                            + " 会话变量 current_schema = " + s.current_schema;
+        LOG(INFO, NETWORK, "%s", set_log.c_str());
+        send_notice(s.sock, s.client_msg_level, DEBUG, "current_schema = " + s.current_schema);
+        proto::send_frame(s.sock, proto::MsgType::Ok,
+                          proto::encode_command(proto::CommandTag::Set, 0));
+        return true;
+    }
     if (ss.var_name() == "server_log_level") {
         // 全局变量: 调整服务端日志级别阈值, 对所有会话生效
         const std::optional<LogLevel> lvl = levelFromString(ss.value());
@@ -309,7 +330,7 @@ bool exec_statement(SessionCtx& s, const SQLStatement& stmt)
 
     exec::ExecResult result;
     try {
-        result = exec::execute(*s.db, stmt);
+        result = exec::execute(*s.db, stmt, s.current_schema);
     } catch (const db::DbError& e) {
         // 结构化错误: 源头已记 ERROR, 当前事务回滚, 显式事务一并结束
         s.db->rollback_txn();

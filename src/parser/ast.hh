@@ -586,18 +586,23 @@ public:
     StmtKind kind() const override { return StmtKind::Select; }
 };
 
+// SET 值形态: 值文本的字面量来源, 接收侧按形态做值域校验
+enum class SetValueForm : uint8_t { Int, Ident, Str };
+
 // SET 变量 = 值(值以文本承载, 语义由变量接收侧解释)
 class SetStmt : public SQLStatement {
     std::string var_;
     std::string value_;
+    SetValueForm form_;
 public:
-    SetStmt(std::string var, std::string value)
-        : var_(std::move(var)), value_(std::move(value))
+    SetStmt(std::string var, std::string value, SetValueForm form)
+        : var_(std::move(var)), value_(std::move(value)), form_(form)
     {
     }
 
     const std::string& var_name() const { return var_; }
     const std::string& value() const { return value_; }
+    SetValueForm form() const { return form_; }
 
     void print(std::ostream& os, int indent) const override
     {

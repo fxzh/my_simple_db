@@ -76,9 +76,9 @@ TEST_F(StorageDb, WalRecoverInsertAfterCrash)
 
     run_crashed([](Catalog& db) {
         db.begin_txn();
-        db.create_table({"", "t"},{{"id", ColType::Int, 0, true}});
+        db.create_table({"system", "t"},{{"id", ColType::Int, 0, true}});
         for (int i = 1; i <= 50; ++i) {
-            db.insert({"", "t"},{Value{int64_t{i}}});
+            db.insert({"system", "t"},{Value{int64_t{i}}});
         }
         db.commit_txn();
     }, dir.path);
@@ -86,7 +86,7 @@ TEST_F(StorageDb, WalRecoverInsertAfterCrash)
     {
         Catalog db(dir.path);
         db.open();
-        EXPECT_EQ(db.row_count({"", "t"}), size_t{50});
+        EXPECT_EQ(db.row_count({"system", "t"}), size_t{50});
         db.close();
         // 干净关闭做了检查点: WAL 应已清空, 下次启动零重放
         std::error_code ec;
@@ -101,21 +101,21 @@ TEST_F(StorageDb, WalRecoverDropAfterCrash)
 
     run_crashed([](Catalog& db) {
         db.begin_txn();
-        db.create_table({"", "t"},{{"id", ColType::Int, 0, true}});
-        db.insert({"", "t"},{Value{int64_t{1}}});
+        db.create_table({"system", "t"},{{"id", ColType::Int, 0, true}});
+        db.insert({"system", "t"},{Value{int64_t{1}}});
         db.commit_txn();
     }, dir.path);
 
     run_crashed([](Catalog& db) {
         db.begin_txn();
-        db.drop_table({"", "t"});
+        db.drop_table({"system", "t"});
         db.commit_txn();
     }, dir.path);
 
     {
         Catalog db(dir.path);
         db.open();
-        EXPECT_THROW(db.row_count({"", "t"}), std::runtime_error);
+        EXPECT_THROW(db.row_count({"system", "t"}), std::runtime_error);
         db.close();
     }
 }

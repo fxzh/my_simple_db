@@ -47,3 +47,15 @@ SET server_log_level = table_id;
 ERROR: server_log_level 值非法: table_id
 SET server_log_level = INFO;
 SET
+SET current_schema = 5;
+ERROR: current_schema 值非法: 5
+SET current_schema = -3;
+ERROR: current_schema 值非法: -3
+SET current_schema = '';
+ERROR: current_schema 值非法: 
+SET current_schema = "";
+ERROR: current_schema 值非法: 
+SET current_schema = '5';
+SET
+SET current_schema = nosuch;
+SET

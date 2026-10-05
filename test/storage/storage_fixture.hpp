@@ -30,14 +30,15 @@ inline void bootstrap_version_marker(const std::string& path)
     ct::Catalog db(path, true);
     db.create();
     db.open();
-    db.set_bootstrap_table_id(4);
     db.begin_txn();
-    db.create_table({"", ct::kIndexMetaName}, {{"table_id", st::ColType::BigInt, 0, true},
+    db.create_schema(ct::kPublicSchemaName);
+    db.set_bootstrap_table_id(4);
+    db.create_table({"system", ct::kIndexMetaName}, {{"table_id", st::ColType::BigInt, 0, true},
                                          {"index_name", st::ColType::VarChar, 64, true},
                                          {"col_ordinal", st::ColType::Int, 0, true},
                                          {"file_id", st::ColType::BigInt, 0, true}});
     db.set_bootstrap_table_id(5);
-    db.create_table({"", ct::kVersionMetaName}, {{"version", st::ColType::BigInt, 0, true}});
+    db.create_table({"system", ct::kVersionMetaName}, {{"version", st::ColType::BigInt, 0, true}});
     db.commit_txn();
     db.close();
 }

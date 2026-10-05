@@ -8,11 +8,11 @@ SELECT Id, name FROM t_LC WHERE NAME = 'b';
  2  | b
 (1 行)
 SELECT * FROM "t_LC";
-ERROR: 表不存在: t_LC
+ERROR: 表不存在: public.t_LC
 CREATE TABLE "t_Mixed" (id int);
 CREATE
 SELECT * FROM t_Mixed;
-ERROR: 表不存在: t_mixed
+ERROR: 表不存在: public.t_mixed
 SELECT * FROM "t_Mixed";
  id
 (0 行)
