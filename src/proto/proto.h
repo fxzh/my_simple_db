@@ -20,7 +20,7 @@ namespace proto {
 constexpr uint32_t FRAME_HEADER_SIZE = 4;
 
 // 服务端受理的请求 payload 上限, 与 client 的 SQL_BUFFER_LIMIT 一致, 超限断连
-constexpr uint32_t MAX_REQUEST_PAYLOAD = 10240;
+constexpr uint32_t MAX_REQUEST_PAYLOAD = 268435456;
 
 // 消息类型: Query 为请求方向, 其余为响应方向
 enum class MsgType : uint8_t {

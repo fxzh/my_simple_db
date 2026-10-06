@@ -5,7 +5,7 @@
 #include <string>
 
 // 单条 SQL 字节上限, 超限时报错并丢弃本轮输入
-constexpr std::size_t SQL_BUFFER_LIMIT = 10240;
+constexpr std::size_t SQL_BUFFER_LIMIT = 268435456;
 
 enum ScannerState {
     STATE_INITIAL,
