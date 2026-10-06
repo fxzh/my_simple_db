@@ -30,6 +30,7 @@ enum class ColType : uint8_t {
     VarChar = 4,
     Float = 5,  // 单精度 4B
     Char = 6,   // 定长文本
+    Bool = 7,   // 布尔 1B
 };
 
 // 列定义
@@ -49,7 +50,7 @@ struct TableMeta {
 };
 
 // 行值: 与 parser 的字面量对应, monostate 表示 NULL
-using Value = std::variant<std::monostate, int64_t, double, std::string>;
+using Value = std::variant<std::monostate, bool, int64_t, double, std::string>;
 
 // 行标识: 表内单调递增, 由文件头页计数器分配
 using RowId = uint64_t;

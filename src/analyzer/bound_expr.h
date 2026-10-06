@@ -25,7 +25,7 @@ struct BoundExpr {
 
 // 字面量常量: 绑定期折入字面量值, 不做算术折叠
 struct BoundConst : BoundExpr {
-    std::variant<std::monostate, int64_t, double, std::string> value;  // monostate 即 NULL
+    std::variant<std::monostate, bool, int64_t, double, std::string> value;  // monostate 即 NULL
     template <typename T>
     explicit BoundConst(T&& v) : value(std::forward<T>(v)) {}
     BoundExprKind kind() const override { return BoundExprKind::Const; }

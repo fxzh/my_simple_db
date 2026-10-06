@@ -52,6 +52,9 @@ std::string bound_expr_to_string(const ana::BoundExpr& e, const std::vector<std:
         if (const auto* s = std::get_if<std::string>(&v)) {
             return "'" + *s + "'";
         }
+        if (const auto* b = std::get_if<bool>(&v)) {
+            return *b ? "true" : "false";
+        }
         return "NULL";
     }
     case ana::BoundExprKind::ColRef:

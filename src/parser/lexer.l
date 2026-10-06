@@ -67,10 +67,14 @@ WS       [ \t\r]
 "char"     { return yy::parser::token::CHAR; }
 "varchar"  { return yy::parser::token::VARCHAR; }
 "double"   { return yy::parser::token::DOUBLE; }
+"boolean"  { return yy::parser::token::BOOLEAN; }
+"bool"     { return yy::parser::token::BOOL; }
 "explain"  { return yy::parser::token::EXPLAIN; }
 "select"   { return yy::parser::token::SELECT; }
 "as"       { return yy::parser::token::AS; }
 "null"     { return yy::parser::token::NULL_T; }
+"true"     { return yy::parser::token::TRUE_T; }
+"false"    { return yy::parser::token::FALSE_T; }
 "where"    { return yy::parser::token::WHERE; }
 "and"      { return yy::parser::token::AND; }
 "or"       { return yy::parser::token::OR; }

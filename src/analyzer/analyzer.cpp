@@ -29,6 +29,7 @@ st::ColType map_col_type(DataType type)
     case DataType::Double: return st::ColType::Double;
     case DataType::Char: return st::ColType::Char;
     case DataType::VarChar: return st::ColType::VarChar;
+    case DataType::Bool: return st::ColType::Bool;
     }
     DB_RAISE(db::ErrCode::InvalidType, LogModule::ANALYZER, "未映射的列类型: {}", static_cast<int>(type));
 }
@@ -81,6 +82,7 @@ ExprType col_expr_type(st::ColType type)
     case st::ColType::Double: return ExprType::Double;
     case st::ColType::Char:
     case st::ColType::VarChar: return ExprType::String;
+    case st::ColType::Bool: return ExprType::Bool;
     }
     DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未映射的列类型");
 }
@@ -101,6 +103,9 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, Exp
     case ExprKind::Null:
         type = ExprType::Null;
         return std::make_unique<BoundConst>(std::monostate{});
+    case ExprKind::Bool:
+        type = ExprType::Bool;
+        return std::make_unique<BoundConst>(static_cast<const BoolExpr&>(expr).value);
     case ExprKind::Identifier: {
         const auto& id = static_cast<const IdentifierExpr&>(expr);
         if (schema == nullptr) {
@@ -202,6 +207,7 @@ bool may_be_null(const Expr& expr)
     case ExprKind::Int:
     case ExprKind::Float:
     case ExprKind::String:
+    case ExprKind::Bool:
     case ExprKind::Identifier:
         return false;
     case ExprKind::BinaryOp: {
@@ -234,6 +240,7 @@ bool has_col_ref(const Expr& expr)
     case ExprKind::Int:
     case ExprKind::Float:
     case ExprKind::String:
+    case ExprKind::Bool:
     case ExprKind::Null:
         return false;
     case ExprKind::Identifier:
@@ -312,6 +319,9 @@ void check_value_type(const Expr& expr, ExprType t, const st::ColumnSpec& col)
              && (col.length == 0
                  || static_cast<const StringExpr&>(expr).value.size() <= col.length);
         break;
+    case st::ColType::Bool:
+        ok = t == ExprType::Bool;
+        break;
     }
     if (!ok) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "值与列类型不匹配");
@@ -334,6 +344,9 @@ void check_update_type(ExprType t, const st::ColumnSpec& col)
     case st::ColType::Char:
     case st::ColType::VarChar:
         ok = t == ExprType::String || t == ExprType::Null;
+        break;
+    case st::ColType::Bool:
+        ok = t == ExprType::Bool || t == ExprType::Null;
         break;
     }
     if (!ok) {

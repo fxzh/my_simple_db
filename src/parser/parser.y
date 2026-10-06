@@ -56,8 +56,8 @@
 %token END 0 "end of file"
 %token TOK_ERROR
 %token CREATE TABLE DROP SCHEMA INSERT INTO VALUES DELETE FROM UPDATE INDEX ON
-%token INT BIGINT FLOAT CHAR VARCHAR DOUBLE
-%token EXPLAIN SELECT AS NULL_T WHERE AND OR NOT IS SET
+%token INT BIGINT FLOAT CHAR VARCHAR DOUBLE BOOLEAN BOOL
+%token EXPLAIN SELECT AS NULL_T TRUE_T FALSE_T WHERE AND OR NOT IS SET
 %token BEGIN_TXN START TRANSACTION COMMIT WORK ROLLBACK
 %token EQ NE LE GE
 
@@ -427,6 +427,8 @@ type_specifier:
     |   CHAR   { $$ = TypeInfo{ DataType::Char, std::nullopt }; }
     |   DOUBLE { $$ = TypeInfo{ DataType::Double, std::nullopt }; }
     |   VARCHAR { $$ = TypeInfo{ DataType::VarChar, std::nullopt }; }
+    |   BOOLEAN { $$ = TypeInfo{ DataType::Bool, std::nullopt }; }
+    |   BOOL    { $$ = TypeInfo{ DataType::Bool, std::nullopt }; }
     |   CHAR '(' INTEGER ')'    { $$ = TypeInfo{ DataType::Char, $3 }; }
     |   VARCHAR '(' INTEGER ')' { $$ = TypeInfo{ DataType::VarChar, $3 }; }
     ;
@@ -436,6 +438,8 @@ expression:
     |   FLOAT_NUM                   { $$ = std::make_unique<FloatExpr>($1); }
     |   STRING                      { $$ = std::make_unique<StringExpr>(std::move($1)); }
     |   NULL_T                      { $$ = std::make_unique<NullExpr>(); }
+    |   TRUE_T                      { $$ = std::make_unique<BoolExpr>(true); }
+    |   FALSE_T                     { $$ = std::make_unique<BoolExpr>(false); }
     |   IDENTIFIER                  { $$ = std::make_unique<IdentifierExpr>(std::move($1)); }
     |   expression '+' expression   { $$ = std::make_unique<BinaryOpExpr>('+', std::move($1), std::move($3)); }
     |   expression '-' expression   { $$ = std::make_unique<BinaryOpExpr>('-', std::move($1), std::move($3)); }

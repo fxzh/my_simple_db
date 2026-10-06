@@ -66,6 +66,16 @@ inline bool get_string(const Value& v, std::string* out)
     return true;
 }
 
+inline bool get_bool(const Value& v, bool* out)
+{
+    const bool* p = std::get_if<bool>(&v);
+    if (p == nullptr) {
+        return false;
+    }
+    *out = *p;
+    return true;
+}
+
 }  // namespace
 
 bool encode_row(const std::vector<ColumnSpec>& cols, const std::vector<Value>& values,
@@ -159,6 +169,14 @@ bool encode_row(const std::vector<ColumnSpec>& cols, const std::vector<Value>& v
                 }
                 out.insert(out.end(), v.begin(), v.end());
                 out.insert(out.end(), static_cast<size_t>(n) - v.size(), ' ');  // 不足补空格
+                break;
+            }
+            case ColType::Bool: {
+                bool v = false;
+                if (!get_bool(values[i], &v)) {
+                    return false;
+                }
+                out.push_back(static_cast<uint8_t>(v ? 1 : 0));
                 break;
             }
         }
@@ -262,6 +280,18 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
                     v.pop_back();
                 }
                 out.emplace_back(std::move(v));
+                break;
+            }
+            case ColType::Bool: {
+                if (pos + 1 > len) {
+                    return false;
+                }
+                const uint8_t b = data[pos];
+                if (b > 1) {
+                    return false;  // 非 0/1 视为损坏
+                }
+                out.emplace_back(b != 0);
+                pos += 1;
                 break;
             }
         }

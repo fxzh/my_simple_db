@@ -17,7 +17,7 @@
 
 // 列类型名(语法层枚举, 由执行层映射到存储层 st::ColType)
 enum class DataType : uint8_t {
-    Int, BigInt, Float, Double, Char, VarChar,
+    Int, BigInt, Float, Double, Char, VarChar, Bool,
 };
 
 // 类型说明: 类型名 + 声明长度(未声明为 nullopt)
@@ -57,6 +57,7 @@ inline std::string type_to_string(DataType type, std::optional<long long> length
     case DataType::Double: name = "double"; break;
     case DataType::Char: name = "char"; break;
     case DataType::VarChar: name = "varchar"; break;
+    case DataType::Bool: name = "boolean"; break;
     }
     if (!length) {
         return name;
@@ -68,7 +69,7 @@ inline std::string type_to_string(DataType type, std::optional<long long> length
 
 // 表达式种类, 供执行层等上层按类型分派
 enum class ExprKind {
-    Int, Float, String, Identifier, BinaryOp, UnaryOp, Null,
+    Int, Float, String, Identifier, BinaryOp, UnaryOp, Null, Bool,
     Compare, Logic, Not, IsNull,
 };
 
@@ -120,6 +121,18 @@ struct NullExpr : Expr {
         os << std::string(static_cast<std::size_t>(indent), ' ') << "Null" << std::endl;
     }
     ExprKind kind() const override { return ExprKind::Null; }
+};
+
+// 布尔字面量
+struct BoolExpr : Expr {
+    bool value;
+    explicit BoolExpr(bool val) : value(val) {}
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "Bool: "
+           << (value ? "true" : "false") << std::endl;
+    }
+    ExprKind kind() const override { return ExprKind::Bool; }
 };
 
 // 表达式中的标识符
@@ -262,6 +275,8 @@ inline std::string expr_to_string(const Expr& e)
         return "'" + static_cast<const StringExpr&>(e).value + "'";
     case ExprKind::Null:
         return "NULL";
+    case ExprKind::Bool:
+        return static_cast<const BoolExpr&>(e).value ? "true" : "false";
     case ExprKind::Identifier:
         return static_cast<const IdentifierExpr&>(e).name;
     case ExprKind::BinaryOp: {

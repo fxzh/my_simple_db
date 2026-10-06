@@ -85,7 +85,7 @@ std::pair<int64_t, st::ColumnSpec> parse_column_row(const std::vector<st::Value>
     const int64_t length = row_int(row, 4);
     const int64_t not_null = row_int(row, 5);
     if (type < static_cast<int64_t>(st::ColType::Int) ||
-        type > static_cast<int64_t>(st::ColType::Char)) {
+        type > static_cast<int64_t>(st::ColType::Bool)) {
         DB_CRITICAL(LogModule::CATALOG, "列类型值非法: {}", type);
     }
     if (length < 0 || length > UINT16_MAX) {

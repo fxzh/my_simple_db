@@ -235,6 +235,13 @@ IndexKey encode_key(ColType type, const Value& v)
         // NULL 入索引且排最大, 键值部分无意义置 0
         return IndexKey{0, true};
     }
+    if (const bool* b = std::get_if<bool>(&v)) {
+        if (type != ColType::Bool) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "索引键值与列类型不匹配");
+        }
+        // false=0/true=1, 键序即 false < true
+        return IndexKey{static_cast<uint64_t>(*b ? 1 : 0), false};
+    }
     if (const int64_t* i = std::get_if<int64_t>(&v)) {
         if (type != ColType::Int && type != ColType::BigInt) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "索引键值与列类型不匹配");

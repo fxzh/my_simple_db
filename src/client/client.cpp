@@ -62,7 +62,7 @@ void print_notice(uint8_t level, const std::string& text)
     std::cout << levelToString(static_cast<LogLevel>(level)) << ": " << text << std::endl;
 }
 
-// 单元格显示文本: NULL 显示 NULL, 整数十进制, 浮点最短表示, 字符串原样
+// 单元格显示文本: NULL 显示 NULL, 整数十进制, 浮点最短表示, 字符串原样, 布尔 true/false
 std::string cell_text(const proto::CellVal& cell)
 {
     if (const auto* i = std::get_if<int64_t>(&cell)) {
@@ -73,6 +73,9 @@ std::string cell_text(const proto::CellVal& cell)
     }
     if (const auto* s = std::get_if<std::string>(&cell)) {
         return *s;
+    }
+    if (const auto* b = std::get_if<bool>(&cell)) {
+        return *b ? "true" : "false";
     }
     return "NULL";
 }
