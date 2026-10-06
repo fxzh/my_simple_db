@@ -107,6 +107,7 @@ void fold_const(pl::PlanNode& plan)
 {
     switch (plan.kind()) {
     case pl::PlanKind::SeqScan:
+    case pl::PlanKind::Empty:
     case pl::PlanKind::CreateTable:
     case pl::PlanKind::DropTable:
     case pl::PlanKind::CreateSchema:
@@ -165,10 +166,11 @@ void fold_const(pl::PlanNode& plan)
 
 }  // namespace
 
-// 计划优化入口: 在 build 产物上就地串接各优化 pass, 当前为常量折叠(含布尔化简)
-void optimize(PlanNode& plan)
+// 计划优化入口: 在 build 产物上就地串接各优化 pass, 当前为常量折叠(含布尔化简)与常量过滤器剪除
+void optimize(std::unique_ptr<PlanNode>& plan)
 {
-    fold_const(plan);
+    fold_const(*plan);
+    prune_filter(plan);
 }
 
 }  // namespace pl

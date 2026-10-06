@@ -122,6 +122,8 @@ std::string node_header(ct::Catalog& db, const pl::PlanNode& node)
     case pl::PlanKind::SeqScan:
         return "Seq Scan on "
                + table_ref_to_string(static_cast<const pl::SeqScanPlan&>(node).table);
+    case pl::PlanKind::Empty:
+        return "Empty Result";
     case pl::PlanKind::Filter: {
         const auto& f = static_cast<const pl::FilterPlan&>(node);
         const std::vector<std::string> names = table_col_names(db, scan_table_of(*f.child));

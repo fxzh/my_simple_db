@@ -13,7 +13,7 @@ namespace pl {
 
 // 计划节点种类, 供执行层按类型分派
 enum class PlanKind {
-    SeqScan, Filter, Project, Insert, Delete, Update, CreateTable, DropTable, CreateSchema,
+    SeqScan, Filter, Project, Empty, Insert, Delete, Update, CreateTable, DropTable, CreateSchema,
     DropSchema, CreateIndex, DropIndex, Set, Explain,
 };
 
@@ -41,6 +41,11 @@ struct ProjectPlan : PlanNode {
     std::unique_ptr<PlanNode> child;
     std::vector<ana::ProjCol> projs;
     PlanKind kind() const override { return PlanKind::Project; }
+};
+
+// 空结果: 恒不满足的过滤子树剪枝产物, 恒 0 行
+struct EmptyPlan : PlanNode {
+    PlanKind kind() const override { return PlanKind::Empty; }
 };
 
 // 插入: 每行的值为常量上下文绑定树(已归一化为表全宽)

@@ -13,6 +13,8 @@ DELETE FROM t_d WHERE nosuch = 1;
 DELETE FROM t_d WHERE v >= 30;
 SELECT * FROM t_d;
 DELETE FROM t_d WHERE v > 100;
+-- 恒假条件删除: 0 行
+DELETE FROM t_d WHERE false;
 SELECT * FROM t_d;
 DELETE FROM t_d WHERE v = 10 OR v = 20;
 SELECT * FROM t_d;

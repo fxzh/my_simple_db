@@ -2,6 +2,7 @@
 add_library(planner STATIC
     bool_simplify.cpp
     const_fold.cpp
+    filter_prune.cpp
     planner.cpp
 )
 

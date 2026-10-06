@@ -7,6 +7,8 @@ SELECT * FROM t_upd;
 UPDATE t_upd SET score = score + 0.5;
 SELECT * FROM t_upd;
 UPDATE t_upd SET id = 9 WHERE id = 100;
+-- 恒假条件更新: 0 行
+UPDATE t_upd SET score = 0.0 WHERE false;
 UPDATE t_upd SET id = id + 10, score = score * 2.0 WHERE id <= 12;
 SELECT * FROM t_upd;
 DROP TABLE t_upd;

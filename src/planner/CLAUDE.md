@@ -5,3 +5,4 @@
 - pl::optimize 是计划优化唯一入口，由 executor 在 build 后调用，pass 在函数内串接
 - 常量折叠用 expr 求值器把纯常量子树替换为常量节点，常量运算错误(溢出/除零)因此在计划期报错，EXPLAIN 渲染折叠后计划
 - 布尔化简与常量折叠同一次遍历：单侧常量 bool 按支配/恒等规则替换，NULL 常量不可化简；NOT 消除同遍历进行，德摩根暂时不做
+- 常量过滤器剪除在常量折叠后串接：恒真 Filter 摘除，恒不满足的 Filter 整棵子树剪成 Empty；Delete 的 child 为 nullptr 是全表删除语义，恒假剪枝产物是 Empty 节点，两者语义相反

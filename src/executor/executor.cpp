@@ -96,8 +96,8 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt, const std::string&
     std::unique_ptr<ana::BoundStmt> bound = ana::analyze(db, stmt, current_schema);
     // 计划期: 绑定语句转计划节点树
     std::unique_ptr<pl::PlanNode> plan = pl::build(*bound);
-    // 计划期优化: 就地运行优化 pass(当前为常量折叠), 常量运算错误(溢出/除零)在此报错
-    pl::optimize(*plan);
+    // 计划期优化: 就地串接运行各优化 pass, 常量运算错误(溢出/除零)在此报错
+    pl::optimize(plan);
     switch (plan->kind()) {
     case pl::PlanKind::CreateTable: {
         const auto& p = static_cast<const pl::CreateTablePlan&>(*plan);
@@ -164,7 +164,7 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt, const std::string&
         return tag_result(proto::CommandTag::Set, 0);
     }
     default:
-        break;  // SeqScan/Filter 不作为根计划出现
+        break;  // SeqScan/Filter/Empty 不作为根计划出现
     }
     // 不可达: 全部根计划种类已在上方穷尽
     DB_RAISE(db::ErrCode::UnknownStmt, LogModule::EXECUTOR, "executor: 未知计划种类");

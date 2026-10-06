@@ -29,6 +29,13 @@ struct SeqScanOp : Operator {
     void close() override { scanner.reset(); }
 };
 
+// 空结果: 恒 0 行, 无外部资源
+struct EmptyOp : Operator {
+    void open() override {}
+    bool next(st::Row*) override { return false; }
+    void close() override {}
+};
+
 // 过滤: 谓词不满足的行不上抛
 struct FilterOp : Operator {
     std::unique_ptr<Operator> child;
@@ -85,6 +92,8 @@ std::unique_ptr<Operator> make_operator(ct::Catalog& db, const pl::PlanNode& nod
         const auto& p = static_cast<const pl::SeqScanPlan&>(node);
         return std::make_unique<SeqScanOp>(db, p.table);
     }
+    case pl::PlanKind::Empty:
+        return std::make_unique<EmptyOp>();
     case pl::PlanKind::Filter: {
         const auto& p = static_cast<const pl::FilterPlan&>(node);
         return std::make_unique<FilterOp>(make_operator(db, *p.child), *p.pred);

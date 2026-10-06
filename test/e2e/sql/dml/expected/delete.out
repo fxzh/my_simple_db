@@ -32,6 +32,9 @@ SELECT * FROM t_d;
 (2 行)
 DELETE FROM t_d WHERE v > 100;
 DELETE 0
+-- 恒假条件删除: 0 行
+DELETE FROM t_d WHERE false;
+DELETE 0
 SELECT * FROM t_d;
  id | v
 ----+----

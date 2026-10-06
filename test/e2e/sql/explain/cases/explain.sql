@@ -33,6 +33,12 @@ EXPLAIN SELECT a FROM t_ex WHERE NOT (a <= 2);
 EXPLAIN SELECT a FROM t_ex WHERE NOT NOT (a > 0);
 EXPLAIN SELECT a FROM t_ex WHERE NOT (a IS NULL);
 EXPLAIN SELECT a FROM t_ex WHERE NOT (a > 0 AND b > 1.5);
+-- 常量过滤器剪除: 恒真 Filter 摘除, 恒假/NULL 常量谓词整棵子树剪成空结果
+EXPLAIN SELECT * FROM t_ex WHERE true;
+EXPLAIN SELECT * FROM t_ex WHERE false;
+EXPLAIN SELECT a FROM t_ex WHERE NULL;
+EXPLAIN DELETE FROM t_ex WHERE false;
+EXPLAIN UPDATE t_ex SET b = 1.0 WHERE false;
 -- 事务内解释 DDL: 拒绝并回滚
 BEGIN;
 EXPLAIN CREATE TABLE t_txn (a int);
