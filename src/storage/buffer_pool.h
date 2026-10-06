@@ -100,8 +100,8 @@ public:
 
     // 丢弃全部缓存帧(不写回, 用于重开/切换数据目录)
     void invalidate_all();
-    // 丢弃某文件全部帧(表已删除)
-    void drop_table(uint64_t file_id);
+    // 写回脏帧后丢弃某文件全部帧(表已删除)
+    void drop_table(uint64_t file_id, FileManager& files);
 
     size_t capacity() const { return frames_.size(); }
 

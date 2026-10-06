@@ -158,7 +158,7 @@ void Engine::init_table_file(uint64_t fid)
     pool_.flush(pid0, files_);
 }
 
-// 物理删表(须持锁且在事务内): 记 DropFile、清缓冲与尾页跟踪并登记 pending_drops;
+// 物理删表(须持锁且在事务内): 记 DropFile、写回并清缓冲与尾页跟踪后登记 pending_drops;
 // unlink 延迟到提交后——Commit fsync 之前崩溃则恢复视为未提交(DropFile 跳过,
 // 文件从未被删), 之后崩溃则重放补删(幂等)
 void Engine::remove_table_file(uint64_t fid)
@@ -168,7 +168,7 @@ void Engine::remove_table_file(uint64_t fid)
     wal_put_u64(payload, fid);
     wal_.append(WalOp::DropFile, txn_->txn_id, payload, sizeof(payload));
     txn_->wrote = true;
-    pool_.drop_table(fid);
+    pool_.drop_table(fid, files_);
     tail_pages_.erase(fid);
     txn_->pending_drops.push_back(fid);
 }
@@ -437,7 +437,7 @@ void Engine::init_index_file(uint64_t fid)
     pool_.flush(PageId{fid, 1}, files_);
 }
 
-// 删索引文件(须持锁且在事务内): 记 DropFile、清缓冲与树跟踪并登记 pending_drops,
+// 删索引文件(须持锁且在事务内): 记 DropFile、写回并清缓冲与树跟踪后登记 pending_drops,
 // unlink 延迟到提交后(同 remove_table_file)
 void Engine::remove_index_file(uint64_t fid)
 {
@@ -446,7 +446,7 @@ void Engine::remove_index_file(uint64_t fid)
     wal_put_u64(payload, fid);
     wal_.append(WalOp::DropFile, txn_->txn_id, payload, sizeof(payload));
     txn_->wrote = true;
-    pool_.drop_table(fid);
+    pool_.drop_table(fid, files_);
     trees_.erase(fid);
     txn_->pending_drops.push_back(fid);
 }

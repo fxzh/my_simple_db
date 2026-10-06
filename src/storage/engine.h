@@ -76,7 +76,7 @@ public:
 
     // 建表文件并初始化落盘文件头页
     void init_table_file(uint64_t fid);
-    // 删表文件: 记 DropFile 并清缓冲与尾页跟踪, unlink 延迟到提交后(pending_drops)
+    // 删表文件: 记 DropFile 并写回清缓冲与尾页跟踪, unlink 延迟到提交后(pending_drops)
     void remove_table_file(uint64_t fid);
     // 插行: 值合法性由调用方保证, 编码追加并分配 rowid, ref 输出新行物理位置, 用户插行与元数据表引导共用
     RowId insert_row(uint64_t fid, const std::vector<ColumnSpec>& cols,
@@ -95,7 +95,7 @@ public:
 
     // 建索引文件并初始化空树: 文件头页与空叶根落盘
     void init_index_file(uint64_t fid);
-    // 删索引文件: 记 DropFile 并清缓冲与树跟踪, unlink 延迟到提交后(同删表)
+    // 删索引文件: 记 DropFile 并写回清缓冲与树跟踪, unlink 延迟到提交后(同删表)
     void remove_index_file(uint64_t fid);
     // 索引条目插入: (键, 行定位) 唯一性由调用方保证
     void index_insert(uint64_t fid, const IndexKey& key, const RowRef& ref);

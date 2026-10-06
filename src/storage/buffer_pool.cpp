@@ -255,10 +255,11 @@ void BufferPool::invalidate_all()
     clock_hand_ = 0;
 }
 
-void BufferPool::drop_table(uint64_t file_id)
+void BufferPool::drop_table(uint64_t file_id, FileManager& files)
 {
     for (auto it = page_table_.begin(); it != page_table_.end();) {
         if (it->first.file_id == file_id) {
+            write_back(frames_[it->second], files);
             frames_[it->second] = PageFrame{};
             it = page_table_.erase(it);
         } else {
