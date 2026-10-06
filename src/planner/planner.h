@@ -21,6 +21,10 @@ void optimize(PlanNode& plan);
 // 由常量折叠在同一遍历中调用, 调用方保证 e 为 Logic 且两子树已折叠
 void simplify_logic(std::unique_ptr<ana::BoundExpr>& e);
 
+// NOT 消除: 双重否定/比较符取反/判空取反整树替换, 未命中保持原树;
+// 由常量折叠在同一遍历中调用, 调用方保证 e 为 Not 且操作数已折叠且非常量
+void simplify_not(std::unique_ptr<ana::BoundExpr>& e);
+
 }  // namespace pl
 
 #endif  // PLANNER_PLANNER_H

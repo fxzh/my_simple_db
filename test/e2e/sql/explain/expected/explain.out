@@ -143,6 +143,47 @@ EXPLAIN SELECT a FROM t_ex WHERE NULL AND a > 0;
    ->  Filter: (NULL AND (a > 0))
          ->  Seq Scan on public.t_ex
 (4 行)
+-- NOT 消除: 双重否定/比较符取反/判空取反, 逻辑节点 NOT 与常量 NOT 不改写
+EXPLAIN SELECT a FROM t_ex WHERE NOT (a = 1);
+             QUERY PLAN
+-------------------------------------
+ Project
+   Output: a
+   ->  Filter: (a <> 1)
+         ->  Seq Scan on public.t_ex
+(4 行)
+EXPLAIN SELECT a FROM t_ex WHERE NOT (a <= 2);
+             QUERY PLAN
+-------------------------------------
+ Project
+   Output: a
+   ->  Filter: (a > 2)
+         ->  Seq Scan on public.t_ex
+(4 行)
+EXPLAIN SELECT a FROM t_ex WHERE NOT NOT (a > 0);
+             QUERY PLAN
+-------------------------------------
+ Project
+   Output: a
+   ->  Filter: (a > 0)
+         ->  Seq Scan on public.t_ex
+(4 行)
+EXPLAIN SELECT a FROM t_ex WHERE NOT (a IS NULL);
+             QUERY PLAN
+-------------------------------------
+ Project
+   Output: a
+   ->  Filter: (a IS NOT NULL)
+         ->  Seq Scan on public.t_ex
+(4 行)
+EXPLAIN SELECT a FROM t_ex WHERE NOT (a > 0 AND b > 1.5);
+                 QUERY PLAN
+---------------------------------------------
+ Project
+   Output: a
+   ->  Filter: (NOT ((a > 0) AND (b > 1.5)))
+         ->  Seq Scan on public.t_ex
+(4 行)
 -- 事务内解释 DDL: 拒绝并回滚
 BEGIN;
 BEGIN

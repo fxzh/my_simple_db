@@ -36,7 +36,7 @@ std::unique_ptr<ana::BoundExpr> to_fold_const(const expr::EvalValue& v)
 }
 
 // 表达式折叠: 自底向上, 子节点折叠后均为常量则整节点求值替换(该子树必无列引用),
-// 逻辑节点随后做布尔化简
+// 逻辑与非节点随后做布尔化简
 void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
 {
     switch (e->kind()) {
@@ -85,6 +85,8 @@ void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
         fold_expr(n.operand);
         if (is_const(*n.operand)) {
             e = to_fold_const(expr::eval_const(*e));
+        } else {
+            simplify_not(e);  // 非常量操作数 NOT 消除, 未命中保持原树
         }
         return;
     }
