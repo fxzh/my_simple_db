@@ -7,7 +7,6 @@
 
 #include "ast.hh"
 #include "common/err.h"
-#include "const_fold.h"
 #include "log/log.h"
 #include "catalog.h"
 #include "analyzer.h"
@@ -82,7 +81,7 @@ uint64_t run_update(ct::Catalog& db, const pl::UpdatePlan& up)
     for (const st::Row& old : olds) {
         std::vector<st::Value> vals = old.values;
         for (const ana::BoundUpdateItem& a : up.assigns) {
-            vals[a.col_idx] = to_st_value(eval_row(*a.value, old));
+            vals[a.col_idx] = expr::to_st_value(expr::eval_row(*a.value, old));
         }
         rows.push_back(ct::RowUpdate{old.ref, std::move(vals)});
     }
@@ -97,8 +96,8 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt, const std::string&
     std::unique_ptr<ana::BoundStmt> bound = ana::analyze(db, stmt, current_schema);
     // 计划期: 绑定语句转计划节点树
     std::unique_ptr<pl::PlanNode> plan = pl::build(*bound);
-    // 计划期常量折叠: 纯常量子树求值为常量节点, 常量运算错误(溢出/除零)在此报错
-    fold_const(*plan);
+    // 计划期优化: 就地运行优化 pass(当前为常量折叠), 常量运算错误(溢出/除零)在此报错
+    pl::optimize(*plan);
     switch (plan->kind()) {
     case pl::PlanKind::CreateTable: {
         const auto& p = static_cast<const pl::CreateTablePlan&>(*plan);
@@ -136,7 +135,7 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt, const std::string&
             std::vector<st::Value> values;
             values.reserve(plan_row.size());
             for (const auto& v : plan_row) {
-                values.push_back(to_st_value(eval_const(*v)));
+                values.push_back(expr::to_st_value(expr::eval_const(*v)));
             }
             db.insert(p.table, values);
         }

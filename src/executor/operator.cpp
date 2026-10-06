@@ -41,7 +41,7 @@ struct FilterOp : Operator {
     bool next(st::Row* out) override
     {
         while (child->next(out)) {
-            if (where_match(pred, *out)) {
+            if (expr::where_match(pred, *out)) {
                 return true;
             }
         }
@@ -67,7 +67,7 @@ struct ProjectOp : Operator {
         std::vector<st::Value> vals;
         vals.reserve(projs.size());
         for (const ana::ProjCol& p : projs) {
-            vals.push_back(p.expr != nullptr ? to_st_value(eval_row(*p.expr, *out))
+            vals.push_back(p.expr != nullptr ? expr::to_st_value(expr::eval_row(*p.expr, *out))
                                              : out->values[p.col_idx]);
         }
         out->values = std::move(vals);

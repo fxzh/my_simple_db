@@ -1,5 +1,5 @@
 // const_fold.cpp: 计划期常量折叠实现
-#include "const_fold.h"
+#include "planner.h"
 
 #include <memory>
 #include <type_traits>
@@ -10,7 +10,7 @@
 #include "expr_eval.h"
 #include "log/log.h"
 
-namespace exec {
+namespace pl {
 
 namespace {
 
@@ -21,12 +21,12 @@ bool is_const(const ana::BoundExpr& e)
 }
 
 // 求值结果转常量节点: StrVal 剥离 char 定长标记(常量子树不含列引用)
-std::unique_ptr<ana::BoundExpr> to_fold_const(const EvalValue& v)
+std::unique_ptr<ana::BoundExpr> to_fold_const(const expr::EvalValue& v)
 {
     return std::visit(
         [](const auto& val) -> std::unique_ptr<ana::BoundExpr> {
             using T = std::decay_t<decltype(val)>;
-            if constexpr (std::is_same_v<T, StrVal>) {
+            if constexpr (std::is_same_v<T, expr::StrVal>) {
                 return std::make_unique<ana::BoundConst>(val.text);
             } else {
                 return std::make_unique<ana::BoundConst>(val);
@@ -47,7 +47,7 @@ void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
         fold_expr(a.left);
         fold_expr(a.right);
         if (is_const(*a.left) && is_const(*a.right)) {
-            e = to_fold_const(eval_const(*e));
+            e = to_fold_const(expr::eval_const(*e));
         }
         return;
     }
@@ -55,7 +55,7 @@ void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
         auto& n = static_cast<ana::BoundNeg&>(*e);
         fold_expr(n.operand);
         if (is_const(*n.operand)) {
-            e = to_fold_const(eval_const(*e));
+            e = to_fold_const(expr::eval_const(*e));
         }
         return;
     }
@@ -64,7 +64,7 @@ void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
         fold_expr(c.left);
         fold_expr(c.right);
         if (is_const(*c.left) && is_const(*c.right)) {
-            e = to_fold_const(eval_const(*e));
+            e = to_fold_const(expr::eval_const(*e));
         }
         return;
     }
@@ -73,7 +73,7 @@ void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
         fold_expr(l.left);
         fold_expr(l.right);
         if (is_const(*l.left) && is_const(*l.right)) {
-            e = to_fold_const(eval_const(*e));
+            e = to_fold_const(expr::eval_const(*e));
         }
         return;
     }
@@ -81,7 +81,7 @@ void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
         auto& n = static_cast<ana::BoundNot&>(*e);
         fold_expr(n.operand);
         if (is_const(*n.operand)) {
-            e = to_fold_const(eval_const(*e));
+            e = to_fold_const(expr::eval_const(*e));
         }
         return;
     }
@@ -89,16 +89,14 @@ void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
         auto& i = static_cast<ana::BoundIsNull&>(*e);
         fold_expr(i.operand);
         if (is_const(*i.operand)) {
-            e = to_fold_const(eval_const(*e));
+            e = to_fold_const(expr::eval_const(*e));
         }
         return;
     }
     }
     // 不可达: 全部绑定表达式种类已在上方穷尽
-    DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "const_fold: 未知绑定表达式节点");
+    DB_RAISE(db::ErrCode::Internal, LogModule::PLANNER, "const_fold: 未知绑定表达式节点");
 }
-
-}  // namespace
 
 void fold_const(pl::PlanNode& plan)
 {
@@ -157,7 +155,15 @@ void fold_const(pl::PlanNode& plan)
         return;
     }
     // 不可达: 全部计划种类已在上方穷尽
-    DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "const_fold: 未知计划种类");
+    DB_RAISE(db::ErrCode::Internal, LogModule::PLANNER, "const_fold: 未知计划种类");
 }
 
-}  // namespace exec
+}  // namespace
+
+// 计划优化入口: 在 build 产物上就地串接各优化 pass, 当前仅常量折叠
+void optimize(PlanNode& plan)
+{
+    fold_const(plan);
+}
+
+}  // namespace pl

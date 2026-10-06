@@ -74,6 +74,7 @@ enum class LogModule {
     SYNTAX,     // 语法模块
     PARSER,     // 解析模块
     ANALYZER,   // 绑定模块
+    EXPR,       // 表达式模块
     PLANNER,    // 计划模块
     EXECUTOR,   // 执行模块
     NETWORK,    // 网络模块

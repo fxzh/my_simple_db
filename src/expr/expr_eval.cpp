@@ -9,7 +9,7 @@
 #include "common/err.h"
 #include "log/log.h"
 
-namespace exec {
+namespace expr {
 
 namespace {
 
@@ -51,7 +51,7 @@ EvalValue eval_neg(const ana::BoundExpr& operand, const st::Row* row)
     }
     const int64_t i = std::get<int64_t>(v);
     if (i == INT64_MIN) {
-        DB_RAISE(db::ErrCode::ArithError, LogModule::EXECUTOR, "整型取反溢出");
+        DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "整型取反溢出");
     }
     return EvalValue{-i};
 }
@@ -75,7 +75,7 @@ EvalValue eval_binary(char op, const ana::BoundExpr& le, const ana::BoundExpr& r
         case '/': out = to_double(lv) / to_double(rv); break;
         }
         if (!std::isfinite(out)) {
-            DB_RAISE(db::ErrCode::ArithError, LogModule::EXECUTOR, "浮点运算溢出或除零");
+            DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "浮点运算溢出或除零");
         }
         return EvalValue{out};
     }
@@ -85,25 +85,25 @@ EvalValue eval_binary(char op, const ana::BoundExpr& le, const ana::BoundExpr& r
     switch (op) {
     case '+':
         if (__builtin_add_overflow(l, r, &out)) {
-            DB_RAISE(db::ErrCode::ArithError, LogModule::EXECUTOR, "整型加法溢出");
+            DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "整型加法溢出");
         }
         break;
     case '-':
         if (__builtin_sub_overflow(l, r, &out)) {
-            DB_RAISE(db::ErrCode::ArithError, LogModule::EXECUTOR, "整型减法溢出");
+            DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "整型减法溢出");
         }
         break;
     case '*':
         if (__builtin_mul_overflow(l, r, &out)) {
-            DB_RAISE(db::ErrCode::ArithError, LogModule::EXECUTOR, "整型乘法溢出");
+            DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "整型乘法溢出");
         }
         break;
     case '/':
         if (r == 0) {
-            DB_RAISE(db::ErrCode::ArithError, LogModule::EXECUTOR, "整型除零");
+            DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "整型除零");
         }
         if (l == INT64_MIN && r == -1) {
-            DB_RAISE(db::ErrCode::ArithError, LogModule::EXECUTOR, "整型除法溢出");
+            DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "整型除法溢出");
         }
         out = l / r;  // 向零截断
         break;
@@ -148,7 +148,7 @@ EvalValue eval_compare(CmpOp op, const ana::BoundExpr& le, const ana::BoundExpr&
     case CmpOp::Gt: return EvalValue{c > 0};
     case CmpOp::Ge: return EvalValue{c >= 0};
     }
-    DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "executor: 未知比较种类");
+    DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 未知比较种类");
 }
 
 // AND/OR: 三值逻辑, AND 有 false 即 false / OR 有 true 即 true, 其余 NULL 传播;
@@ -202,7 +202,7 @@ EvalValue eval_bound(const ana::BoundExpr& expr, const st::Row* row)
     case ana::BoundExprKind::Const: {
         const auto& v = static_cast<const ana::BoundConst&>(expr).value;
         if (const auto* d = std::get_if<double>(&v); d != nullptr && !std::isfinite(*d)) {
-            DB_RAISE(db::ErrCode::ArithError, LogModule::EXECUTOR, "浮点字面量超出可表示范围");
+            DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "浮点字面量超出可表示范围");
         }
         return std::visit(
             [](const auto& val) -> EvalValue {
@@ -218,7 +218,7 @@ EvalValue eval_bound(const ana::BoundExpr& expr, const st::Row* row)
     case ana::BoundExprKind::ColRef: {
         const auto& ref = static_cast<const ana::BoundColRef&>(expr);
         if (row == nullptr) {
-            DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "常量上下文不允许引用列");
+            DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "常量上下文不允许引用列");
         }
         const st::Value& raw = row->values[ref.col_idx];
         return std::visit(
@@ -252,7 +252,7 @@ EvalValue eval_bound(const ana::BoundExpr& expr, const st::Row* row)
         return eval_is_null(static_cast<const ana::BoundIsNull&>(expr), row);
     }
     // 不可达: 全部绑定表达式种类已在上方穷尽
-    DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "executor: 未知绑定表达式节点");
+    DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 未知绑定表达式节点");
 }
 
 }  // namespace
@@ -294,4 +294,4 @@ bool where_match(const ana::BoundExpr& where, const st::Row& row)
     return std::get<bool>(v);
 }
 
-}  // namespace exec
+}  // namespace expr

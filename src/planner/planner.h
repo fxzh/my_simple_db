@@ -14,6 +14,9 @@ namespace pl {
 // 计划构建移动消费绑定语句的容器字段(投影列/绑定树/值列表/列规格), 绑定语句之后不可再用
 std::unique_ptr<PlanNode> build(ana::BoundStmt& bound);
 
+// 计划优化入口: 在 build 产物上就地运行优化 pass, 常量运算错误(溢出/除零)在此报错
+void optimize(PlanNode& plan);
+
 }  // namespace pl
 
 #endif  // PLANNER_PLANNER_H

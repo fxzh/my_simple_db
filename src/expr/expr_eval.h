@@ -1,6 +1,6 @@
 // expr_eval.h: 绑定表达式求值器: 常量/行上下文求值, WHERE 判定与结果值转换
-#ifndef EXECUTOR_EXPR_EVAL_H
-#define EXECUTOR_EXPR_EVAL_H
+#ifndef EXPR_EXPR_EVAL_H
+#define EXPR_EXPR_EVAL_H
 
 #include <cstdint>
 #include <string>
@@ -9,7 +9,7 @@
 #include "bound_expr.h"
 #include "storage/types.h"
 
-namespace exec {
+namespace expr {
 
 // 求值字符串值: 记录是否来自 char 定长列, 该侧比较按 PAD SPACE 语义处理
 struct StrVal {
@@ -34,6 +34,6 @@ st::Value to_st_value(const EvalValue& v);
 // WHERE 条件判定: NULL(UNKNOWN) 视为不满足, bool 由语义层保证
 bool where_match(const ana::BoundExpr& where, const st::Row& row);
 
-}  // namespace exec
+}  // namespace expr
 
-#endif  // EXECUTOR_EXPR_EVAL_H
+#endif  // EXPR_EXPR_EVAL_H
