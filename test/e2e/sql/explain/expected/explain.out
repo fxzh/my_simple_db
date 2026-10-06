@@ -89,7 +89,7 @@ EXPLAIN SELECT a FROM t_ex WHERE 1 = 1 AND a > 0;
 -------------------------------------
  Project
    Output: a
-   ->  Filter: (true AND (a > 0))
+   ->  Filter: (a > 0)
          ->  Seq Scan on public.t_ex
 (4 行)
 EXPLAIN SELECT a FROM t_ex WHERE a > 1 + NULL;
@@ -102,6 +102,47 @@ EXPLAIN SELECT a FROM t_ex WHERE a > 1 + NULL;
 (4 行)
 EXPLAIN SELECT a FROM t_ex WHERE a = 1 / 0;
 ERROR: 整型除零
+-- 布尔化简: 单侧常量 bool 按支配/恒等规则化简, NULL 常量不可化简
+EXPLAIN SELECT a FROM t_ex WHERE 1 = 2 AND a > 0;
+             QUERY PLAN
+-------------------------------------
+ Project
+   Output: a
+   ->  Filter: false
+         ->  Seq Scan on public.t_ex
+(4 行)
+EXPLAIN SELECT a FROM t_ex WHERE a > 0 AND 2 > 3;
+             QUERY PLAN
+-------------------------------------
+ Project
+   Output: a
+   ->  Filter: false
+         ->  Seq Scan on public.t_ex
+(4 行)
+EXPLAIN SELECT a FROM t_ex WHERE 1 = 1 OR a > 0;
+             QUERY PLAN
+-------------------------------------
+ Project
+   Output: a
+   ->  Filter: true
+         ->  Seq Scan on public.t_ex
+(4 行)
+EXPLAIN SELECT a FROM t_ex WHERE 2 > 3 OR a > 0;
+             QUERY PLAN
+-------------------------------------
+ Project
+   Output: a
+   ->  Filter: (a > 0)
+         ->  Seq Scan on public.t_ex
+(4 行)
+EXPLAIN SELECT a FROM t_ex WHERE NULL AND a > 0;
+             QUERY PLAN
+-------------------------------------
+ Project
+   Output: a
+   ->  Filter: (NULL AND (a > 0))
+         ->  Seq Scan on public.t_ex
+(4 行)
 -- 事务内解释 DDL: 拒绝并回滚
 BEGIN;
 BEGIN

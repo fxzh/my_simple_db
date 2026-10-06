@@ -35,7 +35,8 @@ std::unique_ptr<ana::BoundExpr> to_fold_const(const expr::EvalValue& v)
         v);
 }
 
-// 表达式折叠: 自底向上, 子节点折叠后均为常量则整节点求值替换(该子树必无列引用)
+// 表达式折叠: 自底向上, 子节点折叠后均为常量则整节点求值替换(该子树必无列引用),
+// 逻辑节点随后做布尔化简
 void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
 {
     switch (e->kind()) {
@@ -74,6 +75,8 @@ void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
         fold_expr(l.right);
         if (is_const(*l.left) && is_const(*l.right)) {
             e = to_fold_const(expr::eval_const(*e));
+        } else {
+            simplify_logic(e);  // 单侧常量 bool 布尔化简, 未命中保持原树
         }
         return;
     }
@@ -160,7 +163,7 @@ void fold_const(pl::PlanNode& plan)
 
 }  // namespace
 
-// 计划优化入口: 在 build 产物上就地串接各优化 pass, 当前仅常量折叠
+// 计划优化入口: 在 build 产物上就地串接各优化 pass, 当前为常量折叠(含布尔化简)
 void optimize(PlanNode& plan)
 {
     fold_const(plan);

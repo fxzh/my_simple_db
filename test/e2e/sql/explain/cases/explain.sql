@@ -21,6 +21,12 @@ EXPLAIN UPDATE t_ex SET b = 2 * 3.5 WHERE a > 1 + 1;
 EXPLAIN SELECT a FROM t_ex WHERE 1 = 1 AND a > 0;
 EXPLAIN SELECT a FROM t_ex WHERE a > 1 + NULL;
 EXPLAIN SELECT a FROM t_ex WHERE a = 1 / 0;
+-- 布尔化简: 单侧常量 bool 按支配/恒等规则化简, NULL 常量不可化简
+EXPLAIN SELECT a FROM t_ex WHERE 1 = 2 AND a > 0;
+EXPLAIN SELECT a FROM t_ex WHERE a > 0 AND 2 > 3;
+EXPLAIN SELECT a FROM t_ex WHERE 1 = 1 OR a > 0;
+EXPLAIN SELECT a FROM t_ex WHERE 2 > 3 OR a > 0;
+EXPLAIN SELECT a FROM t_ex WHERE NULL AND a > 0;
 -- 事务内解释 DDL: 拒绝并回滚
 BEGIN;
 EXPLAIN CREATE TABLE t_txn (a int);

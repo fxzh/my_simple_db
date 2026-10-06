@@ -11,4 +11,12 @@ SELECT * FROM t_w WHERE NOT (score >= 60);
 SELECT id FROM t_w WHERE name = 'bob';
 SELECT id FROM t_w WHERE name <> 'bob' AND score >= 78.5;
 SELECT id FROM t_w WHERE score * 2 > 150;
+-- 布尔化简: 常量侧化简后被支配侧不再求值(除零不报错)
+SELECT id FROM t_w WHERE 1 = 1 AND score > 60;
+SELECT id FROM t_w WHERE 1 = 2 AND score > 60;
+SELECT id FROM t_w WHERE 2 > 1 OR score > 60;
+SELECT id FROM t_w WHERE 1 = 2 AND 1 / (id - 1) = 1;
+-- NULL 常量不可化简, 走三值逻辑
+SELECT id FROM t_w WHERE NULL OR id = 1;
+SELECT id FROM t_w WHERE NULL AND id = 1;
 DROP TABLE t_w;
