@@ -1,5 +1,6 @@
 # 执行层静态库(executor): 把绑定语句转成 catalog 调用, server 链接它
 add_library(executor STATIC
+    const_fold.cpp
     executor.cpp
     explain.cpp
     expr_eval.cpp

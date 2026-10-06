@@ -15,6 +15,12 @@ EXPLAIN EXPLAIN SELECT a FROM t_ex;
 -- 静态校验与真实执行同文案
 EXPLAIN SELECT no_col FROM t_ex;
 EXPLAIN SELECT a FROM t_missing;
+-- 常量折叠: 纯常量子树在计划期求值, 折叠期常量运算错误当场报错
+EXPLAIN SELECT a FROM t_ex WHERE a = 1 + 1;
+EXPLAIN UPDATE t_ex SET b = 2 * 3.5 WHERE a > 1 + 1;
+EXPLAIN SELECT a FROM t_ex WHERE 1 = 1 AND a > 0;
+EXPLAIN SELECT a FROM t_ex WHERE a > 1 + NULL;
+EXPLAIN SELECT a FROM t_ex WHERE a = 1 / 0;
 -- 事务内解释 DDL: 拒绝并回滚
 BEGIN;
 EXPLAIN CREATE TABLE t_txn (a int);

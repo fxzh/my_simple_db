@@ -28,6 +28,13 @@ SELECT 1 + 2 * 3, 'hi', 7.5 FROM t_score;
  7             | hi   | 7.5
  7             | hi   | 7.5
 (2 行)
+-- 常量折叠: 整型除法截断/浮点提升/NULL 传播
+SELECT 7 / 2, 1.0 + 1, 1 + NULL FROM t_score;
+ (7 / 2) | (1 + 1) | (1 + NULL)
+---------+---------+------------
+ 3       | 2       | NULL
+ 3       | 2       | NULL
+(2 行)
 CREATE TABLE t_empty (id int);
 CREATE
 SELECT * FROM t_empty;

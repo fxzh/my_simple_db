@@ -7,6 +7,7 @@
 
 #include "ast.hh"
 #include "common/err.h"
+#include "const_fold.h"
 #include "log/log.h"
 #include "catalog.h"
 #include "analyzer.h"
@@ -96,6 +97,8 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt, const std::string&
     std::unique_ptr<ana::BoundStmt> bound = ana::analyze(db, stmt, current_schema);
     // 计划期: 绑定语句转计划节点树
     std::unique_ptr<pl::PlanNode> plan = pl::build(*bound);
+    // 计划期常量折叠: 纯常量子树求值为常量节点, 常量运算错误(溢出/除零)在此报错
+    fold_const(*plan);
     switch (plan->kind()) {
     case pl::PlanKind::CreateTable: {
         const auto& p = static_cast<const pl::CreateTablePlan&>(*plan);
@@ -129,7 +132,6 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt, const std::string&
     }
     case pl::PlanKind::Insert: {
         const auto& p = static_cast<const pl::InsertPlan&>(*plan);
-        // 逐行求值并写盘: 求值期错误(溢出/除零)在执行中报错, 已写入行保留
         for (const auto& plan_row : p.rows) {
             std::vector<st::Value> values;
             values.reserve(plan_row.size());

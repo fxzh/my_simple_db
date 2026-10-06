@@ -43,7 +43,7 @@ struct ProjectPlan : PlanNode {
     PlanKind kind() const override { return PlanKind::Project; }
 };
 
-// 插入: 每行的值为常量上下文绑定树(已归一化为表全宽), 留待执行期求值
+// 插入: 每行的值为常量上下文绑定树(已归一化为表全宽)
 struct InsertPlan : PlanNode {
     ct::TableRef table;
     std::vector<std::vector<std::unique_ptr<ana::BoundExpr>>> rows;

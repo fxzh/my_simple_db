@@ -67,6 +67,41 @@ EXPLAIN SELECT no_col FROM t_ex;
 ERROR: 列不存在: no_col
 EXPLAIN SELECT a FROM t_missing;
 ERROR: 表不存在: public.t_missing
+-- 常量折叠: 纯常量子树在计划期求值, 折叠期常量运算错误当场报错
+EXPLAIN SELECT a FROM t_ex WHERE a = 1 + 1;
+             QUERY PLAN
+-------------------------------------
+ Project
+   Output: a
+   ->  Filter: (a = 2)
+         ->  Seq Scan on public.t_ex
+(4 行)
+EXPLAIN UPDATE t_ex SET b = 2 * 3.5 WHERE a > 1 + 1;
+             QUERY PLAN
+-------------------------------------
+ Update on public.t_ex
+   Set: b = 7
+   ->  Filter: (a > 2)
+         ->  Seq Scan on public.t_ex
+(4 行)
+EXPLAIN SELECT a FROM t_ex WHERE 1 = 1 AND a > 0;
+             QUERY PLAN
+-------------------------------------
+ Project
+   Output: a
+   ->  Filter: (true AND (a > 0))
+         ->  Seq Scan on public.t_ex
+(4 行)
+EXPLAIN SELECT a FROM t_ex WHERE a > 1 + NULL;
+             QUERY PLAN
+-------------------------------------
+ Project
+   Output: a
+   ->  Filter: (a > NULL)
+         ->  Seq Scan on public.t_ex
+(4 行)
+EXPLAIN SELECT a FROM t_ex WHERE a = 1 / 0;
+ERROR: 整型除零
 -- 事务内解释 DDL: 拒绝并回滚
 BEGIN;
 BEGIN

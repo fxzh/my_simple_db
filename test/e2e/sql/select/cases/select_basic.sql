@@ -5,6 +5,8 @@ SELECT * FROM t_score;
 SELECT id, score FROM t_score;
 SELECT id AS user_id, score * 2 FROM t_score;
 SELECT 1 + 2 * 3, 'hi', 7.5 FROM t_score;
+-- 常量折叠: 整型除法截断/浮点提升/NULL 传播
+SELECT 7 / 2, 1.0 + 1, 1 + NULL FROM t_score;
 CREATE TABLE t_empty (id int);
 SELECT * FROM t_empty;
 DROP TABLE t_empty;
