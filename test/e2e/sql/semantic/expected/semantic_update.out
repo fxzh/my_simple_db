@@ -17,7 +17,7 @@ ERROR: 值与列类型不匹配
 UPDATE t_sem SET name = 'abcdefghijk';
 ERROR: 值与列类型不匹配
 UPDATE t_sem SET id = id > 1;
-ERROR: 布尔值不可作为存储或输出值
+ERROR: 值与列类型不匹配
 UPDATE t_sem SET id = 1 WHERE id + 1;
 ERROR: WHERE 条件不是布尔表达式
 DROP TABLE t_sem;

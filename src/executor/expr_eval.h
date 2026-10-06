@@ -28,7 +28,7 @@ EvalValue eval_const(const ana::BoundExpr& e);
 // 行上下文求值(SELECT 投影与 WHERE 过滤)
 EvalValue eval_row(const ana::BoundExpr& e, const st::Row& row);
 
-// 求值结果转存储/输出值: bool 不可达(语义层已拒, 此处 Internal 防御), 其余原样(monostate 即 NULL)
+// 求值结果转存储/输出值: 原样转换, StrVal 剥离 char 定长标记(monostate 即 NULL)
 st::Value to_st_value(const EvalValue& v);
 
 // WHERE 条件判定: NULL(UNKNOWN) 视为不满足, bool 由语义层保证

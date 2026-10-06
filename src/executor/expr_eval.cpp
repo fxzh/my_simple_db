@@ -119,8 +119,8 @@ int cmp_str(const StrVal& l, const StrVal& r)
     return lv.compare(rv);
 }
 
-// 比较: 任一侧 NULL 即 NULL; 数值提升为 double 比较, 字符串按 PAD SPACE 语义;
-// 两侧同类由语义层保证
+// 比较: 任一侧 NULL 即 NULL; 数值提升为 double 比较, 字符串按 PAD SPACE 语义,
+// 布尔按 false<true; 两侧同类由语义层保证
 EvalValue eval_compare(CmpOp op, const ana::BoundExpr& le, const ana::BoundExpr& re,
                        const st::Row* row)
 {
@@ -132,6 +132,9 @@ EvalValue eval_compare(CmpOp op, const ana::BoundExpr& le, const ana::BoundExpr&
     int c = 0;
     if (const StrVal* ls = std::get_if<StrVal>(&lv)) {
         c = cmp_str(*ls, std::get<StrVal>(rv));
+    } else if (const bool* lb = std::get_if<bool>(&lv)) {
+        const bool rb = std::get<bool>(rv);
+        c = *lb == rb ? 0 : (*lb ? 1 : -1);
     } else {
         const double l = to_double(lv);
         const double r = to_double(rv);
@@ -266,12 +269,9 @@ EvalValue eval_row(const ana::BoundExpr& e, const st::Row& row)
     return eval_bound(e, &row);
 }
 
-// 求值结果转存储/输出值: bool 不可达(语义层已拒, 此处 Internal 防御), 其余原样(monostate 即 NULL)
+// 求值结果转存储/输出值: 原样转换, StrVal 剥离 char 定长标记(monostate 即 NULL)
 st::Value to_st_value(const EvalValue& v)
 {
-    if (std::holds_alternative<bool>(v)) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "布尔值不可作为存储或输出值");
-    }
     return std::visit(
         [](const auto& val) -> st::Value {
             using T = std::decay_t<decltype(val)>;

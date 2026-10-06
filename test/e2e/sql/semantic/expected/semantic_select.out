@@ -13,9 +13,10 @@ ERROR: 逻辑运算操作数不是布尔值
 SELECT i FROM t_ss WHERE NOT i;
 ERROR: 逻辑运算操作数不是布尔值
 SELECT i FROM t_ss WHERE i > s;
-ERROR: 比较运算两侧须同为数值或字符串
+ERROR: 比较运算两侧须同为数值、字符串或布尔
 SELECT i > 1 FROM t_ss;
-ERROR: 布尔值不可作为存储或输出值
+ (i > 1)
+(0 行)
 SELECT i FROM t_ss WHERE nosuch_ss;
 ERROR: 列不存在: nosuch_ss
 INSERT INTO t_ss VALUES (1, 'ab', 1.5);

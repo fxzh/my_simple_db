@@ -157,9 +157,11 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, Exp
         std::unique_ptr<BoundExpr> r = bind_expr(*e.right, schema, rt);
         const bool same_num = is_num_type(lt) && is_num_type(rt);
         const bool same_str = lt == ExprType::String && rt == ExprType::String;
-        if (lt != ExprType::Null && rt != ExprType::Null && !same_num && !same_str) {
+        const bool same_bool = lt == ExprType::Bool && rt == ExprType::Bool;
+        if (lt != ExprType::Null && rt != ExprType::Null && !same_num && !same_str
+            && !same_bool) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
-                     "比较运算两侧须同为数值或字符串");
+                     "比较运算两侧须同为数值、字符串或布尔");
         }
         type = ExprType::Bool;
         return std::make_unique<BoundCmp>(e.op, std::move(l), std::move(r));
@@ -393,7 +395,7 @@ InsertTargets resolve_insert_targets(const std::vector<std::string>& columns,
     return t;
 }
 
-// 单行 INSERT 值绑定: 推导/布尔/个数/NOT NULL/类型匹配, 检查顺序与原执行链一致, 文案不变;
+// 单行 INSERT 值绑定: 推导/个数/NOT NULL/类型匹配, 检查顺序与原执行链一致, 文案不变;
 // 产出与表列等宽的值序列, 未指定列补 NULL
 std::vector<std::unique_ptr<BoundExpr>> bind_insert_row(
     const std::vector<std::unique_ptr<Expr>>& values, const InsertTargets& t,
@@ -406,12 +408,6 @@ std::vector<std::unique_ptr<BoundExpr>> bind_insert_row(
         ExprType type;
         bound.push_back(bind_expr(*v, nullptr, type));  // 常量上下文: 禁止引用列
         types.push_back(type);
-    }
-    for (size_t i = 0; i < values.size(); ++i) {
-        if (types[i] == ExprType::Bool && !may_be_null(*values[i])) {
-            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
-                     "布尔值不可作为存储或输出值");
-        }
     }
     if (values.size() != t.target.size()) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "值的数量与列数不符");
@@ -481,7 +477,7 @@ Schema build_schema(const st::TableMeta& meta)
     return schema;
 }
 
-// 绑定 SELECT 投影: star 按表列展开, 输出列名取别名>列名>表达式文本; 常量布尔不可投影
+// 绑定 SELECT 投影: star 按表列展开, 输出列名取别名>列名>表达式文本
 std::vector<ProjCol> build_projs(const SelectStmt& ss, const st::TableMeta& meta,
                                  const Schema& schema)
 {
@@ -495,9 +491,6 @@ std::vector<ProjCol> build_projs(const SelectStmt& ss, const st::TableMeta& meta
         }
         ExprType t;
         std::unique_ptr<BoundExpr> e = bind_expr(*item.expr, &schema, t);
-        if (t == ExprType::Bool && !may_be_null(*item.expr)) {
-            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "布尔值不可作为存储或输出值");
-        }
         std::string name;
         if (!item.alias.empty()) {
             name = item.alias;
@@ -562,7 +555,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
         }
         const st::ColType type = meta.cols[ordinal].type;
         if (type != st::ColType::Int && type != st::ColType::BigInt && type != st::ColType::Float
-            && type != st::ColType::Double) {
+            && type != st::ColType::Double && type != st::ColType::Bool) {
             DB_RAISE(db::ErrCode::InvalidType, LogModule::ANALYZER, "索引列类型不支持: {}",
                      cs.column_name());
         }
@@ -634,10 +627,6 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
             ExprType t;
             // 行上下文: 右值基于旧行求值, 赋值间互不可见
             a.value = bind_expr(*item.value, &schema, t);
-            if (t == ExprType::Bool && !may_be_null(*item.value)) {
-                DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
-                         "布尔值不可作为存储或输出值");
-            }
             const st::ColumnSpec& col = meta.cols[it->second];
             if (has_col_ref(*item.value)) {
                 check_update_type(t, col);

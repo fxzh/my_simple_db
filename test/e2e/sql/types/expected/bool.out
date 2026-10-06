@@ -1,0 +1,163 @@
+-- boolean/bool 同义, 无长度语法
+CREATE TABLE t_bool (id int, flag boolean, ok bool);
+CREATE
+CREATE TABLE t_boolbad (a bool(1));
+ERROR: 1.31: syntax error, unexpected '(', expecting ')' or ','
+-- 字面量与常量布尔表达式插入, NULL 渲染
+INSERT INTO t_bool VALUES (1, true, TRUE);
+INSERT 1
+INSERT INTO t_bool VALUES (2, false, FALSE);
+INSERT 1
+INSERT INTO t_bool VALUES (3, NULL, null);
+INSERT 1
+INSERT INTO t_bool VALUES (4, 1 > 2, NOT true);
+INSERT 1
+SELECT * FROM t_bool;
+ id | flag  |  ok
+----+-------+-------
+ 1  | true  | true
+ 2  | false | false
+ 3  | NULL  | NULL
+ 4  | false | false
+(4 行)
+-- 布尔投影: 列、表达式与字面量
+SELECT flag FROM t_bool WHERE id = 1;
+ flag
+------
+ true
+(1 行)
+SELECT ok, NOT ok FROM t_bool WHERE id = 2;
+  ok   | (NOT ok)
+-------+----------
+ false | true
+(1 行)
+SELECT true FROM t_bool WHERE id = 1;
+ true
+------
+ true
+(1 行)
+SELECT flag < true FROM t_bool;
+ (flag < true)
+---------------
+ false
+ true
+ NULL
+ true
+(4 行)
+-- WHERE: 裸列、比较、逻辑、三值逻辑
+SELECT id FROM t_bool WHERE flag;
+ id
+----
+ 1
+(1 行)
+SELECT id FROM t_bool WHERE NOT flag;
+ id
+----
+ 2
+ 4
+(2 行)
+SELECT id FROM t_bool WHERE flag = false;
+ id
+----
+ 2
+ 4
+(2 行)
+SELECT id FROM t_bool WHERE flag < true;
+ id
+----
+ 2
+ 4
+(2 行)
+SELECT id FROM t_bool WHERE flag AND ok;
+ id
+----
+ 1
+(1 行)
+SELECT id FROM t_bool WHERE flag IS NULL;
+ id
+----
+ 3
+(1 行)
+SELECT id FROM t_bool WHERE flag IS NOT NULL;
+ id
+----
+ 1
+ 2
+ 4
+(3 行)
+SELECT id FROM t_bool WHERE flag = NULL;
+ id
+(0 行)
+SELECT id FROM t_bool WHERE true;
+ id
+----
+ 1
+ 2
+ 3
+ 4
+(4 行)
+SELECT id FROM t_bool WHERE false;
+ id
+(0 行)
+-- 禁止整数/字符串与 bool 隐式转换
+INSERT INTO t_bool VALUES (5, 1, true);
+ERROR: 值与列类型不匹配
+INSERT INTO t_bool VALUES (5, 'true', true);
+ERROR: 值与列类型不匹配
+SELECT id FROM t_bool WHERE flag = 1;
+ERROR: 比较运算两侧须同为数值、字符串或布尔
+SELECT flag + 1 FROM t_bool;
+ERROR: 算术运算操作数不是数值
+UPDATE t_bool SET flag = 2 WHERE id = 1;
+ERROR: 值与列类型不匹配
+-- UPDATE 右值: 列引用与常量布尔表达式
+UPDATE t_bool SET ok = flag WHERE id = 2;
+UPDATE 1
+UPDATE t_bool SET flag = NOT flag WHERE id = 1;
+UPDATE 1
+SELECT flag, ok FROM t_bool WHERE id <= 2;
+ flag  |  ok
+-------+-------
+ false | false
+ false | true
+(2 行)
+-- bool 条件删除
+DELETE FROM t_bool WHERE flag IS NULL;
+DELETE 1
+SELECT * FROM t_bool;
+ id | flag  |  ok
+----+-------+-------
+ 4  | false | false
+ 2  | false | false
+ 1  | false | true
+(3 行)
+-- bool 列建索引与索引列上的过滤
+CREATE INDEX idx_bool ON t_bool (flag);
+CREATE
+INSERT INTO t_bool VALUES (5, true, false);
+INSERT 1
+SELECT id FROM t_bool WHERE flag = false;
+ id
+----
+ 4
+ 2
+ 1
+(3 行)
+SELECT id FROM t_bool WHERE flag = true;
+ id
+----
+ 5
+(1 行)
+DROP INDEX idx_bool ON t_bool;
+DROP
+-- EXPLAIN 渲染布尔常量
+EXPLAIN SELECT id FROM t_bool WHERE flag = true;
+              QUERY PLAN
+---------------------------------------
+ Project
+   Output: id
+   ->  Filter: (flag = true)
+         ->  Seq Scan on public.t_bool
+(4 行)
+DROP TABLE t_bool;
+DROP

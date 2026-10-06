@@ -21,7 +21,7 @@ ERROR: 值与列类型不匹配
 INSERT INTO t_si VALUES (1, 2);
 ERROR: 值的数量与列数不符
 INSERT INTO t_si VALUES (1 > 2, 1, 1.0, 1.0, 'a', 'a');
-ERROR: 布尔值不可作为存储或输出值
+ERROR: 值与列类型不匹配
 INSERT INTO t_si VALUES (NULL, 1, 1.0, 1.0, 'a', 'a');
 INSERT 1
 INSERT INTO t_si VALUES (a, 1, 1.0, 1.0, 'a', 'a');
@@ -53,7 +53,7 @@ ERROR: 值与列类型不匹配
 INSERT INTO t_ic (b, a) VALUES ('x', 1);
 ERROR: 值与列类型不匹配
 INSERT INTO t_ic (b) VALUES (1 > 2);
-ERROR: 布尔值不可作为存储或输出值
+ERROR: 值与列类型不匹配
 INSERT INTO t_ic (a) VALUES (b);
 ERROR: 常量上下文不允许引用列: b
 INSERT INTO t_ic (a, s) VALUES (NULL, 'ok');
