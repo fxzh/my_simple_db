@@ -119,7 +119,7 @@ int cmp_str(const StrVal& l, const StrVal& r)
     return lv.compare(rv);
 }
 
-// 比较: 任一侧 NULL 即 NULL; 数值提升为 double 比较, 字符串按 PAD SPACE 语义,
+// 比较: 任一侧 NULL 即 NULL; 纯整型整数比较, 数值混合提升为 double, 字符串按 PAD SPACE 语义,
 // 布尔按 false<true; 两侧同类由语义层保证
 EvalValue eval_compare(CmpOp op, const ana::BoundExpr& le, const ana::BoundExpr& re,
                        const st::Row* row)
@@ -135,6 +135,10 @@ EvalValue eval_compare(CmpOp op, const ana::BoundExpr& le, const ana::BoundExpr&
     } else if (const bool* lb = std::get_if<bool>(&lv)) {
         const bool rb = std::get<bool>(rv);
         c = *lb == rb ? 0 : (*lb ? 1 : -1);
+    } else if (std::holds_alternative<int64_t>(lv) && std::holds_alternative<int64_t>(rv)) {
+        const int64_t l = std::get<int64_t>(lv);
+        const int64_t r = std::get<int64_t>(rv);
+        c = l < r ? -1 : (l > r ? 1 : 0);
     } else {
         const double l = to_double(lv);
         const double r = to_double(rv);
