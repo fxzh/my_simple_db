@@ -34,6 +34,15 @@ ERROR: 1.1-5: syntax error, unexpected IDENTIFIER, 事务已回滚
 SELECT * FROM t_err;
  id | v
 (0 行)
+BEGIN;
+BEGIN
+INSERT INTO t_err VALUES (9, 'i');
+INSERT 1
+INSERT INTO t_err VALUES (99999999999999999999, 'x');
+ERROR: 1.27-46: integer literal out of range: 99999999999999999999, 事务已回滚
+SELECT * FROM t_err;
+ id | v
+(0 行)
 DROP TABLE t_err;
 DROP
 CREATE TABLE t_orphan (id int, v varchar);

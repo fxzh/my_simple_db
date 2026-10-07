@@ -1,4 +1,5 @@
 %{
+#include <charconv>
 #include <string>
 #include <sstream>
 #include "parser.tab.hh"
@@ -89,12 +90,30 @@ WS       [ \t\r]
 "work"     { return yy::parser::token::WORK; }
 
 {DIGIT}+"."{DIGIT}*|"."{DIGIT}+ {
-    yylval->build<double>(std::stod(yytext));
+    // 超出 double 可表示范围(上溢/下溢)走词法错误通道报错
+    double val = 0;
+    const auto conv = std::from_chars(yytext, yytext + yyleng, val);
+    if (conv.ec == std::errc::result_out_of_range) {
+        std::ostringstream oss;
+        oss << *yylloc << ": float literal out of range: " << yytext;
+        *err_buf = oss.str();
+        return yy::parser::token::TOK_ERROR;
+    }
+    yylval->build<double>(val);
     return yy::parser::token::FLOAT_NUM;
 }
 
 {DIGIT}+ {
-    yylval->build<long long>(std::stoll(yytext));
+    // 超出 int64 范围走词法错误通道报错
+    long long val = 0;
+    const auto conv = std::from_chars(yytext, yytext + yyleng, val);
+    if (conv.ec == std::errc::result_out_of_range) {
+        std::ostringstream oss;
+        oss << *yylloc << ": integer literal out of range: " << yytext;
+        *err_buf = oss.str();
+        return yy::parser::token::TOK_ERROR;
+    }
+    yylval->build<long long>(val);
     return yy::parser::token::INTEGER;
 }
 
