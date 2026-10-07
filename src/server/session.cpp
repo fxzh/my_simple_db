@@ -93,6 +93,7 @@ proto::WireErrCode to_wire(db::ErrCode code)
     case db::ErrCode::BootstrapMode:  return proto::WireErrCode::BootstrapMode;
     case db::ErrCode::TooManyClients: return proto::WireErrCode::TooManyClients;
     case db::ErrCode::InvalidVarValue: return proto::WireErrCode::InvalidVarValue;
+    case db::ErrCode::StarNoFrom:      return proto::WireErrCode::StarNoFrom;
     }
     return proto::WireErrCode::Internal;  // 不可达: 上方穷尽
 }
@@ -333,6 +334,7 @@ bool txn_forbidden_stmt(const SQLStatement& stmt)
     case StmtKind::Delete:
     case StmtKind::Update:
     case StmtKind::Select:
+    case StmtKind::SelectNoFrom:
     case StmtKind::Begin:
     case StmtKind::Commit:
     case StmtKind::Rollback:

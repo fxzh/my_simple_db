@@ -321,6 +321,7 @@ enum class StmtKind {
     Delete,
     Update,
     Select,
+    SelectNoFrom,
     Explain,
     Set,
     Begin,
@@ -600,6 +601,35 @@ public:
     }
 
     StmtKind kind() const override { return StmtKind::Select; }
+};
+
+// SELECT 投影列表 [WHERE 条件](无 FROM: 恒输出一行, 投影不允许 star 与列引用)
+class SelectNoFromStmt : public SQLStatement {
+    std::vector<SelectItem> items_;
+    std::unique_ptr<Expr> where_;   // 无 WHERE 时为空
+public:
+    SelectNoFromStmt(std::vector<SelectItem> items, std::unique_ptr<Expr> where)
+        : items_(std::move(items)), where_(std::move(where)) {}
+
+    const std::vector<SelectItem>& items() const { return items_; }
+    const Expr* where_expr() const { return where_.get(); }
+
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "SelectNoFrom" << std::endl;
+        for (const SelectItem& item : items_) {
+            if (item.star) {
+                os << std::string(static_cast<std::size_t>(indent + 4), ' ') << "*" << std::endl;
+            } else {
+                item.expr->print(os, indent + 4);
+            }
+        }
+        if (where_) {
+            where_->print(os, indent + 4);
+        }
+    }
+
+    StmtKind kind() const override { return StmtKind::SelectNoFrom; }
 };
 
 // EXPLAIN 语句: 包裹被解释语句(可解释范围为 DML/DDL/嵌套 explain, 由语法层限定)

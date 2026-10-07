@@ -261,6 +261,10 @@ select_statement:
             $$ = std::make_unique<SelectStmt>(std::move($4), false, std::move($2), std::move($5),
                                              std::vector<OrderItem>{}, std::nullopt, std::nullopt);
         }
+    |   SELECT select_list where_opt
+        {
+            $$ = std::make_unique<SelectNoFromStmt>(std::move($2), std::move($3));
+        }
     ;
 
 // explain 语句: 解释一条可解释语句的计划

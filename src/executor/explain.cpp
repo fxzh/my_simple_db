@@ -91,18 +91,6 @@ std::string bound_expr_to_string(const ana::BoundExpr& e, const std::vector<std:
     DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "explain: 未知绑定表达式节点");
 }
 
-// 过滤谓词的列下标来源表: 沿 child 链下探至扫描节点(当前计划形态 Filter 恒在 SeqScan 之上)
-const ct::TableRef& scan_table_of(const pl::PlanNode& node)
-{
-    if (node.kind() == pl::PlanKind::SeqScan) {
-        return static_cast<const pl::SeqScanPlan&>(node).table;
-    }
-    if (node.kind() == pl::PlanKind::Filter) {
-        return scan_table_of(*static_cast<const pl::FilterPlan&>(node).child);
-    }
-    DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "explain: 过滤子树无扫描表");
-}
-
 // 表列名序列: 与行内下标对应, 供列引用回填文本
 std::vector<std::string> table_col_names(ct::Catalog& db, const ct::TableRef& table)
 {
@@ -115,6 +103,22 @@ std::vector<std::string> table_col_names(ct::Catalog& db, const ct::TableRef& ta
     return names;
 }
 
+// 节点输出列名序列: 供谓词/赋值的列引用回填文本; 过滤节点透传子节点输出
+std::vector<std::string> output_names(ct::Catalog& db, const pl::PlanNode& node)
+{
+    switch (node.kind()) {
+    case pl::PlanKind::SeqScan:
+        return table_col_names(db, static_cast<const pl::SeqScanPlan&>(node).table);
+    case pl::PlanKind::DummyScan:
+        return {};  // 单行零列, 谓词不含列引用
+    case pl::PlanKind::Filter:
+        return output_names(db, *static_cast<const pl::FilterPlan&>(node).child);
+    default:
+        break;
+    }
+    DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "explain: 节点无输出列名");
+}
+
 // 节点头文本(不含缩进): 按计划种类生成
 std::string node_header(ct::Catalog& db, const pl::PlanNode& node)
 {
@@ -122,11 +126,13 @@ std::string node_header(ct::Catalog& db, const pl::PlanNode& node)
     case pl::PlanKind::SeqScan:
         return "Seq Scan on "
                + table_ref_to_string(static_cast<const pl::SeqScanPlan&>(node).table);
+    case pl::PlanKind::DummyScan:
+        return "Dummy Scan";
     case pl::PlanKind::Empty:
         return "Empty Result";
     case pl::PlanKind::Filter: {
         const auto& f = static_cast<const pl::FilterPlan&>(node);
-        const std::vector<std::string> names = table_col_names(db, scan_table_of(*f.child));
+        const std::vector<std::string> names = output_names(db, *f.child);
         return "Filter: " + bound_expr_to_string(*f.pred, names);
     }
     case pl::PlanKind::Project:

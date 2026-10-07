@@ -107,6 +107,7 @@ void fold_const(pl::PlanNode& plan)
 {
     switch (plan.kind()) {
     case pl::PlanKind::SeqScan:
+    case pl::PlanKind::DummyScan:
     case pl::PlanKind::Empty:
     case pl::PlanKind::CreateTable:
     case pl::PlanKind::DropTable:

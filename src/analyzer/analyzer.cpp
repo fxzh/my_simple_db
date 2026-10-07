@@ -477,7 +477,23 @@ Schema build_schema(const st::TableMeta& meta)
     return schema;
 }
 
-// 绑定 SELECT 投影: star 按表列展开, 输出列名取别名>列名>表达式文本
+// 绑定单个投影项(非 star): 绑定表达式并定输出列名, 列名取别名>列名>表达式文本
+ProjCol bind_proj_item(const SelectItem& item, const Schema& schema)
+{
+    ExprType t;
+    std::unique_ptr<BoundExpr> e = bind_expr(*item.expr, &schema, t);
+    std::string name;
+    if (!item.alias.empty()) {
+        name = item.alias;
+    } else if (item.expr->kind() == ExprKind::Identifier) {
+        name = static_cast<const IdentifierExpr&>(*item.expr).name;
+    } else {
+        name = expr_to_string(*item.expr);
+    }
+    return ProjCol{std::move(e), std::move(name), 0};
+}
+
+// 绑定 SELECT 投影: star 按表列展开
 std::vector<ProjCol> build_projs(const SelectStmt& ss, const st::TableMeta& meta,
                                  const Schema& schema)
 {
@@ -489,17 +505,20 @@ std::vector<ProjCol> build_projs(const SelectStmt& ss, const st::TableMeta& meta
             }
             continue;
         }
-        ExprType t;
-        std::unique_ptr<BoundExpr> e = bind_expr(*item.expr, &schema, t);
-        std::string name;
-        if (!item.alias.empty()) {
-            name = item.alias;
-        } else if (item.expr->kind() == ExprKind::Identifier) {
-            name = static_cast<const IdentifierExpr&>(*item.expr).name;
-        } else {
-            name = expr_to_string(*item.expr);
+        projs.push_back(bind_proj_item(item, schema));
+    }
+    return projs;
+}
+
+// 绑定无 FROM 的 SELECT 投影: 无列可解析, star 无表可展开
+std::vector<ProjCol> build_projs_no_from(const SelectNoFromStmt& ss, const Schema& schema)
+{
+    std::vector<ProjCol> projs;
+    for (const SelectItem& item : ss.items()) {
+        if (item.star) {
+            DB_RAISE(db::ErrCode::StarNoFrom, LogModule::ANALYZER, "无 FROM 的 SELECT 不允许 *");
         }
-        projs.push_back(ProjCol{std::move(e), std::move(name), 0});
+        projs.push_back(bind_proj_item(item, schema));
     }
     return projs;
 }
@@ -656,6 +675,16 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
             b->where = bind_where(*ss.where_expr(), schema);
         }
         b->projs = build_projs(ss, meta, schema);
+        return b;
+    }
+    case StmtKind::SelectNoFrom: {
+        const auto& ss = static_cast<const SelectNoFromStmt&>(stmt);
+        auto b = std::make_unique<BoundSelectNoFrom>();
+        const Schema schema;  // 空行结构: 无列可解析, 列引用按列不存在报
+        if (ss.where_expr() != nullptr) {
+            b->where = bind_where(*ss.where_expr(), schema);
+        }
+        b->projs = build_projs_no_from(ss, schema);
         return b;
     }
     case StmtKind::Explain: {

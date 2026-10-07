@@ -22,7 +22,7 @@ struct ProjCol {
 // 绑定语句种类, 供执行层按类型分派
 enum class BoundKind {
     CreateTable, DropTable, CreateSchema, DropSchema, CreateIndex, DropIndex, Insert, Delete,
-    Update, Select, Set, Explain,
+    Update, Select, SelectNoFrom, Set, Explain,
 };
 
 // 绑定语句基类: 表达式为绑定树, 由语句对象持有
@@ -105,6 +105,13 @@ struct BoundSelect : BoundStmt {
     std::vector<ProjCol> projs;
     std::unique_ptr<BoundExpr> where;
     BoundKind kind() const override { return BoundKind::Select; }
+};
+
+// 无 FROM 的 SELECT: 投影不含 star 与列引用(常量上下文绑定), where 为空表示无过滤
+struct BoundSelectNoFrom : BoundStmt {
+    std::vector<ProjCol> projs;
+    std::unique_ptr<BoundExpr> where;
+    BoundKind kind() const override { return BoundKind::SelectNoFrom; }
 };
 
 // EXPLAIN: 持绑定后的被解释语句(可解释范围由语法层限定)

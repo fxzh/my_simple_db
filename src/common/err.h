@@ -50,6 +50,7 @@ enum class ErrCode {
     DdlInTxn,       // 事务内 DDL/SET 被拒
     BootstrapMode,  // bootstrap 模式限制
     TooManyClients, // 连接数超限
+    StarNoFrom,     // 无 FROM 的 SELECT 不允许星号
 };
 
 // 错误码转字符串, 用于日志书写
@@ -84,6 +85,7 @@ constexpr std::string_view errCodeName(ErrCode code) noexcept
         case ErrCode::DdlInTxn:       return "DDL_IN_TXN";
         case ErrCode::BootstrapMode:  return "BOOTSTRAP_MODE";
         case ErrCode::TooManyClients: return "TOO_MANY_CLIENTS";
+        case ErrCode::StarNoFrom:     return "STAR_NO_FROM";
         default:                      return "UNKNOWN";
     }
 }

@@ -434,6 +434,7 @@ enum class WireErrCode : uint16_t {
     InvalidVarValue = 28, // SET 变量值非法
     IndexExists = 29,   // 索引已存在
     IndexNotFound = 30, // 索引不存在
+    StarNoFrom = 31,    // 无 FROM 的 SELECT 不允许星号
 };
 
 // Error body 布局: [code u16 大端][错误文案(余量全体)]
@@ -451,7 +452,7 @@ inline bool decode_error(std::string_view body, WireErrCode& code, std::string& 
     std::size_t off = 0;
     uint16_t v = 0;
     if (!take_u16(body, off, v) || v == 0
-        || v > static_cast<uint16_t>(WireErrCode::IndexNotFound)) {
+        || v > static_cast<uint16_t>(WireErrCode::StarNoFrom)) {
         return false;
     }
     code = static_cast<WireErrCode>(v);

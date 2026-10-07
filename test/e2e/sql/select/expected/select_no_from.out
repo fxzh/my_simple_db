@@ -1,0 +1,55 @@
+-- 无 FROM 的 SELECT: 恒一行, 常量投影
+SELECT 1;
+ 1
+---
+ 1
+(1 行)
+SELECT 1 + 2 * 3, 'hi', 7.5;
+ (1 + (2 * 3)) | 'hi' | 7.5
+---------------+------+-----
+ 7             | hi   | 7.5
+(1 行)
+SELECT NULL, true, 7 / 2, 1.0 + 1, 1 + NULL;
+ NULL | true | (7 / 2) | (1 + 1) | (1 + NULL)
+------+------+---------+---------+------------
+ NULL | true | 3       | 2       | NULL
+(1 行)
+SELECT 1 AS one, 2 + 2 AS four;
+ one | four
+-----+------
+ 1   | 4
+(1 行)
+-- WHERE 恒真出一行, 恒假/NULL 零行
+SELECT 1 WHERE 1 = 1;
+ 1
+---
+ 1
+(1 行)
+SELECT 1 WHERE 1 = 0;
+ 1
+(0 行)
+SELECT 1 WHERE NULL;
+ 1
+(0 行)
+-- 计划: 单行扫描行源, 常量过滤被剪枝
+EXPLAIN SELECT 1;
+    QUERY PLAN
+------------------
+ Project
+   Output: 1
+   ->  Dummy Scan
+(3 行)
+EXPLAIN SELECT 1 WHERE 1 = 0;
+     QUERY PLAN
+--------------------
+ Project
+   Output: 1
+   ->  Empty Result
+(3 行)
+-- 异常: 无 FROM 不允许星号与列引用, 常量运算错误计划期报
+SELECT *;
+ERROR: 无 FROM 的 SELECT 不允许 *
+SELECT a;
+ERROR: 列不存在: a
+SELECT 1 WHERE 1 / 0 = 1;
+ERROR: 整型除零

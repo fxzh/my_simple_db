@@ -13,8 +13,8 @@ namespace pl {
 
 // 计划节点种类, 供执行层按类型分派
 enum class PlanKind {
-    SeqScan, Filter, Project, Empty, Insert, Delete, Update, CreateTable, DropTable, CreateSchema,
-    DropSchema, CreateIndex, DropIndex, Set, Explain,
+    SeqScan, DummyScan, Filter, Project, Empty, Insert, Delete, Update, CreateTable, DropTable,
+    CreateSchema, DropSchema, CreateIndex, DropIndex, Set, Explain,
 };
 
 // 计划节点基类: 表达式为绑定树, 由计划节点持有
@@ -27,6 +27,11 @@ struct PlanNode {
 struct SeqScanPlan : PlanNode {
     ct::TableRef table;
     PlanKind kind() const override { return PlanKind::SeqScan; }
+};
+
+// 单行扫描: 无 FROM 的 SELECT 行源, 恒一行零列
+struct DummyScanPlan : PlanNode {
+    PlanKind kind() const override { return PlanKind::DummyScan; }
 };
 
 // 过滤: 逐行求值谓词, 不满足的行不向父节点输出

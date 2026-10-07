@@ -41,6 +41,7 @@ void prune_filter(std::unique_ptr<PlanNode>& plan)
     switch (plan->kind()) {
     case PlanKind::Empty:
     case PlanKind::SeqScan:
+    case PlanKind::DummyScan:
     case PlanKind::Insert:
     case PlanKind::CreateTable:
     case PlanKind::DropTable:

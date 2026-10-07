@@ -11,22 +11,20 @@ namespace pl {
 
 namespace {
 
-// SELECT → Project(Filter(SeqScan)), 无 WHERE 省 Filter
-std::unique_ptr<PlanNode> build_select(ana::BoundSelect& bs)
+// SELECT → Project([Filter](行源)), 无 WHERE 省 Filter
+std::unique_ptr<PlanNode> build_select(std::unique_ptr<PlanNode> input,
+                                       std::unique_ptr<ana::BoundExpr> where,
+                                       std::vector<ana::ProjCol>&& projs)
 {
-    auto scan = std::make_unique<SeqScanPlan>();
-    scan->table = bs.table;
-
-    std::unique_ptr<PlanNode> input = std::move(scan);
-    if (bs.where != nullptr) {
+    if (where != nullptr) {
         auto filter = std::make_unique<FilterPlan>();
-        filter->pred = std::move(bs.where);
+        filter->pred = std::move(where);
         filter->child = std::move(input);
         input = std::move(filter);
     }
 
     auto project = std::make_unique<ProjectPlan>();
-    project->projs = std::move(bs.projs);
+    project->projs = std::move(projs);
     project->child = std::move(input);
     return project;
 }
@@ -114,8 +112,17 @@ std::unique_ptr<PlanNode> build(ana::BoundStmt& bound)
         }
         return p;
     }
-    case ana::BoundKind::Select:
-        return build_select(static_cast<ana::BoundSelect&>(bound));
+    case ana::BoundKind::Select: {
+        auto& bs = static_cast<ana::BoundSelect&>(bound);
+        auto scan = std::make_unique<SeqScanPlan>();
+        scan->table = bs.table;
+        return build_select(std::move(scan), std::move(bs.where), std::move(bs.projs));
+    }
+    case ana::BoundKind::SelectNoFrom: {
+        auto& bs = static_cast<ana::BoundSelectNoFrom&>(bound);
+        return build_select(std::make_unique<DummyScanPlan>(), std::move(bs.where),
+                            std::move(bs.projs));
+    }
     case ana::BoundKind::Set: {
         const auto& bs = static_cast<const ana::BoundSet&>(bound);
         auto p = std::make_unique<SetPlan>();

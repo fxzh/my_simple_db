@@ -36,6 +36,23 @@ struct EmptyOp : Operator {
     void close() override {}
 };
 
+// 单行扫描: 无 FROM 的 SELECT 行源, open 后恰吐一行空行
+struct DummyScanOp : Operator {
+    bool done = false;
+
+    void open() override { done = false; }
+    bool next(st::Row* out) override
+    {
+        if (done) {
+            return false;
+        }
+        done = true;
+        *out = st::Row{};
+        return true;
+    }
+    void close() override {}
+};
+
 // 过滤: 谓词不满足的行不上抛
 struct FilterOp : Operator {
     std::unique_ptr<Operator> child;
@@ -92,6 +109,8 @@ std::unique_ptr<Operator> make_operator(ct::Catalog& db, const pl::PlanNode& nod
         const auto& p = static_cast<const pl::SeqScanPlan&>(node);
         return std::make_unique<SeqScanOp>(db, p.table);
     }
+    case pl::PlanKind::DummyScan:
+        return std::make_unique<DummyScanOp>();
     case pl::PlanKind::Empty:
         return std::make_unique<EmptyOp>();
     case pl::PlanKind::Filter: {

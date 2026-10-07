@@ -164,7 +164,7 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt, const std::string&
         return tag_result(proto::CommandTag::Set, 0);
     }
     default:
-        break;  // SeqScan/Filter/Empty 不作为根计划出现
+        break;  // SeqScan/DummyScan/Filter/Empty 不作为根计划出现
     }
     // 不可达: 全部根计划种类已在上方穷尽
     DB_RAISE(db::ErrCode::UnknownStmt, LogModule::EXECUTOR, "executor: 未知计划种类");
