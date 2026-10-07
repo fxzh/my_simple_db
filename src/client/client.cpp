@@ -56,6 +56,9 @@ void append_to_sql(const char* text, std::size_t len)
 
 namespace {
 
+// NOTICE_LEVEL_MAX 与 LogLevel 末位一致, 漂移时编译报错
+static_assert(static_cast<int>(LogLevel::CRITICAL) == static_cast<int>(proto::NOTICE_LEVEL_MAX));
+
 // 消息帧打印: 级别名 + 文案; 是否发送已由 server 按会话级别过滤, 此处不再筛
 void print_notice(uint8_t level, const std::string& text)
 {

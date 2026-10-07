@@ -382,23 +382,36 @@ inline std::string encode_command(CommandTag tag, uint64_t count)
     return body;
 }
 
-// 命令标签解码; 长度不为 9 或 tag 超出已知值返回 false
+// 命令标签解码; 长度不为 9 或 tag 未定义返回 false; 穷尽 switch, 新增 tag 未同步时 -Wswitch 报警
 inline bool decode_command(std::string_view body, CommandTag& tag, uint64_t& count)
 {
     if (body.size() != 9) {
         return false;
     }
-    const auto t = static_cast<unsigned char>(body[0]);
-    if (t > static_cast<unsigned char>(CommandTag::Update)) {
-        return false;  // 未知 tag
+    const CommandTag t = static_cast<CommandTag>(static_cast<unsigned char>(body[0]));
+    switch (t) {
+    case CommandTag::Empty:
+    case CommandTag::CreateTable:
+    case CommandTag::DropTable:
+    case CommandTag::Insert:
+    case CommandTag::Delete:
+    case CommandTag::CreateSchema:
+    case CommandTag::DropSchema:
+    case CommandTag::Set:
+    case CommandTag::Begin:
+    case CommandTag::Commit:
+    case CommandTag::Rollback:
+    case CommandTag::CreateIndex:
+    case CommandTag::DropIndex:
+    case CommandTag::Update:
+        tag = t;
+        count = 0;
+        for (std::size_t i = 0; i < 8; ++i) {
+            count = (count << 8) | static_cast<unsigned char>(body[1 + i]);
+        }
+        return true;
     }
-    tag = static_cast<CommandTag>(t);
-    uint64_t v = 0;
-    for (std::size_t i = 0; i < 8; ++i) {
-        v = (v << 8) | static_cast<unsigned char>(body[1 + i]);
-    }
-    count = v;
-    return true;
+    return false;  // 未定义 tag
 }
 
 // ==================== 错误帧(Error body 编解码) ====================
@@ -446,18 +459,49 @@ inline std::string encode_error(WireErrCode code, const std::string& message)
     return body;
 }
 
-// 错误帧解码; 长度不足或码值越界返回 false
+// 错误帧解码; 长度不足或码值未定义返回 false; 穷尽 switch, 新增码未同步时 -Wswitch 报警
 inline bool decode_error(std::string_view body, WireErrCode& code, std::string& message)
 {
     std::size_t off = 0;
     uint16_t v = 0;
-    if (!take_u16(body, off, v) || v == 0
-        || v > static_cast<uint16_t>(WireErrCode::StarNoFrom)) {
+    if (!take_u16(body, off, v)) {
         return false;
     }
-    code = static_cast<WireErrCode>(v);
-    message.assign(body.substr(off));
-    return true;
+    switch (static_cast<WireErrCode>(v)) {
+    case WireErrCode::IoError:
+    case WireErrCode::CatalogMissing:
+    case WireErrCode::CatalogExists:
+    case WireErrCode::InvalidType:
+    case WireErrCode::TableNotFound:
+    case WireErrCode::TableExists:
+    case WireErrCode::SchemaNotFound:
+    case WireErrCode::SchemaExists:
+    case WireErrCode::SchemaNotEmpty:
+    case WireErrCode::ProtectedTable:
+    case WireErrCode::InvalidDdl:
+    case WireErrCode::ValueMismatch:
+    case WireErrCode::RecordTooLong:
+    case WireErrCode::ArithError:
+    case WireErrCode::UnknownColumn:
+    case WireErrCode::UnknownVar:
+    case WireErrCode::UnknownStmt:
+    case WireErrCode::NotImplemented:
+    case WireErrCode::Internal:
+    case WireErrCode::SyntaxError:
+    case WireErrCode::TxnActive:
+    case WireErrCode::NoActiveTxn:
+    case WireErrCode::DdlInTxn:
+    case WireErrCode::BootstrapMode:
+    case WireErrCode::TooManyClients:
+    case WireErrCode::InvalidVarValue:
+    case WireErrCode::IndexExists:
+    case WireErrCode::IndexNotFound:
+    case WireErrCode::StarNoFrom:
+        code = static_cast<WireErrCode>(v);
+        message.assign(body.substr(off));
+        return true;
+    }
+    return false;  // 未定义码(含 0 与历史空洞)
 }
 
 // ==================== 消息帧(Notice 编解码) ====================

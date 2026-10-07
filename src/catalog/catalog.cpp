@@ -78,14 +78,29 @@ const std::string& row_str(const std::vector<st::Value>& row, size_t idx)
     return *v;
 }
 
+// 列类型值是否在已知集合内; 穷尽 switch, 新增类型未同步时 -Wswitch 报警
+bool col_type_known(st::ColType type)
+{
+    switch (type) {
+    case st::ColType::Int:
+    case st::ColType::BigInt:
+    case st::ColType::Double:
+    case st::ColType::VarChar:
+    case st::ColType::Float:
+    case st::ColType::Char:
+    case st::ColType::Bool:
+        return true;
+    }
+    return false;
+}
+
 // db_column 行解出 (ordinal, 列定义), 值缺失或非法当场报错
 std::pair<int64_t, st::ColumnSpec> parse_column_row(const std::vector<st::Value>& row)
 {
     const int64_t type = row_int(row, 3);
     const int64_t length = row_int(row, 4);
     const int64_t not_null = row_int(row, 5);
-    if (type < static_cast<int64_t>(st::ColType::Int) ||
-        type > static_cast<int64_t>(st::ColType::Bool)) {
+    if (!col_type_known(static_cast<st::ColType>(type))) {
         DB_CRITICAL(LogModule::CATALOG, "列类型值非法: {}", type);
     }
     if (length < 0 || length > UINT16_MAX) {

@@ -45,8 +45,8 @@ constexpr std::string_view levelToString(LogLevel level)
         case LogLevel::WARNING:  return "WARNING";
         case LogLevel::ERROR:    return "ERROR";
         case LogLevel::CRITICAL: return "CRITICAL";
-        default:                 return "UNKNOWN";
     }
+    return "UNKNOWN";
 }
 
 // 日志级别解析: 级别名大小写不敏感, 未知名返回空
