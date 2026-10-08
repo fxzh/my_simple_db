@@ -581,12 +581,6 @@ uint64_t Catalog::alloc_schema_id()
     return next_schema_id_.fetch_add(1);
 }
 
-void Catalog::drop_table(const TableRef& table)
-{
-    std::lock_guard<std::recursive_mutex> lock(mutex_);
-    drop_table(TableHandle{find_table_meta(table), table_ref_to_string(table)});
-}
-
 void Catalog::drop_table(const TableHandle& table)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
@@ -684,12 +678,6 @@ void Catalog::drop_index(const TableHandle& table, const std::string& index)
     engine_.remove_index_file(ent.file_id);
 }
 
-st::RowId Catalog::insert(const TableRef& table, const std::vector<st::Value>& values)
-{
-    std::lock_guard<std::recursive_mutex> lock(mutex_);
-    return insert(find_table_meta(table), values);
-}
-
 st::RowId Catalog::insert(const st::TableMeta& meta, const std::vector<st::Value>& values)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
@@ -747,21 +735,10 @@ size_t Catalog::update_rows(const st::TableMeta& meta, const std::vector<RowUpda
     return rows.size();
 }
 
-size_t Catalog::delete_all(const TableRef& table)
-{
-    std::lock_guard<std::recursive_mutex> lock(mutex_);
-    return delete_all(find_table_meta(table));
-}
-
 size_t Catalog::delete_all(const st::TableMeta& meta)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
     return engine_.delete_all_rows(meta.file_id);
-}
-
-std::unique_ptr<st::Scanner> Catalog::scan(const TableRef& table)
-{
-    return scan(table_meta(table));
 }
 
 std::unique_ptr<st::Scanner> Catalog::scan(const st::TableMeta& meta)
@@ -769,10 +746,9 @@ std::unique_ptr<st::Scanner> Catalog::scan(const st::TableMeta& meta)
     return std::make_unique<st::Scanner>(&engine_, meta);
 }
 
-size_t Catalog::row_count(const TableRef& table)
+size_t Catalog::row_count(const st::TableMeta& meta)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
-    const st::TableMeta meta = find_table_meta(table);
     return engine_.row_count(meta.file_id);
 }
 

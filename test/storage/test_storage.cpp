@@ -84,15 +84,16 @@ TEST_F(StorageDb, ReopenLifecycle)
         };
         db.begin_txn();
         db.create_table({"system", "t"},cols);
+        const TableMeta t_meta = db.table_meta({"system", "t"});
 
-        db.insert({"system", "t"},{Value{int64_t{1}}, Value{std::string{"alice"}}});
-        db.insert({"system", "t"},{Value{int64_t{2}}, Value{std::string{"bob"}}});
+        db.insert(t_meta,{Value{int64_t{1}}, Value{std::string{"alice"}}});
+        db.insert(t_meta,{Value{int64_t{2}}, Value{std::string{"bob"}}});
         // 跨页: 一条记录塞满首个数据页后触发扩展
         for (int i = 0; i < 400; ++i) {
-            db.insert({"system", "t"},{Value{int64_t{3}}, Value{std::string{"spam"}}});
+            db.insert(t_meta,{Value{int64_t{3}}, Value{std::string{"spam"}}});
         }
         db.commit_txn();
-        EXPECT_EQ(db.row_count({"system", "t"}), size_t{402});
+        EXPECT_EQ(db.row_count(t_meta), size_t{402});
 
         // float/char 列编解码往返
         db.begin_txn();
@@ -100,8 +101,9 @@ TEST_F(StorageDb, ReopenLifecycle)
                 {"score", ColType::Float, 0},
                 {"grade", ColType::Char, 3},
         });
-        db.insert({"system", "t2"},{Value{0.5}, Value{std::string{"A"}}});
-        db.insert({"system", "t2"},{Value{-1.25}, Value{std::string{"XYZ"}}});
+        const TableMeta t2_meta = db.table_meta({"system", "t2"});
+        db.insert(t2_meta,{Value{0.5}, Value{std::string{"A"}}});
+        db.insert(t2_meta,{Value{-1.25}, Value{std::string{"XYZ"}}});
         db.commit_txn();
         db.close();
     }
@@ -109,11 +111,13 @@ TEST_F(StorageDb, ReopenLifecycle)
     {
         Catalog db(dir.path);
         db.open();
-        EXPECT_EQ(db.row_count({"system", "t"}), size_t{402});
+        const TableMeta t_meta = db.table_meta({"system", "t"});
+        const TableMeta t2_meta = db.table_meta({"system", "t2"});
+        EXPECT_EQ(db.row_count(t_meta), size_t{402});
 
         size_t n = 0;
         {
-            auto s = db.scan({"system", "t"});
+            auto s = db.scan(t_meta);
             Row r;
             while (s->next(&r)) {
                 ++n;
@@ -131,7 +135,7 @@ TEST_F(StorageDb, ReopenLifecycle)
 
         size_t n2 = 0;
         {
-            auto s = db.scan({"system", "t2"});
+            auto s = db.scan(t2_meta);
             Row r;
             while (s->next(&r)) {
                 ++n2;
@@ -149,18 +153,18 @@ TEST_F(StorageDb, ReopenLifecycle)
 
         // 删除单行: 首行删除后计数与扫描均不可见
         {
-            auto s = db.scan({"system", "t"});
+            auto s = db.scan(t_meta);
             Row first;
             EXPECT_TRUE(s->next(&first));
             db.begin_txn();
             EXPECT_EQ(db.delete_by_ref(first.ref), 1);
-            EXPECT_EQ(db.row_count({"system", "t"}), size_t{401});
+            EXPECT_EQ(db.row_count(t_meta), size_t{401});
             EXPECT_EQ(db.delete_by_ref(first.ref), 0);
             EXPECT_THROW(db.delete_by_ref(RowRef{}), std::runtime_error);
             db.commit_txn();
             bool seen = false;
             {
-                auto s2 = db.scan({"system", "t"});
+                auto s2 = db.scan(t_meta);
                 Row r;
                 while (s2->next(&r)) {
                     seen = seen || std::get<int64_t>(r.values[0]) == 1;
@@ -170,11 +174,11 @@ TEST_F(StorageDb, ReopenLifecycle)
         }
         // 清空表: 全部行删除后计数与扫描为空
         db.begin_txn();
-        db.delete_all({"system", "t2"});
+        db.delete_all(t2_meta);
         db.commit_txn();
-        EXPECT_EQ(db.row_count({"system", "t2"}), size_t{0});
+        EXPECT_EQ(db.row_count(t2_meta), size_t{0});
         {
-            auto s = db.scan({"system", "t2"});
+            auto s = db.scan(t2_meta);
             Row r;
             EXPECT_FALSE(s->next(&r));
         }
@@ -182,22 +186,22 @@ TEST_F(StorageDb, ReopenLifecycle)
         // drop 后悬空引用删除报错, 目录不可见
         Row victim;
         {
-            auto s = db.scan({"system", "t"});
+            auto s = db.scan(t_meta);
             EXPECT_TRUE(s->next(&victim));
         }
         db.begin_txn();
-        db.drop_table({"system", "t"});
+        db.drop_table(TableHandle{t_meta, "system.t"});
         db.commit_txn();
         EXPECT_THROW(db.delete_by_ref(victim.ref), std::runtime_error);
-        EXPECT_THROW(db.row_count({"system", "t"}), std::runtime_error);
+        EXPECT_THROW(db.row_count(db.table_meta({"system", "t"})), std::runtime_error);
         db.close();
     }
 
     {
         Catalog db(dir.path);
         db.open();
-        EXPECT_THROW(db.row_count({"system", "t"}), std::runtime_error);
-        EXPECT_EQ(db.row_count({"system", "t2"}), size_t{0});
+        EXPECT_THROW(db.row_count(db.table_meta({"system", "t"})), std::runtime_error);
+        EXPECT_EQ(db.row_count(db.table_meta({"system", "t2"})), size_t{0});
         db.close();
     }
 }
@@ -337,28 +341,29 @@ TEST_F(StorageDb, CatalogTxnCommitRollback)
         // 回滚: 建表与插行随事务消失
         db.begin_txn();
         db.create_table({"system", "t"},{{"id", ColType::Int, 0, true}});
-        db.insert({"system", "t"},{Value{int64_t{1}}});
+        db.insert(db.table_meta({"system", "t"}),{Value{int64_t{1}}});
         // 事务内自见: 未提交修改对本事务可见
-        EXPECT_EQ(db.row_count({"system", "t"}), size_t{1});
+        EXPECT_EQ(db.row_count(db.table_meta({"system", "t"})), size_t{1});
         db.rollback_txn();
-        EXPECT_THROW(db.row_count({"system", "t"}), std::runtime_error);
+        EXPECT_THROW(db.row_count(db.table_meta({"system", "t"})), std::runtime_error);
 
         // 提交: 修改可见
         db.begin_txn();
         db.create_table({"system", "t"},{{"id", ColType::Int, 0, true}});
-        db.insert({"system", "t"},{Value{int64_t{1}}});
+        db.insert(db.table_meta({"system", "t"}),{Value{int64_t{1}}});
         db.commit_txn();
-        EXPECT_EQ(db.row_count({"system", "t"}), size_t{1});
+        EXPECT_EQ(db.row_count(db.table_meta({"system", "t"})), size_t{1});
 
         // 事务外调落盘性门面报错, 表内容不变
-        EXPECT_THROW(db.insert({"system", "t"},{Value{int64_t{2}}}), std::runtime_error);
-        EXPECT_EQ(db.row_count({"system", "t"}), size_t{1});
+        EXPECT_THROW(db.insert(db.table_meta({"system", "t"}),{Value{int64_t{2}}}),
+                     std::runtime_error);
+        EXPECT_EQ(db.row_count(db.table_meta({"system", "t"})), size_t{1});
         db.close();
     }
     {
         Catalog db(dir.path);
         db.open();
-        EXPECT_EQ(db.row_count({"system", "t"}), size_t{1});
+        EXPECT_EQ(db.row_count(db.table_meta({"system", "t"})), size_t{1});
         db.close();
     }
 }

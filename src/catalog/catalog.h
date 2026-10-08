@@ -70,7 +70,7 @@ struct RowUpdate {
 
 // 数据目录门面: 打开/关闭, 建表/删表/插入/删除/更新/全表扫描
 // 元数据以 db_table/db_column/db_schema 三张表为唯一事实来源, 查找实时扫描, 无目录文件与内存缓存
-// DML 门面有按名与按句柄(绑定层一次解析产物)两类入口, 执行层走句柄入口不重复按名解析
+// 名字只经 create_table 与 table_meta 进入, DML 门面按绑定层一次解析的元数据进入
 class Catalog {
 public:
     explicit Catalog(std::string dir, bool bootstrap_mode = false);
@@ -96,8 +96,6 @@ public:
     // 建表: 挂限定名所属 schema(schema 须存在), 表名 schema 内唯一,
     // bootstrap 模式用 SET 的显式 table_id(未 set/重复 id 报错), 正常模式自动分配
     uint64_t create_table(const TableRef& table, const std::vector<st::ColumnSpec>& cols);
-    // 删表(按限定名解析), 保留段表拒绝删除
-    void drop_table(const TableRef& table);
     // 删表(按绑定层句柄), 保留段表拒绝删除
     void drop_table(const TableHandle& table);
     // 建 schema, 重名拒绝
@@ -108,8 +106,7 @@ public:
     void create_index(const TableHandle& table, const std::string& index, uint16_t col_ordinal);
     // 删索引(按绑定层句柄), 索引不存在当场报错, 先删 db_index 行再删索引文件
     void drop_index(const TableHandle& table, const std::string& index);
-    st::RowId insert(const TableRef& table, const std::vector<st::Value>& values);
-    // 插入行(按绑定层元数据, 免执行期按名解析)
+    // 插入行(按绑定层元数据)
     st::RowId insert(const st::TableMeta& meta, const std::vector<st::Value>& values);
     // 删除单行(按扫描得到的物理位置), 已删引用返回 0, 无效引用报错
     size_t delete_by_ref(const st::RowRef& ref);
@@ -117,14 +114,12 @@ public:
     // 回表按墓碑过滤), 返回更新行数; 值合法性由存储层编码校验, 引用已删/指向他表当场报错
     size_t update_rows(const st::TableMeta& meta, const std::vector<RowUpdate>& rows);
     // 删除表中全部行, 返回删除行数
-    size_t delete_all(const TableRef& table);
     size_t delete_all(const st::TableMeta& meta);
 
-    std::unique_ptr<st::Scanner> scan(const TableRef& table);
     // 按绑定层元数据开扫描, 游标不持锁(仅持页 pin), 并发 DDL 期间扫描是未定义行为
     std::unique_ptr<st::Scanner> scan(const st::TableMeta& meta);
     // 存活行数统计(便利函数, 供测试与将来执行层使用)
-    size_t row_count(const TableRef& table);
+    size_t row_count(const st::TableMeta& meta);
     // 按限定名取表元数据(实时扫描元数据表), 表不存在当场报错
     st::TableMeta table_meta(const TableRef& table);
 
