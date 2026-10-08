@@ -663,6 +663,9 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
     }
     case StmtKind::Select: {
         const auto& ss = static_cast<const SelectStmt&>(stmt);
+        if (!ss.orders().empty()) {
+            DB_RAISE(db::ErrCode::NotImplemented, LogModule::ANALYZER, "ORDER BY 暂不支持");
+        }
         const ct::TableRef table = to_table_ref(ss.table_name(), current_schema);
         auto b = std::make_unique<BoundSelect>();
         b->table = ct::TableHandle{db.table_meta(table), table_ref_to_string(table)};
@@ -675,6 +678,9 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
     }
     case StmtKind::SelectNoFrom: {
         const auto& ss = static_cast<const SelectNoFromStmt&>(stmt);
+        if (!ss.orders().empty()) {
+            DB_RAISE(db::ErrCode::NotImplemented, LogModule::ANALYZER, "ORDER BY 暂不支持");
+        }
         auto b = std::make_unique<BoundSelectNoFrom>();
         const Schema schema;  // 空行结构: 无列可解析, 列引用按列不存在报
         if (ss.where_expr() != nullptr) {

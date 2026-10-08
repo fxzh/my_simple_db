@@ -73,6 +73,10 @@ WS       [ \t\r]
 "explain"  { return yy::parser::token::EXPLAIN; }
 "select"   { return yy::parser::token::SELECT; }
 "as"       { return yy::parser::token::AS; }
+"order"    { return yy::parser::token::ORDER; }
+"by"       { return yy::parser::token::BY; }
+"asc"      { return yy::parser::token::ASC; }
+"desc"     { return yy::parser::token::DESC; }
 "null"     { return yy::parser::token::NULL_T; }
 "true"     { return yy::parser::token::TRUE_T; }
 "false"    { return yy::parser::token::FALSE_T; }

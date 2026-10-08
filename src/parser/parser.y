@@ -58,6 +58,7 @@
 %token CREATE TABLE DROP SCHEMA INSERT INTO VALUES DELETE FROM UPDATE INDEX ON
 %token INT BIGINT FLOAT CHAR VARCHAR DOUBLE BOOLEAN BOOL
 %token EXPLAIN SELECT AS NULL_T TRUE_T FALSE_T WHERE AND OR NOT IS SET
+%token ORDER BY ASC DESC
 %token BEGIN_TXN START TRANSACTION COMMIT WORK ROLLBACK
 %token EQ NE LE GE
 
@@ -92,6 +93,9 @@
 %type <std::pair<std::string, SetValueForm>> set_value
 %type <std::vector<SelectItem>> select_list select_items
 %type <SelectItem> select_item
+%type <std::vector<OrderItem>> order_by_opt order_list
+%type <OrderItem> order_item
+%type <bool> order_dir
 %type <std::vector<UpdateItem>> update_assignments
 %type <UpdateItem> update_assignment
 %type <std::string> alias_opt
@@ -254,16 +258,16 @@ update_assignment:
         }
     ;
 
-// select 投影列表 FROM 表名 [where 条件](基础闭环: ORDER BY/LIMIT 随后续里程碑接入)
+// select 投影列表 [FROM 表名] [where 条件] [order by 排序键](LIMIT 随后续里程碑接入)
 select_statement:
-        SELECT select_list FROM qualified_name where_opt
+        SELECT select_list FROM qualified_name where_opt order_by_opt
         {
             $$ = std::make_unique<SelectStmt>(std::move($4), false, std::move($2), std::move($5),
-                                             std::vector<OrderItem>{}, std::nullopt, std::nullopt);
+                                             std::move($6), std::nullopt, std::nullopt);
         }
-    |   SELECT select_list where_opt
+    |   SELECT select_list where_opt order_by_opt
         {
-            $$ = std::make_unique<SelectNoFromStmt>(std::move($2), std::move($3));
+            $$ = std::make_unique<SelectNoFromStmt>(std::move($2), std::move($3), std::move($4));
         }
     ;
 
@@ -364,6 +368,41 @@ select_item:
 alias_opt:
         /* empty */ { $$ = std::string(); }
     |   AS IDENTIFIER { $$ = std::move($2); }
+    ;
+
+// 可选 order by 子句: 空时语义值为空列表
+order_by_opt:
+        /* empty */ { $$ = std::vector<OrderItem>(); }
+    |   ORDER BY order_list { $$ = std::move($3); }
+    ;
+
+// 排序键列表: 逗号连接的 表达式+方向
+order_list:
+        order_list ',' order_item
+        {
+            $1.push_back(std::move($3));
+            $$ = std::move($1);
+        }
+    |   order_item
+        {
+            $$ = std::vector<OrderItem>();
+            $$.push_back(std::move($1));
+        }
+    ;
+
+// 单个排序键: 表达式 + 可选方向
+order_item:
+        expression order_dir
+        {
+            $$ = OrderItem{ std::move($1), $2 };
+        }
+    ;
+
+// 排序方向: 缺省与 ASC 为升序
+order_dir:
+        /* empty */ { $$ = false; }
+    |   ASC { $$ = false; }
+    |   DESC { $$ = true; }
     ;
 
 // insert into 表名 [(列清单)] values 值行列表

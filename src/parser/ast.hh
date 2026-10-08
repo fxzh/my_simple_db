@@ -554,9 +554,9 @@ struct SelectItem {
     bool star = false;
 };
 
-// 排序键: 列名或别名 + 方向
+// 排序键: 表达式 + 方向
 struct OrderItem {
-    std::string name;
+    std::unique_ptr<Expr> expr;
     bool desc = false;
 };
 
@@ -598,21 +598,28 @@ public:
         if (where_) {
             where_->print(os, indent + 4);
         }
+        for (const OrderItem& item : orders_) {
+            os << std::string(static_cast<std::size_t>(indent + 4), ' ') << "Order: "
+               << expr_to_string(*item.expr) << (item.desc ? " DESC" : " ASC") << std::endl;
+        }
     }
 
     StmtKind kind() const override { return StmtKind::Select; }
 };
 
-// SELECT 投影列表 [WHERE 条件](无 FROM: 恒输出一行, 投影不允许 star 与列引用)
+// SELECT 投影列表 [WHERE 条件] [ORDER BY 排序键](无 FROM: 恒输出一行, 投影不允许 star 与列引用)
 class SelectNoFromStmt : public SQLStatement {
     std::vector<SelectItem> items_;
     std::unique_ptr<Expr> where_;   // 无 WHERE 时为空
+    std::vector<OrderItem> orders_;
 public:
-    SelectNoFromStmt(std::vector<SelectItem> items, std::unique_ptr<Expr> where)
-        : items_(std::move(items)), where_(std::move(where)) {}
+    SelectNoFromStmt(std::vector<SelectItem> items, std::unique_ptr<Expr> where,
+                     std::vector<OrderItem> orders)
+        : items_(std::move(items)), where_(std::move(where)), orders_(std::move(orders)) {}
 
     const std::vector<SelectItem>& items() const { return items_; }
     const Expr* where_expr() const { return where_.get(); }
+    const std::vector<OrderItem>& orders() const { return orders_; }
 
     void print(std::ostream& os, int indent) const override
     {
@@ -626,6 +633,10 @@ public:
         }
         if (where_) {
             where_->print(os, indent + 4);
+        }
+        for (const OrderItem& item : orders_) {
+            os << std::string(static_cast<std::size_t>(indent + 4), ' ') << "Order: "
+               << expr_to_string(*item.expr) << (item.desc ? " DESC" : " ASC") << std::endl;
         }
     }
 
