@@ -16,13 +16,13 @@ namespace exec {
 
 namespace {
 
-// 顺序扫描: open 时经 catalog 建扫描器, 扫描器析构自会释放页 pin
+// 顺序扫描: open 时按绑定层携带的表元数据建扫描器, 扫描器析构自会释放页 pin
 struct SeqScanOp : Operator {
     ct::Catalog& db;
-    ct::TableRef table;
+    st::TableMeta table;
     std::unique_ptr<st::Scanner> scanner;
 
-    SeqScanOp(ct::Catalog& db_, ct::TableRef table_) : db(db_), table(std::move(table_)) {}
+    SeqScanOp(ct::Catalog& db_, st::TableMeta table_) : db(db_), table(std::move(table_)) {}
 
     void open() override { scanner = db.scan(table); }
     bool next(st::Row* out) override { return scanner->next(out); }
@@ -107,7 +107,7 @@ std::unique_ptr<Operator> make_operator(ct::Catalog& db, const pl::PlanNode& nod
     switch (node.kind()) {
     case pl::PlanKind::SeqScan: {
         const auto& p = static_cast<const pl::SeqScanPlan&>(node);
-        return std::make_unique<SeqScanOp>(db, p.table);
+        return std::make_unique<SeqScanOp>(db, p.table.meta);
     }
     case pl::PlanKind::DummyScan:
         return std::make_unique<DummyScanOp>();

@@ -1,4 +1,4 @@
-// catalog.cpp: 目录层实现(元数据表 schema/引导/查找/写删 + 名字型门面)
+// catalog.cpp: 目录层实现(元数据表 schema/引导/查找/写删 + 名字型/句柄型门面)
 #include "catalog.h"
 
 #include <algorithm>
@@ -584,18 +584,23 @@ uint64_t Catalog::alloc_schema_id()
 void Catalog::drop_table(const TableRef& table)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
-    const st::TableMeta meta = find_table_meta(table);
-    if (meta.table_id <= kReservedMaxTableId) {
+    drop_table(TableHandle{find_table_meta(table), table_ref_to_string(table)});
+}
+
+void Catalog::drop_table(const TableHandle& table)
+{
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    if (table.meta.table_id <= kReservedMaxTableId) {
         DB_RAISE(db::ErrCode::ProtectedTable, LogModule::CATALOG, "保留表禁止删除: {}",
-                 table_ref_to_string(table));
+                 table.display);
     }
     // 连带删除该表全部索引: 先删 db_index 行再删索引文件(与建索引顺序相反)
-    for (const IndexEntry& ent : table_indexes(engine_, index_cols_, meta.table_id)) {
+    for (const IndexEntry& ent : table_indexes(engine_, index_cols_, table.meta.table_id)) {
         engine_.delete_row(ent.row_ref);
         engine_.remove_index_file(ent.file_id);
     }
-    delete_meta_rows(meta.table_id);
-    engine_.remove_table_file(meta.file_id);
+    delete_meta_rows(table.meta.table_id);
+    engine_.remove_table_file(table.meta.file_id);
 }
 
 void Catalog::drop_schema(const std::string& name)
@@ -631,13 +636,13 @@ void Catalog::drop_schema(const std::string& name)
     engine_.delete_row(ref);
 }
 
-void Catalog::create_index(const TableRef& table, const std::string& index, uint16_t col_ordinal)
+void Catalog::create_index(const TableHandle& table, const std::string& index, uint16_t col_ordinal)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
-    const st::TableMeta meta = find_table_meta(table);
+    const st::TableMeta& meta = table.meta;
     if (meta.table_id <= kReservedMaxTableId) {
         DB_RAISE(db::ErrCode::ProtectedTable, LogModule::CATALOG, "保留表禁止建索引: {}",
-                 table_ref_to_string(table));
+                 table.display);
     }
     if (index.empty()) {
         DB_RAISE(db::ErrCode::InvalidDdl, LogModule::CATALOG, "索引名为空");
@@ -662,13 +667,13 @@ void Catalog::create_index(const TableRef& table, const std::string& index, uint
                         st::Value{static_cast<int64_t>(fid)}}, &ref);
 }
 
-void Catalog::drop_index(const TableRef& table, const std::string& index)
+void Catalog::drop_index(const TableHandle& table, const std::string& index)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
-    const st::TableMeta meta = find_table_meta(table);
+    const st::TableMeta& meta = table.meta;
     if (meta.table_id <= kReservedMaxTableId) {
         DB_RAISE(db::ErrCode::ProtectedTable, LogModule::CATALOG, "保留表禁止删索引: {}",
-                 table_ref_to_string(table));
+                 table.display);
     }
     IndexEntry ent;
     if (!find_index(engine_, index_cols_, meta.table_id, index, ent)) {
@@ -682,7 +687,12 @@ void Catalog::drop_index(const TableRef& table, const std::string& index)
 st::RowId Catalog::insert(const TableRef& table, const std::vector<st::Value>& values)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
-    const st::TableMeta meta = find_table_meta(table);
+    return insert(find_table_meta(table), values);
+}
+
+st::RowId Catalog::insert(const st::TableMeta& meta, const std::vector<st::Value>& values)
+{
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     st::RowRef ref;
     const st::RowId rid = engine_.insert_row(meta.file_id, meta.cols, values, &ref);
     // 双写该表全部索引: 堆槽不复用使 (键, 行定位) 全局唯一
@@ -710,10 +720,9 @@ size_t Catalog::delete_by_ref(const st::RowRef& ref)
     return engine_.delete_row(ref);
 }
 
-size_t Catalog::update_rows(const TableRef& table, const std::vector<RowUpdate>& rows)
+size_t Catalog::update_rows(const st::TableMeta& meta, const std::vector<RowUpdate>& rows)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
-    const st::TableMeta meta = find_table_meta(table);
     const std::vector<IndexEntry> indexes = table_indexes(engine_, index_cols_, meta.table_id);
     for (const RowUpdate& r : rows) {
         if (r.ref.page.file_id != meta.file_id) {
@@ -741,13 +750,23 @@ size_t Catalog::update_rows(const TableRef& table, const std::vector<RowUpdate>&
 size_t Catalog::delete_all(const TableRef& table)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
-    const st::TableMeta meta = find_table_meta(table);
+    return delete_all(find_table_meta(table));
+}
+
+size_t Catalog::delete_all(const st::TableMeta& meta)
+{
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
     return engine_.delete_all_rows(meta.file_id);
 }
 
 std::unique_ptr<st::Scanner> Catalog::scan(const TableRef& table)
 {
-    return std::make_unique<st::Scanner>(&engine_, table_meta(table));
+    return scan(table_meta(table));
+}
+
+std::unique_ptr<st::Scanner> Catalog::scan(const st::TableMeta& meta)
+{
+    return std::make_unique<st::Scanner>(&engine_, meta);
 }
 
 size_t Catalog::row_count(const TableRef& table)

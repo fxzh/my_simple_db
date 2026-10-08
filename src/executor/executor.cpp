@@ -85,7 +85,7 @@ uint64_t run_update(ct::Catalog& db, const pl::UpdatePlan& up)
         }
         rows.push_back(ct::RowUpdate{old.ref, std::move(vals)});
     }
-    return db.update_rows(up.table, rows);
+    return db.update_rows(up.table.meta, rows);
 }
 
 }  // namespace
@@ -137,13 +137,13 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt, const std::string&
             for (const auto& v : plan_row) {
                 values.push_back(expr::to_st_value(expr::eval_const(*v)));
             }
-            db.insert(p.table, values);
+            db.insert(p.table.meta, values);
         }
         return tag_result(proto::CommandTag::Insert, p.rows.size());
     }
     case pl::PlanKind::Delete: {
         const auto& p = static_cast<const pl::DeletePlan&>(*plan);
-        const uint64_t n = p.child != nullptr ? run_delete_where(db, p) : db.delete_all(p.table);
+        const uint64_t n = p.child != nullptr ? run_delete_where(db, p) : db.delete_all(p.table.meta);
         return tag_result(proto::CommandTag::Delete, n);
     }
     case pl::PlanKind::Update: {
@@ -153,7 +153,7 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt, const std::string&
     case pl::PlanKind::Project:
         return run_select(db, std::move(plan));
     case pl::PlanKind::Explain:
-        return run_explain(db, static_cast<const pl::ExplainPlan&>(*plan));
+        return run_explain(static_cast<const pl::ExplainPlan&>(*plan));
     case pl::PlanKind::Set: {
         const auto& p = static_cast<const pl::SetPlan&>(*plan);
         switch (p.var) {

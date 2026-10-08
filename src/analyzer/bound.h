@@ -38,9 +38,9 @@ struct BoundCreateTable : BoundStmt {
     BoundKind kind() const override { return BoundKind::CreateTable; }
 };
 
-// DROP TABLE
+// DROP TABLE: 表已解析为句柄
 struct BoundDropTable : BoundStmt {
-    ct::TableRef table;
+    ct::TableHandle table;
     BoundKind kind() const override { return BoundKind::DropTable; }
 };
 
@@ -56,9 +56,9 @@ struct BoundDropSchema : BoundStmt {
     BoundKind kind() const override { return BoundKind::DropSchema; }
 };
 
-// CREATE INDEX: 表/列已定位, 列类型限数值定长
+// CREATE INDEX: 表已解析为句柄, 列已定位, 列类型限数值定长
 struct BoundCreateIndex : BoundStmt {
-    ct::TableRef table;
+    ct::TableHandle table;
     std::string index;
     uint16_t col_ordinal = 0;  // 索引列的列序号
     BoundKind kind() const override { return BoundKind::CreateIndex; }
@@ -66,21 +66,21 @@ struct BoundCreateIndex : BoundStmt {
 
 // DROP INDEX: 名字透传, 索引存在性校验在 catalog 层
 struct BoundDropIndex : BoundStmt {
-    ct::TableRef table;
+    ct::TableHandle table;
     std::string index;
     BoundKind kind() const override { return BoundKind::DropIndex; }
 };
 
 // INSERT: 每行的值为常量上下文绑定树(已归一化为表全宽), 留待执行期求值
 struct BoundInsert : BoundStmt {
-    ct::TableRef table;
+    ct::TableHandle table;
     std::vector<std::vector<std::unique_ptr<BoundExpr>>> rows;
     BoundKind kind() const override { return BoundKind::Insert; }
 };
 
 // DELETE FROM: where 为空表示全表删除
 struct BoundDelete : BoundStmt {
-    ct::TableRef table;
+    ct::TableHandle table;
     std::unique_ptr<BoundExpr> where;
     BoundKind kind() const override { return BoundKind::Delete; }
 };
@@ -93,7 +93,7 @@ struct BoundUpdateItem {
 
 // UPDATE: 赋值右值为行上下文绑定树, 全部基于同一旧行求值后替换目标列; where 为空表示全表更新
 struct BoundUpdate : BoundStmt {
-    ct::TableRef table;
+    ct::TableHandle table;
     std::vector<BoundUpdateItem> assigns;
     std::unique_ptr<BoundExpr> where;
     BoundKind kind() const override { return BoundKind::Update; }
@@ -101,7 +101,7 @@ struct BoundUpdate : BoundStmt {
 
 // SELECT: 投影已展开(star 列定位/输出列名), where 为空表示无过滤
 struct BoundSelect : BoundStmt {
-    ct::TableRef table;
+    ct::TableHandle table;
     std::vector<ProjCol> projs;
     std::unique_ptr<BoundExpr> where;
     BoundKind kind() const override { return BoundKind::Select; }

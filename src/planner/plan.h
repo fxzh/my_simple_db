@@ -25,7 +25,7 @@ struct PlanNode {
 
 // 全表扫描
 struct SeqScanPlan : PlanNode {
-    ct::TableRef table;
+    ct::TableHandle table;
     PlanKind kind() const override { return PlanKind::SeqScan; }
 };
 
@@ -55,21 +55,21 @@ struct EmptyPlan : PlanNode {
 
 // 插入: 每行的值为常量上下文绑定树(已归一化为表全宽)
 struct InsertPlan : PlanNode {
-    ct::TableRef table;
+    ct::TableHandle table;
     std::vector<std::vector<std::unique_ptr<ana::BoundExpr>>> rows;
     PlanKind kind() const override { return PlanKind::Insert; }
 };
 
 // 删除: child 为空表示全表删除, 非空为 Filter(SeqScan) 子树
 struct DeletePlan : PlanNode {
-    ct::TableRef table;
+    ct::TableHandle table;
     std::unique_ptr<PlanNode> child;
     PlanKind kind() const override { return PlanKind::Delete; }
 };
 
 // 更新: 赋值右值基于旧行求值后替换目标列; child 为 Filter(SeqScan), 无 WHERE 时为 SeqScan
 struct UpdatePlan : PlanNode {
-    ct::TableRef table;
+    ct::TableHandle table;
     std::vector<ana::BoundUpdateItem> assigns;
     std::unique_ptr<PlanNode> child;
     PlanKind kind() const override { return PlanKind::Update; }
@@ -84,7 +84,7 @@ struct CreateTablePlan : PlanNode {
 
 // 删表
 struct DropTablePlan : PlanNode {
-    ct::TableRef table;
+    ct::TableHandle table;
     PlanKind kind() const override { return PlanKind::DropTable; }
 };
 
@@ -102,7 +102,7 @@ struct DropSchemaPlan : PlanNode {
 
 // 建索引
 struct CreateIndexPlan : PlanNode {
-    ct::TableRef table;
+    ct::TableHandle table;
     std::string index;
     uint16_t col_ordinal = 0;  // 索引列的列序号
     PlanKind kind() const override { return PlanKind::CreateIndex; }
@@ -110,7 +110,7 @@ struct CreateIndexPlan : PlanNode {
 
 // 删索引
 struct DropIndexPlan : PlanNode {
-    ct::TableRef table;
+    ct::TableHandle table;
     std::string index;
     PlanKind kind() const override { return PlanKind::DropIndex; }
 };

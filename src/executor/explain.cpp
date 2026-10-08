@@ -91,28 +91,27 @@ std::string bound_expr_to_string(const ana::BoundExpr& e, const std::vector<std:
     DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "explain: 未知绑定表达式节点");
 }
 
-// 表列名序列: 与行内下标对应, 供列引用回填文本
-std::vector<std::string> table_col_names(ct::Catalog& db, const ct::TableRef& table)
+// 表句柄列名序列: 与行内下标对应, 供列引用回填文本
+std::vector<std::string> table_col_names(const ct::TableHandle& table)
 {
-    const st::TableMeta meta = db.table_meta(table);
     std::vector<std::string> names;
-    names.reserve(meta.cols.size());
-    for (const st::ColumnSpec& c : meta.cols) {
+    names.reserve(table.meta.cols.size());
+    for (const st::ColumnSpec& c : table.meta.cols) {
         names.push_back(c.name);
     }
     return names;
 }
 
 // 节点输出列名序列: 供谓词/赋值的列引用回填文本; 过滤节点透传子节点输出
-std::vector<std::string> output_names(ct::Catalog& db, const pl::PlanNode& node)
+std::vector<std::string> output_names(const pl::PlanNode& node)
 {
     switch (node.kind()) {
     case pl::PlanKind::SeqScan:
-        return table_col_names(db, static_cast<const pl::SeqScanPlan&>(node).table);
+        return table_col_names(static_cast<const pl::SeqScanPlan&>(node).table);
     case pl::PlanKind::DummyScan:
         return {};  // 单行零列, 谓词不含列引用
     case pl::PlanKind::Filter:
-        return output_names(db, *static_cast<const pl::FilterPlan&>(node).child);
+        return output_names(*static_cast<const pl::FilterPlan&>(node).child);
     default:
         break;
     }
@@ -120,48 +119,45 @@ std::vector<std::string> output_names(ct::Catalog& db, const pl::PlanNode& node)
 }
 
 // 节点头文本(不含缩进): 按计划种类生成
-std::string node_header(ct::Catalog& db, const pl::PlanNode& node)
+std::string node_header(const pl::PlanNode& node)
 {
     switch (node.kind()) {
     case pl::PlanKind::SeqScan:
-        return "Seq Scan on "
-               + table_ref_to_string(static_cast<const pl::SeqScanPlan&>(node).table);
+        return "Seq Scan on " + static_cast<const pl::SeqScanPlan&>(node).table.display;
     case pl::PlanKind::DummyScan:
         return "Dummy Scan";
     case pl::PlanKind::Empty:
         return "Empty Result";
     case pl::PlanKind::Filter: {
         const auto& f = static_cast<const pl::FilterPlan&>(node);
-        const std::vector<std::string> names = output_names(db, *f.child);
+        const std::vector<std::string> names = output_names(*f.child);
         return "Filter: " + bound_expr_to_string(*f.pred, names);
     }
     case pl::PlanKind::Project:
         return "Project";
     case pl::PlanKind::Insert:
-        return "Insert on " + table_ref_to_string(static_cast<const pl::InsertPlan&>(node).table);
+        return "Insert on " + static_cast<const pl::InsertPlan&>(node).table.display;
     case pl::PlanKind::Delete:
-        return "Delete on " + table_ref_to_string(static_cast<const pl::DeletePlan&>(node).table);
+        return "Delete on " + static_cast<const pl::DeletePlan&>(node).table.display;
     case pl::PlanKind::Update:
-        return "Update on " + table_ref_to_string(static_cast<const pl::UpdatePlan&>(node).table);
+        return "Update on " + static_cast<const pl::UpdatePlan&>(node).table.display;
     case pl::PlanKind::CreateTable:
         return "Create Table "
                + table_ref_to_string(static_cast<const pl::CreateTablePlan&>(node).table);
     case pl::PlanKind::DropTable:
-        return "Drop Table "
-               + table_ref_to_string(static_cast<const pl::DropTablePlan&>(node).table);
+        return "Drop Table " + static_cast<const pl::DropTablePlan&>(node).table.display;
     case pl::PlanKind::CreateSchema:
         return "Create Schema " + static_cast<const pl::CreateSchemaPlan&>(node).schema;
     case pl::PlanKind::DropSchema:
         return "Drop Schema " + static_cast<const pl::DropSchemaPlan&>(node).schema;
     case pl::PlanKind::CreateIndex: {
         const auto& p = static_cast<const pl::CreateIndexPlan&>(node);
-        const st::TableMeta meta = db.table_meta(p.table);
-        return "Create Index " + p.index + " on " + table_ref_to_string(p.table) + " ("
-               + meta.cols[p.col_ordinal].name + ")";
+        return "Create Index " + p.index + " on " + p.table.display + " ("
+               + p.table.meta.cols[p.col_ordinal].name + ")";
     }
     case pl::PlanKind::DropIndex: {
         const auto& p = static_cast<const pl::DropIndexPlan&>(node);
-        return "Drop Index " + p.index + " on " + table_ref_to_string(p.table);
+        return "Drop Index " + p.index + " on " + p.table.display;
     }
     case pl::PlanKind::Explain:
         return "Explain";
@@ -173,7 +169,7 @@ std::string node_header(ct::Catalog& db, const pl::PlanNode& node)
 }
 
 // 节点属性行文本(不含缩进): 无属性的节点返回空
-std::vector<std::string> node_props(ct::Catalog& db, const pl::PlanNode& node)
+std::vector<std::string> node_props(const pl::PlanNode& node)
 {
     std::vector<std::string> props;
     switch (node.kind()) {
@@ -191,7 +187,7 @@ std::vector<std::string> node_props(ct::Catalog& db, const pl::PlanNode& node)
     }
     case pl::PlanKind::Update: {
         const auto& p = static_cast<const pl::UpdatePlan&>(node);
-        const std::vector<std::string> names = table_col_names(db, p.table);
+        const std::vector<std::string> names = table_col_names(p.table);
         std::string set;
         for (size_t i = 0; i < p.assigns.size(); ++i) {
             if (i > 0) {
@@ -211,12 +207,12 @@ std::vector<std::string> node_props(ct::Catalog& db, const pl::PlanNode& node)
 
 // 渲染节点子树: 节点行(node_prefix 已含缩进或 "->  " 箭头前缀) + 属性行(缩进 prop_indent)
 // + 子节点("->" 前缀于父属性行缩进处, 子树属性行缩进 +6)
-void render_node(ct::Catalog& db, const pl::PlanNode& node, const std::string& node_prefix,
-                 size_t prop_indent, std::vector<std::string>& lines)
+void render_node(const pl::PlanNode& node, const std::string& node_prefix, size_t prop_indent,
+                 std::vector<std::string>& lines)
 {
-    lines.push_back(node_prefix + node_header(db, node));
+    lines.push_back(node_prefix + node_header(node));
     const std::string prop_pad(prop_indent, ' ');
-    for (const std::string& prop : node_props(db, node)) {
+    for (const std::string& prop : node_props(node)) {
         lines.push_back(prop_pad + prop);
     }
     const pl::PlanNode* child = nullptr;
@@ -233,17 +229,17 @@ void render_node(ct::Catalog& db, const pl::PlanNode& node, const std::string& n
         child = static_cast<const pl::ExplainPlan&>(node).child.get();
     }
     if (child != nullptr) {
-        render_node(db, *child, prop_pad + "->  ", prop_indent + 6, lines);
+        render_node(*child, prop_pad + "->  ", prop_indent + 6, lines);
     }
 }
 
 }  // namespace
 
-ExecResult run_explain(ct::Catalog& db, const pl::ExplainPlan& plan)
+ExecResult run_explain(const pl::ExplainPlan& plan)
 {
     // 顶层 Explain 节点自身不渲染(单层输出即被解释计划), 嵌套 Explain 显示为普通节点
     std::vector<std::string> lines;
-    render_node(db, *plan.child, "", 2, lines);
+    render_node(*plan.child, "", 2, lines);
 
     auto op = std::make_unique<RowsOp>();
     op->rows.reserve(lines.size());

@@ -541,7 +541,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
         const ct::TableRef table = to_table_ref(ds.table_name(), current_schema);
         check_reserved_table(table);
         auto b = std::make_unique<BoundDropTable>();
-        b->table = table;
+        b->table = ct::TableHandle{db.table_meta(table), table_ref_to_string(table)};
         return b;
     }
     case StmtKind::CreateSchema: {
@@ -560,7 +560,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
         const auto& cs = static_cast<const CreateIndexStmt&>(stmt);
         const ct::TableRef table = to_table_ref(cs.table_name(), current_schema);
         check_reserved_table(table);
-        const st::TableMeta meta = db.table_meta(table);
+        st::TableMeta meta = db.table_meta(table);
         size_t ordinal = meta.cols.size();
         for (size_t i = 0; i < meta.cols.size(); ++i) {
             if (meta.cols[i].name == cs.column_name()) {
@@ -579,7 +579,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
                      cs.column_name());
         }
         auto b = std::make_unique<BoundCreateIndex>();
-        b->table = table;
+        b->table = ct::TableHandle{std::move(meta), table_ref_to_string(table)};
         b->index = cs.index_name();
         b->col_ordinal = static_cast<uint16_t>(ordinal);
         return b;
@@ -588,9 +588,8 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
         const auto& ds = static_cast<const DropIndexStmt&>(stmt);
         const ct::TableRef table = to_table_ref(ds.table_name(), current_schema);
         check_reserved_table(table);
-        db.table_meta(table);
         auto b = std::make_unique<BoundDropIndex>();
-        b->table = table;
+        b->table = ct::TableHandle{db.table_meta(table), table_ref_to_string(table)};
         b->index = ds.index_name();
         return b;
     }
@@ -598,14 +597,14 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
         const auto& is = static_cast<const InsertStmt&>(stmt);
         const ct::TableRef table = to_table_ref(is.table_name(), current_schema);
         check_reserved_table(table);
-        const st::TableMeta meta = db.table_meta(table);
+        st::TableMeta meta = db.table_meta(table);
         const InsertTargets targets = resolve_insert_targets(is.columns(), meta);
         auto b = std::make_unique<BoundInsert>();
-        b->table = table;
         b->rows.reserve(is.rows().size());
         for (const auto& row : is.rows()) {
             b->rows.push_back(bind_insert_row(row, targets, meta));
         }
+        b->table = ct::TableHandle{std::move(meta), table_ref_to_string(table)};
         return b;
     }
     case StmtKind::Delete: {
@@ -613,10 +612,9 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
         const ct::TableRef table = to_table_ref(ds.table_name(), current_schema);
         check_reserved_table(table);
         auto b = std::make_unique<BoundDelete>();
-        b->table = table;
+        b->table = ct::TableHandle{db.table_meta(table), table_ref_to_string(table)};
         if (ds.where_expr() != nullptr) {
-            const Schema schema = build_schema(db.table_meta(table));
-            b->where = bind_where(*ds.where_expr(), schema);
+            b->where = bind_where(*ds.where_expr(), build_schema(b->table.meta));
         }
         return b;
     }
@@ -624,10 +622,9 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
         const auto& us = static_cast<const UpdateStmt&>(stmt);
         const ct::TableRef table = to_table_ref(us.table_name(), current_schema);
         check_reserved_table(table);
-        const st::TableMeta meta = db.table_meta(table);
-        const Schema schema = build_schema(meta);
         auto b = std::make_unique<BoundUpdate>();
-        b->table = table;
+        b->table = ct::TableHandle{db.table_meta(table), table_ref_to_string(table)};
+        const Schema schema = build_schema(b->table.meta);
         b->assigns.reserve(us.assignments().size());
         for (const UpdateItem& item : us.assignments()) {
             const auto it = schema.cols.find(item.column);
@@ -646,7 +643,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
             ExprType t;
             // 行上下文: 右值基于旧行求值, 赋值间互不可见
             a.value = bind_expr(*item.value, &schema, t);
-            const st::ColumnSpec& col = meta.cols[it->second];
+            const st::ColumnSpec& col = b->table.meta.cols[it->second];
             if (has_col_ref(*item.value)) {
                 check_update_type(t, col);
             } else {
@@ -667,14 +664,13 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
     case StmtKind::Select: {
         const auto& ss = static_cast<const SelectStmt&>(stmt);
         const ct::TableRef table = to_table_ref(ss.table_name(), current_schema);
-        const st::TableMeta meta = db.table_meta(table);
         auto b = std::make_unique<BoundSelect>();
-        b->table = table;
-        const Schema schema = build_schema(meta);
+        b->table = ct::TableHandle{db.table_meta(table), table_ref_to_string(table)};
+        const Schema schema = build_schema(b->table.meta);
         if (ss.where_expr() != nullptr) {
             b->where = bind_where(*ss.where_expr(), schema);
         }
-        b->projs = build_projs(ss, meta, schema);
+        b->projs = build_projs(ss, b->table.meta, schema);
         return b;
     }
     case StmtKind::SelectNoFrom: {
