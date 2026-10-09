@@ -72,26 +72,34 @@ static bool parse_echo(std::string_view, Options& opts)
     return true;
 }
 
+// --help 无值选项, 置位帮助开关
+static bool parse_help(std::string_view, Options& opts)
+{
+    opts.help = true;
+    return true;
+}
+
 static const OptionSpec kOptions[] = {
     {"-p", "端口号", true, parse_port},
     {"-h", "主机地址", true, parse_host},
     {"-c", "SQL文本", true, parse_sql},
     {"-f", "SQL文件", true, parse_sql_file},
     {"-a", "回显原始SQL", false, parse_echo},
+    {"--help", "帮助", false, parse_help},
 };
 
 // 打印命令行用法
-static void print_usage(const char* prog)
+static void print_usage(const char* prog, std::ostream& os)
 {
-    std::cerr << "用法: " << prog;
+    os << "用法: " << prog;
     for (const auto& spec : kOptions) {
         if (spec.takes_value) {
-            std::cerr << " [" << spec.flag << " " << spec.name << "]";
+            os << " [" << spec.flag << " " << spec.name << "]";
         } else {
-            std::cerr << " [" << spec.flag << "]";
+            os << " [" << spec.flag << "]";
         }
     }
-    std::cerr << std::endl;
+    os << std::endl;
 }
 
 bool parse_args(int argc, char* argv[], Options& opts)
@@ -112,7 +120,7 @@ bool parse_args(int argc, char* argv[], Options& opts)
                 if (candidate.takes_value) {
                     if (i + 1 >= argc) {
                         std::cerr << "错误: " << flag << " 后缺少" << candidate.name << std::endl;
-                        print_usage(argv[0]);
+                        print_usage(argv[0], std::cerr);
                         return false;
                     }
                     value = argv[++i];
@@ -128,26 +136,32 @@ bool parse_args(int argc, char* argv[], Options& opts)
         }
         if (spec == nullptr) {
             std::cerr << "错误: 未知参数: " << arg << std::endl;
-            print_usage(argv[0]);
+            print_usage(argv[0], std::cerr);
             return false;
         }
         std::size_t index = static_cast<std::size_t>(spec - kOptions);
         if (seen[index]) {
             std::cerr << "错误: 重复指定" << spec->name << std::endl;
-            print_usage(argv[0]);
+            print_usage(argv[0], std::cerr);
             return false;
         }
         if (!spec->parse(value, opts)) {
-            print_usage(argv[0]);
+            print_usage(argv[0], std::cerr);
             return false;
         }
         seen[index] = true;
     }
 
+    // --help 时打印用法到 stdout 并按成功返回
+    if (opts.help) {
+        print_usage(argv[0], std::cout);
+        return true;
+    }
+
     // -c 与 -f 互斥, 批处理载荷只允许一种来源
     if (!opts.sql.empty() && !opts.sql_file.empty()) {
         std::cerr << "错误: 不能同时指定 SQL文本 与 SQL文件" << std::endl;
-        print_usage(argv[0]);
+        print_usage(argv[0], std::cerr);
         return false;
     }
     return true;

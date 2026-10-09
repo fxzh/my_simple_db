@@ -25,6 +25,10 @@ sql用例文件中，每块允许添加简洁的注释(一句话)说明测试要
 
 启停一律使用 serverctl, 如果存在某种理由确需手动起库，使用`setsid 进程 >/log 2>&1 </dev/null &`（或 server --daemon）, 并在总结时说明手动起库的理由
 
-长时间的前台进程优先使用 Desktop Command 而不是 bash
+长时间的前台进程优先使用 Desktop Command
 
 允许在linux端临时修改代码、修改cmakelists、编译debug版本等行为来进行更有效的手动测试，每项测试控制在3分钟内，如果预计某项测试时间远超时间限制，则暂缓该测试，并在总结时进行说明
+
+# 其他
+
+自动测试/手动测试时，simple.log 中的堆栈大概率是 error log 堆栈，而不是 core dump 堆栈

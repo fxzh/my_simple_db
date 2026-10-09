@@ -13,6 +13,7 @@ struct Options {
     std::string sql;    // -c 载荷, 未指定时为空
     std::string sql_file;    // -f SQL文件路径, 未指定时为空
     bool echo_all = false;    // -a 置位: 逐行回显原始输入
+    bool help = false;    // --help 置位: 用法已打印到 stdout, 进程正常退出
 };
 
 // 解析命令行参数, 失败时已在 stderr 打印错误与用法

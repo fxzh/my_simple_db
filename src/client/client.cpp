@@ -358,6 +358,10 @@ int main(int argc, char* argv[])
     if (!parse_args(argc, argv, opts)) {
         return -1;
     }
+    // --help 已打印用法, 正常退出
+    if (opts.help) {
+        return 0;
+    }
     echo_all = opts.echo_all;
 
     // -f 载荷在连接前校验, 打开失败或空文件立即报错
