@@ -3,22 +3,22 @@ CREATE
 INSERT INTO t_ls VALUES (1, 'it''s');
 INSERT 1
 SELECT id AS "my""id", "val" FROM t_ls;
- my"id | val
--------+------
- 1     | it's
+ my"id |       val
+-------+------------------
+ 1     | it's            
 (1 行)
 SELECT * FROM "t_ls";
- id | val
-----+------
- 1  | it's
+ id |       val
+----+------------------
+ 1  | it's            
 (1 行)
 INSERT INTO t_ls VALUES (2, 'multi
 line');
 INSERT 1
 SELECT val FROM t_ls WHERE val = 'it''s';
- val
-------
- it's
+       val
+------------------
+ it's            
 (1 行)
 SELECT id FROM t_ls WHERE val = 'multi
 line';

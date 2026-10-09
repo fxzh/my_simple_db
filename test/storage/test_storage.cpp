@@ -141,7 +141,7 @@ TEST_F(StorageDb, ReopenLifecycle)
                 ++n2;
                 if (n2 == 1) {
                     EXPECT_EQ(std::get<double>(r.values[0]), 0.5);
-                    EXPECT_EQ(std::get<std::string>(r.values[1]), "A");
+                    EXPECT_EQ(std::get<std::string>(r.values[1]), "A  ");  // 定长补空格读出
                 }
                 if (n2 == 2) {
                     EXPECT_EQ(std::get<double>(r.values[0]), -1.25);

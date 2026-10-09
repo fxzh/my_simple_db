@@ -275,11 +275,7 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
                 }
                 std::string v(reinterpret_cast<const char*>(data + pos), col.length);
                 pos += col.length;
-                // 去掉尾部填充空格(定长 char 语义)
-                while (!v.empty() && v.back() == ' ') {
-                    v.pop_back();
-                }
-                out.emplace_back(std::move(v));
+                out.emplace_back(std::move(v));  // 定长读出, 保留尾部填充空格
                 break;
             }
             case ColType::Bool: {

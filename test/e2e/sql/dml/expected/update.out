@@ -129,16 +129,16 @@ INSERT 1
 UPDATE t_char SET v = c;
 UPDATE 1
 SELECT * FROM t_char;
- c  | v
-----+----
- ab | ab
+   c    |   v
+--------+--------
+ ab     | ab    
 (1 行)
 UPDATE t_char SET c = v;
 UPDATE 1
 SELECT c FROM t_char;
- c
-----
- ab
+   c
+--------
+ ab    
 (1 行)
 DROP TABLE t_char;
 DROP

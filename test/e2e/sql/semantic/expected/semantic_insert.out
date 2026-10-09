@@ -31,10 +31,10 @@ ERROR: 表不存在: public.nosuch_si
 INSERT INTO t_si VALUES (1, 2, 3.0, 4.0, 'ab', 'abcde');
 INSERT 1
 SELECT * FROM t_si;
-  a   | b | c | f | s  |   v
-------+---+---+---+----+-------
- NULL | 1 | 1 | 1 | a  | a
- 1    | 2 | 3 | 4 | ab | abcde
+  a   | b | c | f |  s  |   v
+------+---+---+---+-----+-------
+ NULL | 1 | 1 | 1 | a   | a
+ 1    | 2 | 3 | 4 | ab  | abcde
 (2 行)
 DROP TABLE t_si;
 DROP
