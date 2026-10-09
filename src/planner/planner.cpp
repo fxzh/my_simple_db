@@ -114,12 +114,18 @@ std::unique_ptr<PlanNode> build(ana::BoundStmt& bound)
     }
     case ana::BoundKind::Select: {
         auto& bs = static_cast<ana::BoundSelect&>(bound);
+        if (!bs.orders.empty()) {
+            DB_RAISE(db::ErrCode::NotImplemented, LogModule::PLANNER, "select 排序尚未支持");
+        }
         auto scan = std::make_unique<SeqScanPlan>();
         scan->table = bs.table;
         return build_select(std::move(scan), std::move(bs.where), std::move(bs.projs));
     }
     case ana::BoundKind::SelectNoFrom: {
         auto& bs = static_cast<ana::BoundSelectNoFrom&>(bound);
+        if (!bs.orders.empty()) {
+            DB_RAISE(db::ErrCode::NotImplemented, LogModule::PLANNER, "select 排序尚未支持");
+        }
         return build_select(std::make_unique<DummyScanPlan>(), std::move(bs.where),
                             std::move(bs.projs));
     }

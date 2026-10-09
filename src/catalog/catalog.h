@@ -55,7 +55,7 @@ inline std::string table_ref_to_string(const TableRef& t)
     return t.schema.empty() ? t.name : t.schema + "." + t.name;
 }
 
-// 表句柄: 限定名一次解析的产物(元数据+限定名文本), 由绑定层产出随语句带到执行期,
+// 表句柄: 限定名一次解析的产物(元数据+限定名文本), 由语义分析层产出随语句带到执行期,
 // 语句全程持事务锁故解析结果到执行期不变; 显示名仅供报错与 EXPLAIN 文本
 struct TableHandle {
     st::TableMeta meta;

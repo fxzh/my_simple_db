@@ -1,4 +1,4 @@
-// bound.h: 绑定层产物: 名字解析后的语句结构(BoundStmt)与投影列
+// bound.h: 名字解析后的语句结构(BoundStmt)与投影列
 #ifndef ANALYZER_BOUND_H
 #define ANALYZER_BOUND_H
 
@@ -12,14 +12,21 @@
 
 namespace ana {
 
-// 投影输出列: star 展开的原始列直接取行值, 其余按绑定表达式逐行求值
+// 投影输出列: star 展开的原始列直接取行值, 其余按表达式逐行求值
 struct ProjCol {
     std::unique_ptr<BoundExpr> expr;  // 为空表示 star 展开的原始列
     std::string name;                 // 输出列名
     size_t col_idx = 0;               // star 列的行内下标
 };
 
-// 绑定语句种类, 供执行层按类型分派
+// SELECT 排序键: 方向 + 绑定结果(输出列下标或行上下文表达式, 由语句的 sort_on_output 决定取哪个)
+struct BoundOrderItem {
+    bool desc = false;
+    size_t out_idx = 0;               // sort_on_output=true 时的输出列下标
+    std::unique_ptr<BoundExpr> expr;  // sort_on_output=false 时的行上下文绑定键
+};
+
+// 语句种类, 供执行层按类型分派
 enum class BoundKind {
     CreateTable, DropTable, CreateSchema, DropSchema, CreateIndex, DropIndex, Insert, Delete,
     Update, Select, SelectNoFrom, Set, Explain,
@@ -99,18 +106,23 @@ struct BoundUpdate : BoundStmt {
     BoundKind kind() const override { return BoundKind::Update; }
 };
 
-// SELECT: 投影已展开(star 列定位/输出列名), where 为空表示无过滤
+// SELECT: 投影已展开(star 列定位/输出列名), where 为空表示无过滤, orders 为空表示无排序
 struct BoundSelect : BoundStmt {
     ct::TableHandle table;
     std::vector<ProjCol> projs;
     std::unique_ptr<BoundExpr> where;
+    std::vector<BoundOrderItem> orders;
+    bool sort_on_output = false;  // true: 键为输出列下标(排序在投影后), false: 键为行上下文表达式(投影前)
     BoundKind kind() const override { return BoundKind::Select; }
 };
 
-// 无 FROM 的 SELECT: 投影不含 star 与列引用(常量上下文绑定), where 为空表示无过滤
+// 无 FROM 的 SELECT: 投影不含 star 与列引用(常量上下文绑定), where 为空表示无过滤,
+// orders 为空表示无排序(行上下文为恒一行零列, 键只能绑成常量表达式)
 struct BoundSelectNoFrom : BoundStmt {
     std::vector<ProjCol> projs;
     std::unique_ptr<BoundExpr> where;
+    std::vector<BoundOrderItem> orders;
+    bool sort_on_output = false;  // 取义同 BoundSelect
     BoundKind kind() const override { return BoundKind::SelectNoFrom; }
 };
 

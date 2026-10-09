@@ -38,3 +38,36 @@ SELECT -i FROM t_ss WHERE NOT (i > 10);
 (1 行)
 DROP TABLE t_ss;
 DROP
+-- order by 报错: 列不存在/序号越界/输出名歧义/非整数常量/比较两侧类型不符
+CREATE TABLE t_so (i int, s char(4), f double);
+CREATE
+SELECT i FROM t_so ORDER BY nosuch;
+ERROR: 列不存在: nosuch
+SELECT i AS x FROM t_so ORDER BY y;
+ERROR: 列不存在: y
+SELECT i AS x, s AS x FROM t_so ORDER BY x;
+ERROR: ORDER BY 输出列名歧义: x
+SELECT i FROM t_so ORDER BY 0;
+ERROR: ORDER BY 序号不在输出列范围: 0
+SELECT i FROM t_so ORDER BY 2;
+ERROR: ORDER BY 序号不在输出列范围: 2
+SELECT i FROM t_so ORDER BY 'c';
+ERROR: ORDER BY 不允许非整数常量
+SELECT i FROM t_so ORDER BY 1.5;
+ERROR: ORDER BY 不允许非整数常量
+SELECT i FROM t_so ORDER BY NULL;
+ERROR: ORDER BY 不允许非整数常量
+SELECT i FROM t_so ORDER BY true;
+ERROR: ORDER BY 不允许非整数常量
+SELECT i FROM t_so ORDER BY nosuch + 1;
+ERROR: 列不存在: nosuch
+SELECT i FROM t_so ORDER BY i > s;
+ERROR: 比较运算两侧须同为数值、字符串或布尔
+SELECT 1 AS x, 2 AS x ORDER BY x;
+ERROR: ORDER BY 输出列名歧义: x
+SELECT 1 ORDER BY nosuch;
+ERROR: 列不存在: nosuch
+SELECT 1 ORDER BY 'c';
+ERROR: ORDER BY 不允许非整数常量
+DROP TABLE t_so;
+DROP

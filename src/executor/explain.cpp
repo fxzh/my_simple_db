@@ -37,7 +37,7 @@ struct RowsOp : Operator {
     void close() override {}
 };
 
-// 绑定表达式转文本: 格式与 ast.hh 的 expr_to_string 对齐, 列下标经 names 回填列名
+// 语义分析表达式转文本: 格式与 ast.hh 的 expr_to_string 对齐, 列下标经 names 回填列名
 std::string bound_expr_to_string(const ana::BoundExpr& e, const std::vector<std::string>& names)
 {
     switch (e.kind()) {

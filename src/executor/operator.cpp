@@ -16,7 +16,7 @@ namespace exec {
 
 namespace {
 
-// 顺序扫描: open 时按绑定层携带的表元数据建扫描器, 扫描器析构自会释放页 pin
+// 顺序扫描: open 时按语义分析层携带的表元数据建扫描器, 扫描器析构自会释放页 pin
 struct SeqScanOp : Operator {
     ct::Catalog& db;
     st::TableMeta table;

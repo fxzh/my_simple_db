@@ -1,4 +1,4 @@
-// expr_eval.cpp: 绑定表达式求值器实现
+// expr_eval.cpp: 表达式求值器实现
 #include "expr_eval.h"
 
 #include <cmath>

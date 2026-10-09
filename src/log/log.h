@@ -73,7 +73,7 @@ inline std::optional<LogLevel> levelFromString(std::string_view name)
 enum class LogModule {
     SYNTAX,     // 语法模块
     PARSER,     // 解析模块
-    ANALYZER,   // 绑定模块
+    ANALYZER,   // 语义分析模块
     EXPR,       // 表达式模块
     PLANNER,    // 计划模块
     EXECUTOR,   // 执行模块

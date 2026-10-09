@@ -1,4 +1,4 @@
-// bound_expr.h: 绑定表达式树: 名字已在绑定期解析为行内下标(绑定层产物)
+// bound_expr.h: 表达式树: 名字已在语义分析期解析为行内下标
 #ifndef ANALYZER_BOUND_EXPR_H
 #define ANALYZER_BOUND_EXPR_H
 
@@ -12,12 +12,12 @@
 
 namespace ana {
 
-// 绑定表达式种类, 供执行层按类型分派
+// 语义分析表达式种类, 供执行层按类型分派
 enum class BoundExprKind {
     Const, ColRef, Arith, Neg, Cmp, Logic, Not, IsNull,
 };
 
-// 绑定表达式基类: 常量上下文绑定的树不含 ColRef
+// 语义分析表达式基类: 常量上下文绑定的树不含 ColRef
 struct BoundExpr {
     virtual ~BoundExpr() = default;
     virtual BoundExprKind kind() const = 0;

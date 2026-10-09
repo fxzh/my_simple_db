@@ -1,4 +1,4 @@
-# 表达式求值静态库(expr): 绑定表达式常量/行上下文求值
+# 表达式求值
 add_library(expr STATIC
     expr_eval.cpp
 )
