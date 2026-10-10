@@ -24,8 +24,17 @@ std::unique_ptr<ana::BoundExpr> to_fold_const(const st::Value& v)
     return std::make_unique<ana::BoundConst>(v);
 }
 
+// 节点是否 NULL 常量
+bool is_null_const(const ana::BoundExpr& e)
+{
+    if (e.kind() != ana::BoundExprKind::Const) {
+        return false;
+    }
+    return st::value_is_null(static_cast<const ana::BoundConst&>(e).value);
+}
+
 // 表达式折叠: 自底向上, 子节点折叠后均为常量则整节点求值替换(该子树必无列引用),
-// 逻辑与非节点随后做布尔化简
+// 算术/比较任一侧为 NULL 常量即折为 NULL 常量, 逻辑与非节点随后做布尔化简
 void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
 {
     switch (e->kind()) {
@@ -38,6 +47,8 @@ void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
         fold_expr(a.right);
         if (is_const(*a.left) && is_const(*a.right)) {
             e = to_fold_const(expr::eval_const(*e));
+        } else if (is_null_const(*a.left) || is_null_const(*a.right)) {
+            e = to_fold_const(st::null_val());  // 任一侧 NULL 常量, 结果恒 NULL
         }
         return;
     }
@@ -55,6 +66,8 @@ void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
         fold_expr(c.right);
         if (is_const(*c.left) && is_const(*c.right)) {
             e = to_fold_const(expr::eval_const(*e));
+        } else if (is_null_const(*c.left) || is_null_const(*c.right)) {
+            e = to_fold_const(st::null_val());  // 任一侧 NULL 常量, 结果恒 UNKNOWN
         }
         return;
     }

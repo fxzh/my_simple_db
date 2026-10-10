@@ -15,11 +15,13 @@ EXPLAIN EXPLAIN SELECT a FROM t_ex;
 -- 静态校验与真实执行同文案
 EXPLAIN SELECT no_col FROM t_ex;
 EXPLAIN SELECT a FROM t_missing;
--- 常量折叠: 纯常量子树在计划期求值, 折叠期常量运算错误当场报错
+-- 常量折叠: 纯常量子树在计划期求值, 折叠期常量运算错误当场报错, NULL 常量算术/比较折为 NULL 常量
 EXPLAIN SELECT a FROM t_ex WHERE a = 1 + 1;
 EXPLAIN UPDATE t_ex SET b = 2 * 3.5 WHERE a > 1 + 1;
 EXPLAIN SELECT a FROM t_ex WHERE 1 = 1 AND a > 0;
 EXPLAIN SELECT a FROM t_ex WHERE a > 1 + NULL;
+EXPLAIN SELECT a FROM t_ex WHERE a = NULL;
+EXPLAIN SELECT a FROM t_ex WHERE a / 0 = NULL;
 EXPLAIN SELECT a FROM t_ex WHERE a = 1 / 0;
 -- 布尔化简: 单侧常量 bool 按支配/恒等规则化简, NULL 常量不可化简
 EXPLAIN SELECT a FROM t_ex WHERE 1 = 2 AND a > 0;

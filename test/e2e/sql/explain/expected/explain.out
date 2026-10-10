@@ -67,7 +67,7 @@ EXPLAIN SELECT no_col FROM t_ex;
 ERROR: 列不存在: no_col
 EXPLAIN SELECT a FROM t_missing;
 ERROR: 表不存在: public.t_missing
--- 常量折叠: 纯常量子树在计划期求值, 折叠期常量运算错误当场报错
+-- 常量折叠: 纯常量子树在计划期求值, 折叠期常量运算错误当场报错, NULL 常量算术/比较折为 NULL 常量
 EXPLAIN SELECT a FROM t_ex WHERE a = 1 + 1;
              QUERY PLAN
 -------------------------------------
@@ -93,13 +93,26 @@ EXPLAIN SELECT a FROM t_ex WHERE 1 = 1 AND a > 0;
          ->  Seq Scan on public.t_ex
 (4 行)
 EXPLAIN SELECT a FROM t_ex WHERE a > 1 + NULL;
-             QUERY PLAN
--------------------------------------
+            QUERY PLAN
+-----------------------------------
  Project
    Output: a
-   ->  Filter: (a > NULL)
-         ->  Seq Scan on public.t_ex
-(4 行)
+   ->  Empty Result on public.t_ex
+(3 行)
+EXPLAIN SELECT a FROM t_ex WHERE a = NULL;
+            QUERY PLAN
+-----------------------------------
+ Project
+   Output: a
+   ->  Empty Result on public.t_ex
+(3 行)
+EXPLAIN SELECT a FROM t_ex WHERE a / 0 = NULL;
+            QUERY PLAN
+-----------------------------------
+ Project
+   Output: a
+   ->  Empty Result on public.t_ex
+(3 行)
 EXPLAIN SELECT a FROM t_ex WHERE a = 1 / 0;
 ERROR: 整型除零
 -- 布尔化简: 单侧常量 bool 按支配/恒等规则化简, NULL 常量不可化简

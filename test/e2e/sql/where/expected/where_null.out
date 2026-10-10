@@ -36,6 +36,20 @@ SELECT id FROM t_n WHERE v IS NOT NULL ORDER BY id;
 SELECT id FROM t_n WHERE v = NULL;
  id
 (0 行)
+-- NULL 常量比较/算术恒 UNKNOWN: WHERE 下恒不满足, 投影下输出 NULL
+SELECT id FROM t_n WHERE v <> NULL;
+ id
+(0 行)
+SELECT id FROM t_n WHERE v + 1 = NULL;
+ id
+(0 行)
+SELECT id, v = NULL AS eq, v + NULL AS s FROM t_n ORDER BY id;
+ id |  eq  |  s
+----+------+------
+ 1  | NULL | NULL
+ 2  | NULL | NULL
+ 3  | NULL | NULL
+(3 行)
 SELECT id FROM t_n WHERE NULL AND id = 1;
  id
 (0 行)
