@@ -6,6 +6,9 @@ SELECT i FROM t_ss WHERE 1;
 SELECT i FROM t_ss WHERE s AND i > 0;
 SELECT i FROM t_ss WHERE NOT i;
 SELECT i FROM t_ss WHERE i > s;
+-- between 两侧须与被测式同族
+SELECT i FROM t_ss WHERE i BETWEEN 1 AND s;
+SELECT i FROM t_ss WHERE s BETWEEN 'a' AND 1;
 SELECT i > 1 FROM t_ss;
 SELECT i FROM t_ss WHERE nosuch_ss;
 INSERT INTO t_ss VALUES (1, 'ab', 1.5);

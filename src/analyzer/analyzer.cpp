@@ -100,6 +100,19 @@ bool is_text_type(st::ColType t)
     return t == st::ColType::Char || t == st::ColType::VarChar;
 }
 
+// 比较两侧静态类型可比性校验: 同族才可比, 任一侧无类型(Null)放行
+void check_comparable(st::ColType lt, st::ColType rt)
+{
+    const bool same_num = is_num_type(lt) && is_num_type(rt);
+    const bool same_str = is_text_type(lt) && is_text_type(rt);
+    const bool same_bool = lt == st::ColType::Bool && rt == st::ColType::Bool;
+    if (lt != st::ColType::Null && rt != st::ColType::Null && !same_num && !same_str
+        && !same_bool) {
+        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
+                 "比较运算两侧须同为数值、字符串或布尔");
+    }
+}
+
 // 绑定表达式: 递归建树并推导类型, 名字解析当场完成; schema 为空表示常量上下文(禁止引用列)
 std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, st::ColType& type)
 {
@@ -175,14 +188,7 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, st:
         st::ColType rt;
         std::unique_ptr<BoundExpr> l = bind_expr(*e.left, schema, lt);
         std::unique_ptr<BoundExpr> r = bind_expr(*e.right, schema, rt);
-        const bool same_num = is_num_type(lt) && is_num_type(rt);
-        const bool same_str = is_text_type(lt) && is_text_type(rt);
-        const bool same_bool = lt == st::ColType::Bool && rt == st::ColType::Bool;
-        if (lt != st::ColType::Null && rt != st::ColType::Null && !same_num && !same_str
-            && !same_bool) {
-            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
-                     "比较运算两侧须同为数值、字符串或布尔");
-        }
+        check_comparable(lt, rt);
         type = st::ColType::Bool;
         return std::make_unique<BoundCmp>(e.op, std::move(l), std::move(r));
     }
@@ -216,8 +222,23 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, st:
         type = st::ColType::Bool;
         return std::make_unique<BoundIsNull>(std::move(operand), e.negate);
     }
-    case ExprKind::Between:
-        DB_RAISE(db::ErrCode::NotImplemented, LogModule::ANALYZER, "BETWEEN 暂不支持");
+    case ExprKind::Between: {
+        const auto& e = static_cast<const BetweenExpr&>(expr);
+        // 被测式绑定两份, 分别作两个比较的左操作数
+        st::ColType xt;
+        st::ColType lot;
+        st::ColType hit;
+        std::unique_ptr<BoundExpr> x1 = bind_expr(*e.expr, schema, xt);
+        std::unique_ptr<BoundExpr> lo = bind_expr(*e.lo, schema, lot);
+        std::unique_ptr<BoundExpr> x2 = bind_expr(*e.expr, schema, xt);
+        std::unique_ptr<BoundExpr> hi = bind_expr(*e.hi, schema, hit);
+        check_comparable(xt, lot);
+        check_comparable(xt, hit);
+        type = st::ColType::Bool;
+        auto ge = std::make_unique<BoundCmp>(CmpOp::Ge, std::move(x1), std::move(lo));
+        auto le = std::make_unique<BoundCmp>(CmpOp::Le, std::move(x2), std::move(hi));
+        return std::make_unique<BoundLogic>(LogicOp::And, std::move(ge), std::move(le));
+    }
     }
     // 不可达: 全部表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知表达式节点");

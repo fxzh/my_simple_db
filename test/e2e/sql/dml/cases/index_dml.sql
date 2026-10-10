@@ -16,4 +16,7 @@ SELECT * FROM di_t WHERE v = 99;
 SELECT * FROM di_t WHERE v = 10;
 -- 未命中时删除行数为 0
 DELETE FROM di_t WHERE id = 5;
+-- between 展开走索引删除
+DELETE FROM di_t WHERE v BETWEEN 20 AND 30;
+SELECT * FROM di_t ORDER BY id;
 DROP TABLE di_t;

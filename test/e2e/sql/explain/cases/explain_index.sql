@@ -20,7 +20,16 @@ EXPLAIN SELECT * FROM ei_t WHERE a = 1 AND b = 2;
 EXPLAIN SELECT * FROM ei_t WHERE a = 1 AND a > 3;
 -- 无索引谓词走顺序扫描
 EXPLAIN SELECT * FROM ei_t WHERE c > 1.0;
+-- between 展开两比较同列命中, 区间交
+EXPLAIN SELECT * FROM ei_t WHERE a BETWEEN 1 AND 5;
+-- between 命中后残余谓词分离
+EXPLAIN SELECT * FROM ei_t WHERE a BETWEEN 1 AND 5 AND b > 2;
+-- 空区间剪成空结果
+EXPLAIN SELECT * FROM ei_t WHERE a BETWEEN 5 AND 1;
+-- not between 不入索引, 顺序扫描
+EXPLAIN SELECT * FROM ei_t WHERE a NOT BETWEEN 1 AND 5;
 -- DML 改写形态
 EXPLAIN DELETE FROM ei_t WHERE a = 1;
 EXPLAIN UPDATE ei_t SET c = 0.0 WHERE a = 1;
+EXPLAIN DELETE FROM ei_t WHERE a BETWEEN 1 AND 5;
 DROP TABLE ei_t;

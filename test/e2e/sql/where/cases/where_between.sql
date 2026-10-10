@@ -1,0 +1,29 @@
+CREATE TABLE t_bw (id int, v int, d double, s varchar(8));
+INSERT INTO t_bw VALUES (1, 10, 1.5, 'apple');
+INSERT INTO t_bw VALUES (2, 20, 2.5, 'banana');
+INSERT INTO t_bw VALUES (3, NULL, 3.5, 'cherry');
+INSERT INTO t_bw VALUES (4, 30, NULL, 'date');
+INSERT INTO t_bw VALUES (5, 5, 0.5, NULL);
+-- 基本命中, 边界值包含
+SELECT id FROM t_bw WHERE v BETWEEN 10 AND 30 ORDER BY id;
+SELECT id FROM t_bw WHERE v BETWEEN 11 AND 29 ORDER BY id;
+-- 空区间恒空
+SELECT id FROM t_bw WHERE v BETWEEN 30 AND 10;
+-- NOT BETWEEN 与前缀 NOT 等价
+SELECT id FROM t_bw WHERE v NOT BETWEEN 10 AND 30 ORDER BY id;
+SELECT id FROM t_bw WHERE NOT v BETWEEN 10 AND 30 ORDER BY id;
+-- 边界为表达式与列
+SELECT id FROM t_bw WHERE v BETWEEN 2 + 3 AND 10 * 2 ORDER BY id;
+SELECT id FROM t_bw WHERE v BETWEEN id AND id * 10 ORDER BY id;
+-- 边界 NULL 恒 UNKNOWN
+SELECT id FROM t_bw WHERE v BETWEEN NULL AND 30;
+SELECT id FROM t_bw WHERE v BETWEEN 10 AND NULL;
+-- 双精度与字符串按序比较
+SELECT id FROM t_bw WHERE d BETWEEN 2.0 AND 3.5 ORDER BY id;
+SELECT id FROM t_bw WHERE s BETWEEN 'apple' AND 'banana' ORDER BY id;
+-- 与逻辑运算组合, BETWEEN 先于 AND/OR 结合
+SELECT id FROM t_bw WHERE v BETWEEN 10 AND 20 AND id > 1 ORDER BY id;
+SELECT id FROM t_bw WHERE id = 5 OR v BETWEEN 10 AND 20 ORDER BY id;
+-- 投影输出列名保留 BETWEEN 原文
+SELECT id, v BETWEEN 10 AND 20 FROM t_bw ORDER BY id;
+DROP TABLE t_bw;
