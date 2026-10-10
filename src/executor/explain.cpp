@@ -138,8 +138,10 @@ std::string node_header(const pl::PlanNode& node)
         return "Seq Scan on " + static_cast<const pl::SeqScanPlan&>(node).table.display;
     case pl::PlanKind::DummyScan:
         return "Dummy Scan";
-    case pl::PlanKind::Empty:
-        return "Empty Result";
+    case pl::PlanKind::Empty: {
+        const auto& p = static_cast<const pl::EmptyPlan&>(node);
+        return p.table.empty() ? "Empty Result" : "Empty Result on " + p.table;
+    }
     case pl::PlanKind::Filter: {
         const auto& f = static_cast<const pl::FilterPlan&>(node);
         const std::vector<std::string> names = output_names(*f.child);

@@ -33,6 +33,21 @@ ConstPred classify_pred(const ana::BoundExpr& pred)
     DB_RAISE(db::ErrCode::Internal, LogModule::PLANNER, "filter_prune: 常量谓词不是布尔");
 }
 
+// 剪除子树行源的表名: SeqScan 取限定表名, DummyScan 无 FROM 留空
+std::string scan_table(const PlanNode& node)
+{
+    switch (node.kind()) {
+    case PlanKind::SeqScan:
+        return static_cast<const SeqScanPlan&>(node).table.display;
+    case PlanKind::DummyScan:
+        return {};
+    default:
+        break;
+    }
+    // 不可达: Filter 的 child 按构造恒为扫描节点
+    DB_RAISE(db::ErrCode::Internal, LogModule::PLANNER, "filter_prune: 剪除子树行源非扫描节点");
+}
+
 }  // namespace
 
 // 常量过滤器剪除: 先剪子树, 恒真 Filter 以子节点替换, 恒不满足 Filter 整棵子树剪成空结果节点
@@ -60,9 +75,12 @@ void prune_filter(std::unique_ptr<PlanNode>& plan)
         case ConstPred::AlwaysTrue:
             plan = std::move(f.child);
             return;
-        case ConstPred::AlwaysFalse:
-            plan = std::make_unique<EmptyPlan>();
+        case ConstPred::AlwaysFalse: {
+            auto empty = std::make_unique<EmptyPlan>();
+            empty->table = scan_table(*f.child);
+            plan = std::move(empty);
             return;
+        }
         }
         return;
     }

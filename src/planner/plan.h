@@ -59,6 +59,7 @@ struct SortPlan : PlanNode {
 
 // 空结果: 恒不满足的过滤子树剪枝产物, 恒 0 行
 struct EmptyPlan : PlanNode {
+    std::string table;  // 剪除前子树行源的限定表名, 无 FROM 时为空
     PlanKind kind() const override { return PlanKind::Empty; }
 };
 
