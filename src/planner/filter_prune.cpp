@@ -23,10 +23,10 @@ ConstPred classify_pred(const ana::BoundExpr& pred)
         return ConstPred::None;
     }
     const auto& v = static_cast<const ana::BoundConst&>(pred).value;
-    if (const bool* b = std::get_if<bool>(&v)) {
+    if (const bool* b = std::get_if<bool>(&v.box)) {
         return *b ? ConstPred::AlwaysTrue : ConstPred::AlwaysFalse;
     }
-    if (std::holds_alternative<std::monostate>(v)) {
+    if (std::holds_alternative<std::monostate>(v.box)) {
         return ConstPred::AlwaysFalse;
     }
     // 语义层保证 WHERE 常量谓词仅 bool/NULL

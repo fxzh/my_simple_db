@@ -42,7 +42,7 @@ std::string bound_expr_to_string(const ana::BoundExpr& e, const std::vector<std:
 {
     switch (e.kind()) {
     case ana::BoundExprKind::Const: {
-        const auto& v = static_cast<const ana::BoundConst&>(e).value;
+        const auto& v = static_cast<const ana::BoundConst&>(e).value.box;
         if (const auto* i = std::get_if<int64_t>(&v)) {
             return std::format("{}", *i);
         }
@@ -245,7 +245,7 @@ ExecResult run_explain(const pl::ExplainPlan& plan)
     op->rows.reserve(lines.size());
     for (std::string& line : lines) {
         st::Row row;
-        row.values.push_back(st::Value(std::move(line)));
+        row.values.push_back(st::str_val(std::move(line)));
         op->rows.push_back(std::move(row));
     }
     ExecResult r;

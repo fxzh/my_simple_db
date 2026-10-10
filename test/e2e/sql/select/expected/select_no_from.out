@@ -53,3 +53,6 @@ SELECT a;
 ERROR: 列不存在: a
 SELECT 1 WHERE 1 / 0 = 1;
 ERROR: 整型除零
+-- Int 域 int32 溢出在折叠期报错
+SELECT 2000000000 + 2000000000;
+ERROR: 整型加法溢出

@@ -6,9 +6,9 @@
 #include <memory>
 #include <string>
 #include <utility>
-#include <variant>
 
 #include "ast.hh"
+#include "storage/types.h"
 
 namespace ana {
 
@@ -25,34 +25,36 @@ struct BoundExpr {
 
 // 字面量常量: 绑定期折入字面量值, 不做算术折叠
 struct BoundConst : BoundExpr {
-    std::variant<std::monostate, bool, int64_t, double, std::string> value;  // monostate 即 NULL
-    template <typename T>
-    explicit BoundConst(T&& v) : value(std::forward<T>(v)) {}
+    st::Value value;
+    explicit BoundConst(st::Value v) : value(std::move(v)) {}
     BoundExprKind kind() const override { return BoundExprKind::Const; }
 };
 
-// 列引用: 行内下标与 char 定长标记在绑定期固化
+// 列引用: 行内下标在绑定期固化
 struct BoundColRef : BoundExpr {
     size_t col_idx = 0;
-    bool from_char = false;
-    explicit BoundColRef(size_t idx, bool fc) : col_idx(idx), from_char(fc) {}
+    explicit BoundColRef(size_t idx) : col_idx(idx) {}
     BoundExprKind kind() const override { return BoundExprKind::ColRef; }
 };
 
-// 算术运算: + - * /
+// 算术运算: + - * /; type 为绑定期推导的结果域, 求值按域装配与检查
 struct BoundArith : BoundExpr {
     char op;
+    st::ColType type = st::ColType::Null;
     std::unique_ptr<BoundExpr> left;
     std::unique_ptr<BoundExpr> right;
-    BoundArith(char op_, std::unique_ptr<BoundExpr> left_, std::unique_ptr<BoundExpr> right_)
-        : op(op_), left(std::move(left_)), right(std::move(right_)) {}
+    BoundArith(char op_, std::unique_ptr<BoundExpr> left_, std::unique_ptr<BoundExpr> right_,
+               st::ColType type_)
+        : op(op_), type(type_), left(std::move(left_)), right(std::move(right_)) {}
     BoundExprKind kind() const override { return BoundExprKind::Arith; }
 };
 
-// 一元负号(一元正号在绑定期折为操作数本身)
+// 一元负号(一元正号在绑定期折为操作数本身); type 为绑定期推导的结果域
 struct BoundNeg : BoundExpr {
+    st::ColType type = st::ColType::Null;
     std::unique_ptr<BoundExpr> operand;
-    explicit BoundNeg(std::unique_ptr<BoundExpr> operand_) : operand(std::move(operand_)) {}
+    explicit BoundNeg(std::unique_ptr<BoundExpr> operand_, st::ColType type_)
+        : type(type_), operand(std::move(operand_)) {}
     BoundExprKind kind() const override { return BoundExprKind::Neg; }
 };
 

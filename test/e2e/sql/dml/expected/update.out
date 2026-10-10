@@ -114,7 +114,7 @@ CREATE
 INSERT INTO t_ovf VALUES (1);
 INSERT 1
 UPDATE t_ovf SET id = 2000000000 + 2000000000;
-ERROR: 值与列类型不匹配
+ERROR: 整型加法溢出
 SELECT * FROM t_ovf;
  id
 ----

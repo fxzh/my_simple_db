@@ -53,59 +53,82 @@ void convert_columns(const std::vector<ColumnDef>& defs, std::vector<st::ColumnS
     }
 }
 
-// 行结构(名字解析结果): 列名定位表 + 列静态类型 + char 定长列标记, 绑定表达式树时使用
+// 行结构(名字解析结果): 列名定位表 + 列静态类型, 绑定表达式树时使用
 using ColMap = std::unordered_map<std::string, size_t>;
 struct Schema {
     ColMap cols;                         // 列名 → 行内下标
     std::vector<st::ColType> col_types;  // 列静态类型, 与行内下标对应
-    std::vector<bool> char_col;          // char 定长列标记, 与行内下标对应
 };
 
-// 表达式静态类型: 推导规则与求值器行为逐点对齐, 绑定层放过的表达式执行层不因类型报错
-enum class ExprType : uint8_t { Null, Int, Double, String, Bool };
+// 表达式静态类型直接用列类型推导: 字面量/列引用/算术按 ColType 级定型, Null 表示无类型
+// (NULL 字面量, 比较时通配); 推导规则与求值器行为逐点对齐, 绑定层放过的表达式执行层不因类型报错
+std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, st::ColType& type);
 
-std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, ExprType& type);
-
-// 数值类(Int/Double)判定
-bool is_num_type(ExprType t)
+// 数值类域等级: Int<BigInt<Float<Double, 非数值为 0(Null 单独判)
+int num_rank(st::ColType t)
 {
-    return t == ExprType::Int || t == ExprType::Double;
+    switch (t) {
+    case st::ColType::Int: return 1;
+    case st::ColType::BigInt: return 2;
+    case st::ColType::Float: return 3;
+    case st::ColType::Double: return 4;
+    default: return 0;
+    }
 }
 
-// 列静态类型映射: 整型归 Int, 浮点归 Double, 文本归 String
-ExprType col_expr_type(st::ColType type)
+// 数值类(Int/BigInt/Float/Double)判定
+bool is_num_type(st::ColType t)
 {
-    switch (type) {
-    case st::ColType::Int:
-    case st::ColType::BigInt: return ExprType::Int;
-    case st::ColType::Float:
-    case st::ColType::Double: return ExprType::Double;
-    case st::ColType::Char:
-    case st::ColType::VarChar: return ExprType::String;
-    case st::ColType::Bool: return ExprType::Bool;
-    }
-    DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未映射的列类型");
+    return num_rank(t) > 0;
+}
+
+// 整型类(Int/BigInt)判定
+bool is_int_type(st::ColType t)
+{
+    return t == st::ColType::Int || t == st::ColType::BigInt;
+}
+
+// 浮点类(Float/Double)判定
+bool is_float_type(st::ColType t)
+{
+    return t == st::ColType::Float || t == st::ColType::Double;
+}
+
+// 文本类(Char/VarChar)判定
+bool is_text_type(st::ColType t)
+{
+    return t == st::ColType::Char || t == st::ColType::VarChar;
 }
 
 // 绑定表达式: 递归建树并推导类型, 名字解析当场完成; schema 为空表示常量上下文(禁止引用列)
-std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, ExprType& type)
+std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, st::ColType& type)
 {
     switch (expr.kind()) {
-    case ExprKind::Int:
-        type = ExprType::Int;
-        return std::make_unique<BoundConst>(static_cast<const IntExpr&>(expr).value);
+    case ExprKind::Int: {
+        const int64_t v = static_cast<const IntExpr&>(expr).value;
+        // int32 范围内定型 Int, 超界定型 BigInt
+        if (v >= INT32_MIN && v <= INT32_MAX) {
+            type = st::ColType::Int;
+            return std::make_unique<BoundConst>(st::int_val(v));
+        }
+        type = st::ColType::BigInt;
+        return std::make_unique<BoundConst>(st::bigint_val(v));
+    }
     case ExprKind::Float:
-        type = ExprType::Double;
-        return std::make_unique<BoundConst>(static_cast<const FloatExpr&>(expr).value);
+        // 词法浮点值即 double, 字面量定型 Double
+        type = st::ColType::Double;
+        return std::make_unique<BoundConst>(
+            st::double_val(static_cast<const FloatExpr&>(expr).value));
     case ExprKind::String:
-        type = ExprType::String;
-        return std::make_unique<BoundConst>(static_cast<const StringExpr&>(expr).value);
+        type = st::ColType::VarChar;
+        return std::make_unique<BoundConst>(
+            st::str_val(static_cast<const StringExpr&>(expr).value));
     case ExprKind::Null:
-        type = ExprType::Null;
-        return std::make_unique<BoundConst>(std::monostate{});
+        type = st::ColType::Null;
+        return std::make_unique<BoundConst>(st::null_val());
     case ExprKind::Bool:
-        type = ExprType::Bool;
-        return std::make_unique<BoundConst>(static_cast<const BoolExpr&>(expr).value);
+        type = st::ColType::Bool;
+        return std::make_unique<BoundConst>(st::bool_val(static_cast<const BoolExpr&>(expr).value));
     case ExprKind::Identifier: {
         const auto& id = static_cast<const IdentifierExpr&>(expr);
         if (schema == nullptr) {
@@ -116,84 +139,81 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, Exp
         if (it == schema->cols.end()) {
             DB_RAISE(db::ErrCode::UnknownColumn, LogModule::ANALYZER, "列不存在: {}", id.name);
         }
-        type = col_expr_type(schema->col_types[it->second]);
-        return std::make_unique<BoundColRef>(it->second, schema->char_col[it->second]);
+        type = schema->col_types[it->second];
+        return std::make_unique<BoundColRef>(it->second);
     }
     case ExprKind::BinaryOp: {
         const auto& e = static_cast<const BinaryOpExpr&>(expr);
-        ExprType lt;
-        ExprType rt;
+        st::ColType lt;
+        st::ColType rt;
         std::unique_ptr<BoundExpr> l = bind_expr(*e.left, schema, lt);
         std::unique_ptr<BoundExpr> r = bind_expr(*e.right, schema, rt);
-        if ((!is_num_type(lt) && lt != ExprType::Null)
-            || (!is_num_type(rt) && rt != ExprType::Null)) {
+        if ((!is_num_type(lt) && lt != st::ColType::Null)
+            || (!is_num_type(rt) && rt != st::ColType::Null)) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "算术运算操作数不是数值");
         }
-        if (lt == ExprType::Double || rt == ExprType::Double) {
-            type = ExprType::Double;
-        } else {
-            type = ExprType::Int;
-        }
-        return std::make_unique<BoundArith>(e.op, std::move(l), std::move(r));
+        // 结果取两侧较高数值域
+        type = num_rank(lt) >= num_rank(rt) ? lt : rt;
+        return std::make_unique<BoundArith>(e.op, std::move(l), std::move(r), type);
     }
     case ExprKind::UnaryOp: {
         const auto& e = static_cast<const UnaryOpExpr&>(expr);
-        ExprType t;
+        st::ColType t;
         std::unique_ptr<BoundExpr> operand = bind_expr(*e.operand, schema, t);
-        if (!is_num_type(t) && t != ExprType::Null) {
+        if (!is_num_type(t) && t != st::ColType::Null) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "一元运算操作数不是数值");
         }
         type = t;
         if (e.op == '+') {
             return operand;  // 一元正号原值返回, 绑定期折为操作数本身
         }
-        return std::make_unique<BoundNeg>(std::move(operand));
+        return std::make_unique<BoundNeg>(std::move(operand), t);
     }
     case ExprKind::Compare: {
         const auto& e = static_cast<const CompareExpr&>(expr);
-        ExprType lt;
-        ExprType rt;
+        st::ColType lt;
+        st::ColType rt;
         std::unique_ptr<BoundExpr> l = bind_expr(*e.left, schema, lt);
         std::unique_ptr<BoundExpr> r = bind_expr(*e.right, schema, rt);
         const bool same_num = is_num_type(lt) && is_num_type(rt);
-        const bool same_str = lt == ExprType::String && rt == ExprType::String;
-        const bool same_bool = lt == ExprType::Bool && rt == ExprType::Bool;
-        if (lt != ExprType::Null && rt != ExprType::Null && !same_num && !same_str
+        const bool same_str = is_text_type(lt) && is_text_type(rt);
+        const bool same_bool = lt == st::ColType::Bool && rt == st::ColType::Bool;
+        if (lt != st::ColType::Null && rt != st::ColType::Null && !same_num && !same_str
             && !same_bool) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
                      "比较运算两侧须同为数值、字符串或布尔");
         }
-        type = ExprType::Bool;
+        type = st::ColType::Bool;
         return std::make_unique<BoundCmp>(e.op, std::move(l), std::move(r));
     }
     case ExprKind::Logic: {
         const auto& e = static_cast<const LogicExpr&>(expr);
-        ExprType lt;
-        ExprType rt;
+        st::ColType lt;
+        st::ColType rt;
         std::unique_ptr<BoundExpr> l = bind_expr(*e.left, schema, lt);
         std::unique_ptr<BoundExpr> r = bind_expr(*e.right, schema, rt);
-        if ((lt != ExprType::Bool && lt != ExprType::Null)
-            || (rt != ExprType::Bool && rt != ExprType::Null)) {
+        if ((lt != st::ColType::Bool && lt != st::ColType::Null)
+            || (rt != st::ColType::Bool && rt != st::ColType::Null)) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "逻辑运算操作数不是布尔值");
         }
-        type = ExprType::Bool;
+        type = st::ColType::Bool;
         return std::make_unique<BoundLogic>(e.op, std::move(l), std::move(r));
     }
     case ExprKind::Not: {
         const auto& e = static_cast<const NotExpr&>(expr);
-        ExprType t;
+        st::ColType t;
         std::unique_ptr<BoundExpr> operand = bind_expr(*e.operand, schema, t);
-        if (t != ExprType::Bool && t != ExprType::Null) {
+        if (t != st::ColType::Bool && t != st::ColType::Null) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "逻辑运算操作数不是布尔值");
         }
-        type = ExprType::Bool;
+        type = st::ColType::Bool;
         return std::make_unique<BoundNot>(std::move(operand));
     }
     case ExprKind::IsNull: {
         const auto& e = static_cast<const IsNullExpr&>(expr);
-        ExprType t;
+        st::ColType t;
         std::unique_ptr<BoundExpr> operand = bind_expr(*e.operand, schema, t);
-        type = ExprType::Bool;
+        type = st::ColType::Bool;
         return std::make_unique<BoundIsNull>(std::move(operand), e.negate);
     }
     }
@@ -273,37 +293,33 @@ bool has_col_ref(const Expr& expr)
 // WHERE 条件绑定: 须为布尔(NULL 视为 UNKNOWN 放行), 返回绑定谓词树
 std::unique_ptr<BoundExpr> bind_where(const Expr& where, const Schema& schema)
 {
-    ExprType t;
+    st::ColType t;
     std::unique_ptr<BoundExpr> pred = bind_expr(where, &schema, t);
-    if (t != ExprType::Bool && t != ExprType::Null) {
+    if (t != st::ColType::Bool && t != st::ColType::Null) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "WHERE 条件不是布尔表达式");
     }
     return pred;
 }
 
-// 值类型与列规格匹配: NULL 值放行(NOT NULL 已在前置检查拦截), 字面量范围/长度随类型一并校验
-void check_value_type(const Expr& expr, ExprType t, const st::ColumnSpec& col)
+// 值类型与列规格匹配(常量上下文): NULL 值放行(NOT NULL 已在前置检查拦截), 家族内匹配,
+// 字面量范围/长度随类型一并校验
+void check_value_type(const Expr& expr, st::ColType t, const st::ColumnSpec& col)
 {
     if (may_be_null(expr)) {
         return;
     }
     bool ok = false;
     switch (col.type) {
-    case st::ColType::Int: {
-        ok = t == ExprType::Int;
-        // 字面量须在 int32 范围内, 折叠表达式的范围检查留待执行期
-        if (ok && expr.kind() == ExprKind::Int) {
-            const int64_t v = static_cast<const IntExpr&>(expr).value;
-            ok = v >= INT32_MIN && v <= INT32_MAX;
-        }
+    case st::ColType::Int:
+        // Int 列仅收 Int, 超界字面量已定型 BigInt 在此拒绝
+        ok = t == st::ColType::Int;
         break;
-    }
     case st::ColType::BigInt:
-        ok = t == ExprType::Int;
+        ok = is_int_type(t);
         break;
     case st::ColType::Double:
     case st::ColType::Float: {
-        ok = t == ExprType::Double;
+        ok = t == st::ColType::Double;
         // float 列字面量须可被 float 表示
         if (ok && col.type == st::ColType::Float && expr.kind() == ExprKind::Float) {
             const double d = static_cast<const FloatExpr&>(expr).value;
@@ -312,44 +328,48 @@ void check_value_type(const Expr& expr, ExprType t, const st::ColumnSpec& col)
         break;
     }
     case st::ColType::Char:
-        // 常量上下文的 String 必为字面量, 须不超声明长度
-        ok = t == ExprType::String
+        // 常量上下文的字符串必为字面量, 须不超声明长度
+        ok = t == st::ColType::VarChar
              && static_cast<const StringExpr&>(expr).value.size() <= col.length;
         break;
     case st::ColType::VarChar:
-        ok = t == ExprType::String
+        ok = t == st::ColType::VarChar
              && (col.length == 0
                  || static_cast<const StringExpr&>(expr).value.size() <= col.length);
         break;
     case st::ColType::Bool:
-        ok = t == ExprType::Bool;
+        ok = t == st::ColType::Bool;
         break;
+    case st::ColType::Null:
+        DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "列类型域不含 Null");
     }
     if (!ok) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "值与列类型不匹配");
     }
 }
 
-// 行上下文右值与列的静态类型匹配: NULL 静态类型放行, 空值/长度/范围留待执行期
-void check_update_type(ExprType t, const st::ColumnSpec& col)
+// 行上下文右值与列的静态类型匹配: 家族内匹配, NULL 静态类型放行, 空值/长度/范围留待执行期
+void check_update_type(st::ColType t, const st::ColumnSpec& col)
 {
     bool ok = false;
     switch (col.type) {
     case st::ColType::Int:
     case st::ColType::BigInt:
-        ok = t == ExprType::Int || t == ExprType::Null;
+        ok = is_int_type(t) || t == st::ColType::Null;
         break;
     case st::ColType::Float:
     case st::ColType::Double:
-        ok = t == ExprType::Double || t == ExprType::Null;
+        ok = is_float_type(t) || t == st::ColType::Null;
         break;
     case st::ColType::Char:
     case st::ColType::VarChar:
-        ok = t == ExprType::String || t == ExprType::Null;
+        ok = is_text_type(t) || t == st::ColType::Null;
         break;
     case st::ColType::Bool:
-        ok = t == ExprType::Bool || t == ExprType::Null;
+        ok = t == st::ColType::Bool || t == st::ColType::Null;
         break;
+    case st::ColType::Null:
+        DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "列类型域不含 Null");
     }
     if (!ok) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "值与列类型不匹配");
@@ -402,10 +422,10 @@ std::vector<std::unique_ptr<BoundExpr>> bind_insert_row(
     const st::TableMeta& meta)
 {
     std::vector<std::unique_ptr<BoundExpr>> bound;
-    std::vector<ExprType> types;
+    std::vector<st::ColType> types;
     types.reserve(values.size());
     for (const auto& v : values) {
-        ExprType type;
+        st::ColType type;
         bound.push_back(bind_expr(*v, nullptr, type));  // 常量上下文: 禁止引用列
         types.push_back(type);
     }
@@ -434,7 +454,7 @@ std::vector<std::unique_ptr<BoundExpr>> bind_insert_row(
     }
     for (size_t i = 0; i < meta.cols.size(); ++i) {
         if (!row[i]) {
-            row[i] = std::make_unique<BoundConst>(std::monostate{});
+            row[i] = std::make_unique<BoundConst>(st::null_val());
         }
     }
     return row;
@@ -464,7 +484,7 @@ ct::TableRef to_table_ref(const QualifiedName& name, const std::string& current_
     return {name.schema, name.name};
 }
 
-// 绑定行结构: 列名定位表 + 列静态类型 + char 定长列标记
+// 绑定行结构: 列名定位表 + 列静态类型
 Schema build_schema(const st::TableMeta& meta)
 {
     Schema schema;
@@ -472,7 +492,6 @@ Schema build_schema(const st::TableMeta& meta)
     for (size_t i = 0; i < meta.cols.size(); ++i) {
         schema.cols.emplace(meta.cols[i].name, i);
         schema.col_types.push_back(meta.cols[i].type);
-        schema.char_col.push_back(meta.cols[i].type == st::ColType::Char);
     }
     return schema;
 }
@@ -480,7 +499,7 @@ Schema build_schema(const st::TableMeta& meta)
 // 绑定单个投影项(非 star): 绑定表达式并定输出列名, 列名取别名>列名>表达式文本
 ProjCol bind_proj_item(const SelectItem& item, const Schema& schema)
 {
-    ExprType t;
+    st::ColType t;
     std::unique_ptr<BoundExpr> e = bind_expr(*item.expr, &schema, t);
     std::string name;
     if (!item.alias.empty()) {
@@ -576,7 +595,7 @@ OrderKey resolve_order_key(const OrderItem& item, const ProjBind& pb, const Sche
                || e.kind() == ExprKind::Null || e.kind() == ExprKind::Bool) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "ORDER BY 不允许非整数常量");
     }
-    ExprType t;
+    st::ColType t;
     k.expr = bind_expr(e, &schema, t);
     return k;
 }
@@ -602,12 +621,11 @@ std::vector<BoundOrderItem> bind_orders(const std::vector<OrderItem>& items, con
         if (all_out) {
             o.out_idx = keys[i].out_idx;
         } else if (keys[i].is_out && pb.src[keys[i].out_idx] != nullptr) {
-            ExprType t;
+            st::ColType t;
             o.expr = bind_expr(*pb.src[keys[i].out_idx], &schema, t);
         } else if (keys[i].is_out) {
             // star 展开列(仅带 FROM 的 SELECT 存在): 取行内列引用
-            const size_t col = pb.projs[keys[i].out_idx].col_idx;
-            o.expr = std::make_unique<BoundColRef>(col, schema.char_col[col]);
+            o.expr = std::make_unique<BoundColRef>(pb.projs[keys[i].out_idx].col_idx);
         } else {
             o.expr = std::move(keys[i].expr);
         }
@@ -733,7 +751,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
             }
             BoundUpdateItem a;
             a.col_idx = it->second;
-            ExprType t;
+            st::ColType t;
             // 行上下文: 右值基于旧行求值, 赋值间互不可见
             a.value = bind_expr(*item.value, &schema, t);
             const st::ColumnSpec& col = b->table.meta.cols[it->second];

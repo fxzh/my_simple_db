@@ -231,30 +231,32 @@ bool tree_page_type(uint8_t type)
 IndexKey encode_key(ColType type, const Value& v)
 {
     constexpr uint64_t sign_flip = 0x8000'0000'0000'0000ULL;
-    if (std::holds_alternative<std::monostate>(v)) {
+    if (std::holds_alternative<std::monostate>(v.box)) {
         // NULL 入索引且排最大, 键值部分无意义置 0
         return IndexKey{0, true};
     }
-    if (const bool* b = std::get_if<bool>(&v)) {
+    if (const bool* b = std::get_if<bool>(&v.box)) {
         if (type != ColType::Bool) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "索引键值与列类型不匹配");
         }
         // false=0/true=1, 键序即 false < true
         return IndexKey{static_cast<uint64_t>(*b ? 1 : 0), false};
     }
-    if (const int64_t* i = std::get_if<int64_t>(&v)) {
+    if (const int64_t* i = std::get_if<int64_t>(&v.box)) {
         if (type != ColType::Int && type != ColType::BigInt) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "索引键值与列类型不匹配");
         }
         // 最高符号位翻转, 无符号序即有符号数值序
         return IndexKey{static_cast<uint64_t>(*i) ^ sign_flip, false};
     }
-    if (const double* d = std::get_if<double>(&v)) {
+    if (const double* d = std::get_if<double>(&v.box)) {
         if (type != ColType::Double && type != ColType::Float) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "索引键值与列类型不匹配");
         }
+        // float 列按列类型窄化到单精度再入键, 字面量直插与解码回填路径键一致
+        double x = type == ColType::Float ? static_cast<double>(static_cast<float>(*d)) : *d;
         // -0.0 归一为 +0.0, 两零编码一致
-        const double x = (*d == 0.0) ? 0.0 : *d;
+        x = (x == 0.0) ? 0.0 : x;
         uint64_t bits = 0;
         std::memcpy(&bits, &x, sizeof(bits));
         // IEEE754: 负数按位取反、正数翻符号位, 无符号序即浮点全序

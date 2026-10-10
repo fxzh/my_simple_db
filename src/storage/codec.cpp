@@ -7,6 +7,9 @@
 #include <cstring>
 #include <string>
 
+#include "common/err.h"
+#include "log/log.h"
+
 namespace st {
 
 namespace {
@@ -38,7 +41,7 @@ inline uint32_t read_u32(const uint8_t* p)
 
 inline bool get_int64(const Value& v, int64_t* out)
 {
-    const int64_t* p = std::get_if<int64_t>(&v);
+    const int64_t* p = std::get_if<int64_t>(&v.box);
     if (p == nullptr) {
         return false;
     }
@@ -48,7 +51,7 @@ inline bool get_int64(const Value& v, int64_t* out)
 
 inline bool get_double(const Value& v, double* out)
 {
-    const double* p = std::get_if<double>(&v);
+    const double* p = std::get_if<double>(&v.box);
     if (p == nullptr) {
         return false;
     }
@@ -58,7 +61,7 @@ inline bool get_double(const Value& v, double* out)
 
 inline bool get_string(const Value& v, std::string* out)
 {
-    const std::string* p = std::get_if<std::string>(&v);
+    const std::string* p = std::get_if<std::string>(&v.box);
     if (p == nullptr) {
         return false;
     }
@@ -68,7 +71,7 @@ inline bool get_string(const Value& v, std::string* out)
 
 inline bool get_bool(const Value& v, bool* out)
 {
-    const bool* p = std::get_if<bool>(&v);
+    const bool* p = std::get_if<bool>(&v.box);
     if (p == nullptr) {
         return false;
     }
@@ -93,7 +96,7 @@ bool encode_row(const std::vector<ColumnSpec>& cols, const std::vector<Value>& v
 
     for (size_t i = 0; i < cols.size(); ++i) {
         const ColumnSpec& col = cols[i];
-        if (std::holds_alternative<std::monostate>(values[i])) {
+        if (std::holds_alternative<std::monostate>(values[i].box)) {
             if (col.not_null) {
                 return false;  // NOT NULL 列拒绝 NULL
             }
@@ -179,6 +182,9 @@ bool encode_row(const std::vector<ColumnSpec>& cols, const std::vector<Value>& v
                 out.push_back(static_cast<uint8_t>(v ? 1 : 0));
                 break;
             }
+            case ColType::Null:
+                DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
+                         "encode: 列类型域不含 Null");
         }
     }
 
@@ -210,7 +216,7 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
     for (size_t i = 0; i < cols.size(); ++i) {
         const ColumnSpec& col = cols[i];
         if ((static_cast<unsigned>(bitmap[i / 8]) >> (i % 8)) & 1u) {
-            out.emplace_back();  // NULL: monostate
+            out.push_back(typed_null(col.type));  // NULL: 携带列类型
             continue;
         }
         switch (col.type) {
@@ -219,7 +225,7 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
                     return false;
                 }
                 const int32_t v = static_cast<int32_t>(read_u32(data + pos));
-                out.emplace_back(static_cast<int64_t>(v));
+                out.push_back(int_val(static_cast<int64_t>(v)));
                 pos += 4;
                 break;
             }
@@ -229,7 +235,7 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
                 }
                 const uint64_t lo = read_u32(data + pos);
                 const uint64_t hi = read_u32(data + pos + 4);
-                out.emplace_back(static_cast<int64_t>(lo | (hi << 32)));
+                out.push_back(bigint_val(static_cast<int64_t>(lo | (hi << 32))));
                 pos += 8;
                 break;
             }
@@ -241,7 +247,7 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
                                         (static_cast<uint64_t>(read_u32(data + pos + 4)) << 32);
                 double v = 0.0;
                 std::memcpy(&v, &bits, sizeof(v));
-                out.emplace_back(v);
+                out.push_back(double_val(v));
                 pos += 8;
                 break;
             }
@@ -254,7 +260,7 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
                 if (pos + slen > len) {
                     return false;
                 }
-                out.emplace_back(std::string(reinterpret_cast<const char*>(data + pos), slen));
+                out.push_back(str_val(std::string(reinterpret_cast<const char*>(data + pos), slen)));
                 pos += slen;
                 break;
             }
@@ -265,7 +271,7 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
                 uint32_t bits = read_u32(data + pos);
                 float f = 0.0f;
                 std::memcpy(&f, &bits, sizeof(f));
-                out.emplace_back(static_cast<double>(f));
+                out.push_back(float_val(static_cast<double>(f)));  // float→double 宽化无损
                 pos += 4;
                 break;
             }
@@ -275,7 +281,7 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
                 }
                 std::string v(reinterpret_cast<const char*>(data + pos), col.length);
                 pos += col.length;
-                out.emplace_back(std::move(v));  // 定长读出, 保留尾部填充空格
+                out.push_back(char_val(std::move(v)));  // 定长读出, 保留尾部填充空格
                 break;
             }
             case ColType::Bool: {
@@ -286,10 +292,13 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
                 if (b > 1) {
                     return false;  // 非 0/1 视为损坏
                 }
-                out.emplace_back(b != 0);
+                out.push_back(bool_val(b != 0));
                 pos += 1;
                 break;
             }
+            case ColType::Null:
+                DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
+                         "decode: 列类型域不含 Null");
         }
     }
     return true;

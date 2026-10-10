@@ -20,8 +20,9 @@ struct IndexKey {
     bool null = false;  // NULL 键标志
 };
 
-// 键序保持编码: 索引列值 → IndexKey
-// int/bigint 最高符号位翻转; float/double 按 IEEE754 位翻转(-0 归一为 +0); bool 编码 0/1
+// 键序保持编码: 索引列值 → IndexKey, 编码由列类型驱动(赋值家族宽化使值的语义类型可与列类型不同)
+// int/bigint 最高符号位翻转; float/double 按 IEEE754 位翻转(-0 归一为 +0), float 列先窄化到
+// 单精度使各写入路径键一致; bool 编码 0/1
 // NULL 入索引且排最大(PG 行为); char/varchar 变长键暂不支持, 当场报错
 IndexKey encode_key(ColType type, const Value& v);
 

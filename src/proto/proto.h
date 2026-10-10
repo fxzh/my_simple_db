@@ -124,8 +124,9 @@ inline bool send_frame(int fd, MsgType type, const std::string& body)
 
 // ==================== 结果集(Head/Batch/End 三帧编解码) ====================
 
-// 结果集单元格值(与 st::Value 同构, proto 层独立定义避免依赖)
-using CellVal = std::variant<std::monostate, bool, int64_t, double, std::string>;
+// 结果集单元格值(proto 层独立定义避免依赖, 与 st::Value 不同构: float 独立备选,
+// 无语义类型标签)
+using CellVal = std::variant<std::monostate, bool, int64_t, double, float, std::string>;
 
 // 客户端物化结果集: 列名(来自 Head) + 行值(累积自 Batch)
 struct ResultSet {
@@ -142,6 +143,7 @@ constexpr uint8_t CELL_INT = 1;
 constexpr uint8_t CELL_DOUBLE = 2;
 constexpr uint8_t CELL_STRING = 3;
 constexpr uint8_t CELL_BOOL = 4;
+constexpr uint8_t CELL_FLOAT = 5;
 
 // 大端序追加无符号整数
 inline void append_u16(std::string& out, uint16_t v)
@@ -182,6 +184,11 @@ inline void append_cell(std::string& out, const CellVal& cell)
     } else if (const auto* b = std::get_if<bool>(&cell)) {
         out.push_back(static_cast<char>(CELL_BOOL));
         out.push_back(static_cast<char>(*b ? 1 : 0));
+    } else if (const auto* f = std::get_if<float>(&cell)) {
+        uint32_t bits = 0;
+        std::memcpy(&bits, f, sizeof(bits));
+        out.push_back(static_cast<char>(CELL_FLOAT));
+        append_u32(out, bits);
     } else {
         out.push_back(static_cast<char>(CELL_NULL));
     }
@@ -201,7 +208,7 @@ inline std::string encode_rs_head(const std::vector<std::string>& cols)
 
 // Batch body 布局: [行数 u32] 每行每列一个单元格 [tag u8][payload]:
 // 0=NULL 无 payload, 1=int64 8B, 2=double 8B(位模式按 u64), 3=string[长度 u16][字节],
-// 4=bool 1B(0/1)
+// 4=bool 1B(0/1), 5=float 4B(位模式按 u32)
 inline std::string encode_rs_batch(const std::vector<std::vector<CellVal>>& rows)
 {
     std::string body;
@@ -308,6 +315,14 @@ inline bool take_cell(std::string_view body, std::size_t& off, CellVal& out)
             return false;  // 非 0/1 视为非法
         }
         out = (b != 0);
+    } else if (tag == CELL_FLOAT) {
+        uint32_t bits = 0;
+        if (!take_u32(body, off, bits)) {
+            return false;
+        }
+        float f = 0.0f;
+        std::memcpy(&f, &bits, sizeof(f));
+        out = f;
     } else if (tag == CELL_NULL) {
         out = std::monostate{};
     } else {

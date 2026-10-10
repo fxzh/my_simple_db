@@ -91,7 +91,7 @@ struct ProjectOp : Operator {
         std::vector<st::Value> vals;
         vals.reserve(projs.size());
         for (const ana::ProjCol& p : projs) {
-            vals.push_back(p.expr != nullptr ? expr::to_st_value(expr::eval_row(*p.expr, *out))
+            vals.push_back(p.expr != nullptr ? expr::eval_row(*p.expr, *out)
                                              : out->values[p.col_idx]);
         }
         out->values = std::move(vals);

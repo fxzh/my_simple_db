@@ -15,6 +15,7 @@
 #include "common/err.h"
 #include "common/temp_dir.hpp"
 #include "storage/storage_fixture.hpp"
+#include "btree.h"
 #include "catalog.h"
 #include "page.h"
 #include "wal.h"
@@ -86,11 +87,11 @@ TEST_F(StorageDb, ReopenLifecycle)
         db.create_table({"system", "t"},cols);
         const TableMeta t_meta = db.table_meta({"system", "t"});
 
-        db.insert(t_meta,{Value{int64_t{1}}, Value{std::string{"alice"}}});
-        db.insert(t_meta,{Value{int64_t{2}}, Value{std::string{"bob"}}});
+        db.insert(t_meta,{int_val(1), str_val("alice")});
+        db.insert(t_meta,{int_val(2), str_val("bob")});
         // 跨页: 一条记录塞满首个数据页后触发扩展
         for (int i = 0; i < 400; ++i) {
-            db.insert(t_meta,{Value{int64_t{3}}, Value{std::string{"spam"}}});
+            db.insert(t_meta,{int_val(3), str_val("spam")});
         }
         db.commit_txn();
         EXPECT_EQ(db.row_count(t_meta), size_t{402});
@@ -102,8 +103,8 @@ TEST_F(StorageDb, ReopenLifecycle)
                 {"grade", ColType::Char, 3},
         });
         const TableMeta t2_meta = db.table_meta({"system", "t2"});
-        db.insert(t2_meta,{Value{0.5}, Value{std::string{"A"}}});
-        db.insert(t2_meta,{Value{-1.25}, Value{std::string{"XYZ"}}});
+        db.insert(t2_meta,{double_val(0.5), char_val("A")});
+        db.insert(t2_meta,{double_val(-1.25), char_val("XYZ")});
         db.commit_txn();
         db.close();
     }
@@ -122,12 +123,12 @@ TEST_F(StorageDb, ReopenLifecycle)
             while (s->next(&r)) {
                 ++n;
                 if (n == 1) {
-                    EXPECT_EQ(std::get<int64_t>(r.values[0]), 1);
-                    EXPECT_EQ(std::get<std::string>(r.values[1]), "alice");
+                    EXPECT_EQ(std::get<int64_t>(r.values[0].box), 1);
+                    EXPECT_EQ(std::get<std::string>(r.values[1].box), "alice");
                 }
                 if (n == 2) {
-                    EXPECT_EQ(std::get<int64_t>(r.values[0]), 2);
-                    EXPECT_EQ(std::get<std::string>(r.values[1]), "bob");
+                    EXPECT_EQ(std::get<int64_t>(r.values[0].box), 2);
+                    EXPECT_EQ(std::get<std::string>(r.values[1].box), "bob");
                 }
             }
         }
@@ -140,12 +141,12 @@ TEST_F(StorageDb, ReopenLifecycle)
             while (s->next(&r)) {
                 ++n2;
                 if (n2 == 1) {
-                    EXPECT_EQ(std::get<double>(r.values[0]), 0.5);
-                    EXPECT_EQ(std::get<std::string>(r.values[1]), "A  ");  // 定长补空格读出
+                    EXPECT_EQ(std::get<double>(r.values[0].box), 0.5);
+                    EXPECT_EQ(std::get<std::string>(r.values[1].box), "A  ");  // 定长补空格读出
                 }
                 if (n2 == 2) {
-                    EXPECT_EQ(std::get<double>(r.values[0]), -1.25);
-                    EXPECT_EQ(std::get<std::string>(r.values[1]), "XYZ");
+                    EXPECT_EQ(std::get<double>(r.values[0].box), -1.25);
+                    EXPECT_EQ(std::get<std::string>(r.values[1].box), "XYZ");
                 }
             }
         }
@@ -167,7 +168,7 @@ TEST_F(StorageDb, ReopenLifecycle)
                 auto s2 = db.scan(t_meta);
                 Row r;
                 while (s2->next(&r)) {
-                    seen = seen || std::get<int64_t>(r.values[0]) == 1;
+                    seen = seen || std::get<int64_t>(r.values[0].box) == 1;
                 }
             }
             EXPECT_FALSE(seen);
@@ -341,7 +342,7 @@ TEST_F(StorageDb, CatalogTxnCommitRollback)
         // 回滚: 建表与插行随事务消失
         db.begin_txn();
         db.create_table({"system", "t"},{{"id", ColType::Int, 0, true}});
-        db.insert(db.table_meta({"system", "t"}),{Value{int64_t{1}}});
+        db.insert(db.table_meta({"system", "t"}),{int_val(1)});
         // 事务内自见: 未提交修改对本事务可见
         EXPECT_EQ(db.row_count(db.table_meta({"system", "t"})), size_t{1});
         db.rollback_txn();
@@ -350,12 +351,12 @@ TEST_F(StorageDb, CatalogTxnCommitRollback)
         // 提交: 修改可见
         db.begin_txn();
         db.create_table({"system", "t"},{{"id", ColType::Int, 0, true}});
-        db.insert(db.table_meta({"system", "t"}),{Value{int64_t{1}}});
+        db.insert(db.table_meta({"system", "t"}),{int_val(1)});
         db.commit_txn();
         EXPECT_EQ(db.row_count(db.table_meta({"system", "t"})), size_t{1});
 
         // 事务外调落盘性门面报错, 表内容不变
-        EXPECT_THROW(db.insert(db.table_meta({"system", "t"}),{Value{int64_t{2}}}),
+        EXPECT_THROW(db.insert(db.table_meta({"system", "t"}),{int_val(2)}),
                      std::runtime_error);
         EXPECT_EQ(db.row_count(db.table_meta({"system", "t"})), size_t{1});
         db.close();
@@ -380,21 +381,21 @@ TEST_F(StorageDb, TxnRollbackRestoresContent)
         engine.init_table_file(fid);
         RowRef ref;
         for (int i = 1; i <= 20; ++i) {
-            engine.insert_row(fid, cols, {Value{int64_t{i}}}, &ref);
+            engine.insert_row(fid, cols, {int_val(i)}, &ref);
         }
         engine.commit_txn();
 
         // 未提交事务: 插入/删除/再插入构成同页 before 链, 回滚后全部消失
         engine.begin_txn();
-        engine.insert_row(fid, cols, {Value{int64_t{999}}}, &ref);
+        engine.insert_row(fid, cols, {int_val(999)}, &ref);
         EXPECT_EQ(engine.delete_row(ref), size_t{1});
-        engine.insert_row(fid, cols, {Value{int64_t{888}}}, &ref);
+        engine.insert_row(fid, cols, {int_val(888)}, &ref);
         engine.rollback_txn();
         EXPECT_EQ(engine.row_count(fid), size_t{20});
 
         // 回滚后引擎可继续提交事务
         engine.begin_txn();
-        engine.insert_row(fid, cols, {Value{int64_t{777}}}, &ref);
+        engine.insert_row(fid, cols, {int_val(777)}, &ref);
         engine.commit_txn();
         EXPECT_EQ(engine.row_count(fid), size_t{21});
         engine.close();
@@ -421,7 +422,7 @@ TEST_F(StorageDb, CorruptDataPageReadExits)
         engine.init_table_file(fid);
         RowRef ref;
         for (int i = 1; i <= 5; ++i) {
-            engine.insert_row(fid, cols, {Value{int64_t{i}}}, &ref);
+            engine.insert_row(fid, cols, {int_val(i)}, &ref);
         }
         engine.commit_txn();
         engine.close();
@@ -493,7 +494,7 @@ TEST_F(StorageDb, EnginePrimitiveWithoutTxnFails)
     RowRef ref;
     EXPECT_THROW(engine.init_table_file(1), std::runtime_error);
     EXPECT_THROW(engine.insert_row(2, {{"id", ColType::Int, 0, true}},
-                                   {Value{int64_t{1}}}, &ref),
+                                   {int_val(1)}, &ref),
                  std::runtime_error);
     engine.close();
 }

@@ -49,11 +49,11 @@ std::vector<std::vector<st::Value>> column_meta_rows(uint64_t tid,
     std::vector<std::vector<st::Value>> rows;
     rows.reserve(cols.size());
     for (size_t i = 0; i < cols.size(); ++i) {
-        rows.push_back({st::Value{static_cast<int64_t>(tid)}, st::Value{cols[i].name},
-                        st::Value{static_cast<int64_t>(i)},
-                        st::Value{static_cast<int64_t>(cols[i].type)},
-                        st::Value{static_cast<int64_t>(cols[i].length)},
-                        st::Value{static_cast<int64_t>(cols[i].not_null ? 1 : 0)}});
+        rows.push_back({st::bigint_val(static_cast<int64_t>(tid)), st::str_val(cols[i].name),
+                        st::int_val(static_cast<int64_t>(i)),
+                        st::int_val(static_cast<int64_t>(cols[i].type)),
+                        st::int_val(static_cast<int64_t>(cols[i].length)),
+                        st::int_val(static_cast<int64_t>(cols[i].not_null ? 1 : 0))});
     }
     return rows;
 }
@@ -61,7 +61,7 @@ std::vector<std::vector<st::Value>> column_meta_rows(uint64_t tid,
 // 行内取 int 字段, NULL 或类型不符报元数据行损坏
 int64_t row_int(const std::vector<st::Value>& row, size_t idx)
 {
-    const int64_t* v = std::get_if<int64_t>(&row[idx]);
+    const int64_t* v = std::get_if<int64_t>(&row[idx].box);
     if (v == nullptr) {
         DB_CRITICAL(LogModule::CATALOG, "元数据行损坏");
     }
@@ -71,7 +71,7 @@ int64_t row_int(const std::vector<st::Value>& row, size_t idx)
 // 行内取字符串字段, NULL 或类型不符报元数据行损坏
 const std::string& row_str(const std::vector<st::Value>& row, size_t idx)
 {
-    const std::string* v = std::get_if<std::string>(&row[idx]);
+    const std::string* v = std::get_if<std::string>(&row[idx].box);
     if (v == nullptr) {
         DB_CRITICAL(LogModule::CATALOG, "元数据行损坏");
     }
@@ -90,6 +90,8 @@ bool col_type_known(st::ColType type)
     case st::ColType::Char:
     case st::ColType::Bool:
         return true;
+    case st::ColType::Null:
+        return false;
     }
     return false;
 }
@@ -368,7 +370,8 @@ void Catalog::create_schema(const std::string& name)
     }
     st::RowRef ref;
     engine_.insert_row(kSchemaMetaId, schema_meta_cols(),
-                       {st::Value{static_cast<int64_t>(alloc_schema_id())}, st::Value{name}}, &ref);
+                       {st::bigint_val(static_cast<int64_t>(alloc_schema_id())),
+                        st::str_val(name)}, &ref);
 }
 
 uint64_t Catalog::create_table_impl(uint64_t sid, const TableRef& table,
@@ -433,9 +436,9 @@ void Catalog::write_meta_rows(uint64_t sid, uint64_t tid, uint64_t fid, const st
 {
     st::RowRef ref;
     engine_.insert_row(kTableMetaId, table_meta_cols(),
-                       {st::Value{static_cast<int64_t>(tid)}, st::Value{name},
-                        st::Value{static_cast<int64_t>(fid)},
-                        st::Value{static_cast<int64_t>(sid)}}, &ref);
+                       {st::bigint_val(static_cast<int64_t>(tid)), st::str_val(name),
+                        st::bigint_val(static_cast<int64_t>(fid)),
+                        st::bigint_val(static_cast<int64_t>(sid))}, &ref);
     for (const std::vector<st::Value>& row : column_meta_rows(tid, cols)) {
         engine_.insert_row(kColumnMetaId, column_meta_cols(), row, &ref);
     }
@@ -454,8 +457,8 @@ void Catalog::bootstrap_meta_tables()
                     schema_meta_cols());
     st::RowRef ref;
     engine_.insert_row(kSchemaMetaId, schema_meta_cols(),
-                       {st::Value{static_cast<int64_t>(kSystemSchemaId)},
-                        st::Value{std::string{kSystemSchemaName}}}, &ref);
+                       {st::bigint_val(static_cast<int64_t>(kSystemSchemaId)),
+                        st::str_val(std::string{kSystemSchemaName})}, &ref);
 }
 
 // 删除指定表的元数据行(须持锁): 扫两张元数据表, 收集第 0 列等于 tid 的行引用后逐个物理删除
@@ -472,7 +475,7 @@ void Catalog::delete_meta_rows(uint64_t tid)
         st::Scanner scanner(&engine_, meta);
         st::Row row;
         while (scanner.next(&row)) {
-            const int64_t* row_tid = std::get_if<int64_t>(&row.values[0]);
+            const int64_t* row_tid = std::get_if<int64_t>(&row.values[0].box);
             if (row_tid == nullptr) {
                 DB_CRITICAL(LogModule::CATALOG, "元数据行损坏");
             }
@@ -656,9 +659,10 @@ void Catalog::create_index(const TableHandle& table, const std::string& index, u
     engine_.build_index(meta.file_id, meta.cols, col_ordinal, fid);
     st::RowRef ref;
     engine_.insert_row(kIndexMetaId, index_cols_,
-                       {st::Value{static_cast<int64_t>(meta.table_id)}, st::Value{index},
-                        st::Value{static_cast<int64_t>(col_ordinal)},
-                        st::Value{static_cast<int64_t>(fid)}}, &ref);
+                       {st::bigint_val(static_cast<int64_t>(meta.table_id)),
+                        st::str_val(index),
+                        st::int_val(static_cast<int64_t>(col_ordinal)),
+                        st::bigint_val(static_cast<int64_t>(fid))}, &ref);
 }
 
 void Catalog::drop_index(const TableHandle& table, const std::string& index)

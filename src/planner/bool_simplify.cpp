@@ -18,7 +18,7 @@ const bool* const_bool(const ana::BoundExpr& e)
     if (e.kind() != ana::BoundExprKind::Const) {
         return nullptr;
     }
-    return std::get_if<bool>(&static_cast<const ana::BoundConst&>(e).value);
+    return std::get_if<bool>(&static_cast<const ana::BoundConst&>(e).value.box);
 }
 
 // 比较符取反: = <-> <>, < <-> >=, <= <-> >
@@ -47,7 +47,7 @@ void simplify_logic(std::unique_ptr<ana::BoundExpr>& e)
     const bool* rb = const_bool(*l.right);
     if (l.op == LogicOp::And) {
         if ((lb != nullptr && !*lb) || (rb != nullptr && !*rb)) {
-            e = std::make_unique<ana::BoundConst>(false);
+            e = std::make_unique<ana::BoundConst>(st::bool_val(false));
         } else if (lb != nullptr) {  // 此处 lb 必为 true
             e = std::move(l.right);
         } else if (rb != nullptr) {  // 此处 rb 必为 true
@@ -57,7 +57,7 @@ void simplify_logic(std::unique_ptr<ana::BoundExpr>& e)
     }
     // LogicOp 仅 And/Or 两值, 余下为 Or
     if ((lb != nullptr && *lb) || (rb != nullptr && *rb)) {
-        e = std::make_unique<ana::BoundConst>(true);
+        e = std::make_unique<ana::BoundConst>(st::bool_val(true));
     } else if (lb != nullptr) {  // 此处 lb 必为 false
         e = std::move(l.right);
     } else if (rb != nullptr) {  // 此处 rb 必为 false

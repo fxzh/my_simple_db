@@ -16,3 +16,22 @@ SELECT * FROM t_types;
 (2 行)
 DROP TABLE t_types;
 DROP
+-- float/double 列: 单精度显示保真与取值边界
+CREATE TABLE t_fd (f float, d double);
+CREATE
+INSERT INTO t_fd VALUES (0.1, 0.1), (1.0, 1.0), (-2.5, -2.5), (NULL, NULL);
+INSERT 4
+INSERT INTO t_fd VALUES (1, 2.0);
+ERROR: 值与列类型不匹配
+INSERT INTO t_fd VALUES (390000000000000000000000000000000000000.0, 1.0);
+ERROR: 值与列类型不匹配
+SELECT * FROM t_fd;
+  f   |  d
+------+------
+ 0.1  | 0.1
+ 1    | 1
+ -2.5 | -2.5
+ NULL | NULL
+(4 行)
+DROP TABLE t_fd;
+DROP

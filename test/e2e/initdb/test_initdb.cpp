@@ -43,10 +43,10 @@ std::string bin(const char* name)
 // 元数据行值序列化: 三张元数据表仅含 int/string 值, 其余类型当场判负
 std::string format_meta_value(const st::Value& v)
 {
-    if (const std::string* s = std::get_if<std::string>(&v)) {
+    if (const std::string* s = std::get_if<std::string>(&v.box)) {
         return *s;
     }
-    if (const int64_t* i = std::get_if<int64_t>(&v)) {
+    if (const int64_t* i = std::get_if<int64_t>(&v.box)) {
         return std::to_string(*i);
     }
     ADD_FAILURE() << "元数据行出现非 int/string 值";

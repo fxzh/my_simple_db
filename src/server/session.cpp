@@ -114,6 +114,31 @@ void send_notice(int sock, LogLevel session_level, LogLevel msg_level, const std
                       proto::encode_notice(static_cast<uint8_t>(msg_level), message));
 }
 
+// st::Value 按语义类型分派为协议单元格: 判空先行, Float 窄化为单精度
+proto::CellVal to_cell(const st::Value& v)
+{
+    if (st::value_is_null(v)) {
+        return std::monostate{};
+    }
+    switch (v.type) {
+    case st::ColType::Bool:
+        return *std::get_if<bool>(&v.box);
+    case st::ColType::Int:
+    case st::ColType::BigInt:
+        return *std::get_if<int64_t>(&v.box);
+    case st::ColType::Float:
+        return static_cast<float>(*std::get_if<double>(&v.box));
+    case st::ColType::Double:
+        return *std::get_if<double>(&v.box);
+    case st::ColType::Char:
+    case st::ColType::VarChar:
+        return *std::get_if<std::string>(&v.box);
+    case st::ColType::Null:
+        break;
+    }
+    DB_RAISE(db::ErrCode::Internal, EXECUTOR, "值无语义类型");
+}
+
 // 结果集流式发送: 头帧 + 逐行攒批帧 + 结束帧(总行数); 发送失败返回 false(对端已断)
 bool send_result_stream(int sock, exec::ExecResult& result, int client_id, LogLevel session_level)
 {
@@ -121,7 +146,7 @@ bool send_result_stream(int sock, exec::ExecResult& result, int client_id, LogLe
                            proto::encode_rs_head(result.col_names))) {
         return false;
     }
-    // st::Value 与 CellVal 同构, 逐行拉取逐格搬运, 攒满一批发一帧
+    // 逐行拉取逐格转协议单元格, 攒满一批发一帧
     uint64_t total = 0;
     std::vector<std::vector<proto::CellVal>> batch;
     st::Row row;
@@ -129,7 +154,7 @@ bool send_result_stream(int sock, exec::ExecResult& result, int client_id, LogLe
         std::vector<proto::CellVal> cells;
         cells.reserve(row.values.size());
         for (const st::Value& v : row.values) {
-            cells.push_back(std::visit([](const auto& x) { return proto::CellVal{x}; }, v));
+            cells.push_back(to_cell(v));
         }
         batch.push_back(std::move(cells));
         ++total;

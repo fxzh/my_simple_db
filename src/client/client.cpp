@@ -74,6 +74,9 @@ std::string cell_text(const proto::CellVal& cell)
     if (const auto* d = std::get_if<double>(&cell)) {
         return std::format("{}", *d);
     }
+    if (const auto* f = std::get_if<float>(&cell)) {
+        return std::format("{}", *f);
+    }
     if (const auto* s = std::get_if<std::string>(&cell)) {
         return *s;
     }

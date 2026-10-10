@@ -2,8 +2,6 @@
 #include "planner.h"
 
 #include <memory>
-#include <type_traits>
-#include <variant>
 
 #include "bound_expr.h"
 #include "common/err.h"
@@ -20,19 +18,10 @@ bool is_const(const ana::BoundExpr& e)
     return e.kind() == ana::BoundExprKind::Const;
 }
 
-// 求值结果转常量节点: StrVal 剥离 char 定长标记(常量子树不含列引用)
-std::unique_ptr<ana::BoundExpr> to_fold_const(const expr::EvalValue& v)
+// 求值结果转常量节点(常量子树不含列引用)
+std::unique_ptr<ana::BoundExpr> to_fold_const(const st::Value& v)
 {
-    return std::visit(
-        [](const auto& val) -> std::unique_ptr<ana::BoundExpr> {
-            using T = std::decay_t<decltype(val)>;
-            if constexpr (std::is_same_v<T, expr::StrVal>) {
-                return std::make_unique<ana::BoundConst>(val.text);
-            } else {
-                return std::make_unique<ana::BoundConst>(val);
-            }
-        },
-        v);
+    return std::make_unique<ana::BoundConst>(v);
 }
 
 // 表达式折叠: 自底向上, 子节点折叠后均为常量则整节点求值替换(该子树必无列引用),

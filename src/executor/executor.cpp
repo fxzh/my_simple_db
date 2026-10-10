@@ -81,7 +81,7 @@ uint64_t run_update(ct::Catalog& db, const pl::UpdatePlan& up)
     for (const st::Row& old : olds) {
         std::vector<st::Value> vals = old.values;
         for (const ana::BoundUpdateItem& a : up.assigns) {
-            vals[a.col_idx] = expr::to_st_value(expr::eval_row(*a.value, old));
+            vals[a.col_idx] = expr::eval_row(*a.value, old);
         }
         rows.push_back(ct::RowUpdate{old.ref, std::move(vals)});
     }
@@ -135,7 +135,7 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt, const std::string&
             std::vector<st::Value> values;
             values.reserve(plan_row.size());
             for (const auto& v : plan_row) {
-                values.push_back(expr::to_st_value(expr::eval_const(*v)));
+                values.push_back(expr::eval_const(*v));
             }
             db.insert(p.table.meta, values);
         }
