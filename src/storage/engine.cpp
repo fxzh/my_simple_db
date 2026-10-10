@@ -459,8 +459,8 @@ void Engine::index_insert(uint64_t fid, const IndexKey& key, const RowRef& ref)
 }
 
 // 索引范围扫描(须持锁): 迭代器不持锁, 仅持页 pin
-std::unique_ptr<BTreeScanner> Engine::index_scan(uint64_t fid, std::optional<IndexKey> lo,
-                                                 std::optional<IndexKey> hi)
+std::unique_ptr<BTreeScanner> Engine::index_scan(uint64_t fid, std::optional<ScanBound> lo,
+                                                 std::optional<ScanBound> hi)
 {
     return std::make_unique<BTreeScanner>(tree_for(fid), std::move(lo), std::move(hi));
 }

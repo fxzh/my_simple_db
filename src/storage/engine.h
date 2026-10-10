@@ -99,10 +99,10 @@ public:
     void remove_index_file(uint64_t fid);
     // 索引条目插入: (键, 行定位) 唯一性由调用方保证
     void index_insert(uint64_t fid, const IndexKey& key, const RowRef& ref);
-    // 索引范围扫描: 定位 lo(缺省为最左) 后沿叶子链前进, hi 为排他上界(缺省为无上界);
+    // 索引范围扫描: 定位 lo(缺省为最左) 后沿叶子链前进, 边界闭开由 inclusive 决定;
     // 迭代器不持锁(仅持页 pin), 并发 DDL 期间扫描是未定义行为
-    std::unique_ptr<BTreeScanner> index_scan(uint64_t fid, std::optional<IndexKey> lo,
-                                             std::optional<IndexKey> hi);
+    std::unique_ptr<BTreeScanner> index_scan(uint64_t fid, std::optional<ScanBound> lo,
+                                             std::optional<ScanBound> hi);
     // 建索引回填: 全表扫描堆页, 逐行取指定列编码入树, 返回条目数
     size_t build_index(uint64_t table_fid, const std::vector<ColumnSpec>& cols, uint16_t ordinal,
                        uint64_t index_fid);

@@ -458,15 +458,16 @@ BTreeSplit BTree::insert_rec(uint32_t page_no, const BTreeEntry& e)
 
 // ==================== BTreeScanner ====================
 
-BTreeScanner::BTreeScanner(BTree& tree, std::optional<IndexKey> lo, std::optional<IndexKey> hi)
-        : pool(tree.pool), files(tree.files), file_id(tree.file_id), hi_key(hi)
+BTreeScanner::BTreeScanner(BTree& tree, std::optional<ScanBound> lo, std::optional<ScanBound> hi)
+        : pool(tree.pool), files(tree.files), file_id(tree.file_id), lo_bound(std::move(lo)),
+          hi_bound(std::move(hi))
 {
     // 无下界沿最左子指针下探; 有下界按 (键, 最小行定位) 复合序路由
-    const BTreeEntry probe{lo.value_or(IndexKey{}), 0, 0};
+    const BTreeEntry probe{lo_bound.has_value() ? lo_bound->key : IndexKey{}, 0, 0};
     uint32_t no = tree.root_page;
     char* pg = pool.read(PageId{file_id, no}, MAGIC_BTREE_LEAF, files);
     while (header(pg)->type == static_cast<uint8_t>(PageType::BTreeInternal)) {
-        const uint16_t child = lo.has_value() ? node_child_index(pg, probe) : 0;
+        const uint16_t child = lo_bound.has_value() ? node_child_index(pg, probe) : 0;
         no = node_child(pg, child);
         pool.unpin(pg);
         pg = pool.read(PageId{file_id, no}, MAGIC_BTREE_LEAF, files);
@@ -478,7 +479,7 @@ BTreeScanner::BTreeScanner(BTree& tree, std::optional<IndexKey> lo, std::optiona
     cur = pg;
     cur_page = PageId{file_id, no};
     next_no = header(pg)->next_page;
-    slot_idx = lo.has_value() ? leaf_lower_bound(pg, probe) : 0;
+    slot_idx = lo_bound.has_value() ? leaf_lower_bound(pg, probe) : 0;
 }
 
 BTreeScanner::~BTreeScanner()
@@ -521,9 +522,19 @@ bool BTreeScanner::next(BTreeEntry* out)
         const PageHeader* h = header(cur);
         if (slot_idx < h->slot_count) {
             const BTreeEntry e = leaf_entry(cur, slot_idx);
-            if (hi_key.has_value() && key_cmp(e.key, *hi_key) >= 0) {
-                done = true;
-                return false;  // 越过排他上界
+            if (hi_bound.has_value()) {
+                const int c = key_cmp(e.key, hi_bound->key);
+                if (hi_bound->inclusive ? c > 0 : c >= 0) {
+                    done = true;
+                    return false;  // 到达开上界或越过闭上界
+                }
+            }
+            if (lo_bound.has_value() && !lo_bound->inclusive) {
+                if (key_cmp(e.key, lo_bound->key) == 0) {
+                    ++slot_idx;
+                    continue;  // 开下界跳过等值键
+                }
+                lo_bound.reset();  // 已离开下界键, 等值键不再出现
             }
             *out = e;
             ++slot_idx;

@@ -79,10 +79,16 @@ struct BTree {
     void set_root(uint32_t no);
 };
 
-// B+ 树范围扫描: 定位到键下界后沿叶子链前进, 越过排他上界即止
+// 扫描边界: 键 + 含等值(闭)标志, false 为排他(开)
+struct ScanBound {
+    IndexKey key;
+    bool inclusive = true;
+};
+
+// B+ 树范围扫描: 定位到下界后沿叶子链前进, 开下界跳过等值键, 到达开上界或越过闭上界即止
 struct BTreeScanner {
-    // 从根下探定位 lo(缺省为最左叶子), hi 为排他上界键(缺省为无上界), NULL 键可作界
-    BTreeScanner(BTree& tree, std::optional<IndexKey> lo, std::optional<IndexKey> hi);
+    // 从根下探定位 lo(缺省为最左叶子), hi 缺省为无上界, NULL 键可作界
+    BTreeScanner(BTree& tree, std::optional<ScanBound> lo, std::optional<ScanBound> hi);
     ~BTreeScanner();
 
     BTreeScanner(const BTreeScanner&) = delete;
@@ -95,7 +101,8 @@ struct BTreeScanner {
     BufferPool& pool;
     FileManager& files;
     const uint64_t file_id;
-    std::optional<IndexKey> hi_key;  // 排他上界键, nullopt 表示无上界
+    std::optional<ScanBound> lo_bound;  // 下界, 开界跳等值键用, 跳完置 nullopt
+    std::optional<ScanBound> hi_bound;  // 上界, nullopt 表示无上界
     char* cur = nullptr;     // 当前 pin 的叶子页
     PageId cur_page = INVALID_PAGE;
     uint32_t next_no = 0;    // 待加载的叶子页号, 0 表示链尾
