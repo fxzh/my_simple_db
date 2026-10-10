@@ -109,6 +109,7 @@ void fold_const(pl::PlanNode& plan)
 {
     switch (plan.kind()) {
     case pl::PlanKind::SeqScan:
+    case pl::PlanKind::IndexScan:
     case pl::PlanKind::DummyScan:
     case pl::PlanKind::Empty:
     case pl::PlanKind::CreateTable:
@@ -125,6 +126,9 @@ void fold_const(pl::PlanNode& plan)
         fold_const(*f.child);
         return;
     }
+    case pl::PlanKind::Fetch:
+        fold_const(*static_cast<pl::FetchPlan&>(plan).child);
+        return;
     case pl::PlanKind::Project: {
         auto& p = static_cast<pl::ProjectPlan&>(plan);
         for (ana::ProjCol& c : p.projs) {
@@ -179,11 +183,13 @@ void fold_const(pl::PlanNode& plan)
 
 }  // namespace
 
-// 计划优化入口: 在 build 产物上就地串接各优化 pass, 当前为常量折叠(含布尔化简)与常量过滤器剪除
-void optimize(std::unique_ptr<PlanNode>& plan)
+// 计划优化入口: 在 build 产物上就地串接各优化 pass, 当前为常量折叠(含布尔化简)、
+// 常量过滤器剪除与索引选择
+void optimize(ct::Catalog& db, std::unique_ptr<PlanNode>& plan)
 {
     fold_const(*plan);
     prune_filter(plan);
+    select_index(db, plan);
 }
 
 }  // namespace pl

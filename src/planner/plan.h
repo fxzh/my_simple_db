@@ -7,14 +7,15 @@
 #include <vector>
 
 #include "bound.h"
+#include "storage/btree.h"
 #include "storage/types.h"
 
 namespace pl {
 
 // 计划节点种类, 供执行层按类型分派
 enum class PlanKind {
-    SeqScan, DummyScan, Filter, Project, Sort, Empty, Insert, Delete, Update, CreateTable, DropTable,
-    CreateSchema, DropSchema, CreateIndex, DropIndex, Set, Explain,
+    SeqScan, IndexScan, Fetch, DummyScan, Filter, Project, Sort, Empty, Insert, Delete, Update,
+    CreateTable, DropTable, CreateSchema, DropSchema, CreateIndex, DropIndex, Set, Explain,
 };
 
 // 计划节点基类: 表达式为绑定树, 由计划节点持有
@@ -27,6 +28,38 @@ struct PlanNode {
 struct SeqScanPlan : PlanNode {
     ct::TableHandle table;
     PlanKind kind() const override { return PlanKind::SeqScan; }
+};
+
+// 索引扫描区间: lo/hi 缺省为无界, 开闭由 inclusive 决定(键序 NULL 最大)
+struct IndexRange {
+    std::optional<st::ScanBound> lo;
+    std::optional<st::ScanBound> hi;
+};
+
+// 索引命中条件(EXPLAIN 渲染用): 比较条件用 col/op/value, 判空条件 is_null 置位
+struct IndexCond {
+    std::string col;
+    CmpOp op = CmpOp::Eq;
+    st::Value value;
+    bool is_null = false;
+    bool negate = false;  // is_null 时 true 表示 IS NOT NULL
+};
+
+// 索引扫描: 逐段扫索引只吐行物理位置(值列空), 区间精确等于被摘除的过滤合取项
+struct IndexScanPlan : PlanNode {
+    ct::TableHandle table;
+    std::string index;                // 索引名(EXPLAIN)
+    uint64_t index_fid = 0;           // 索引文件 id
+    std::vector<IndexRange> ranges;   // 不相交区间, 键序升序
+    std::vector<IndexCond> conds;     // 命中条件(渲染 Index Cond)
+    PlanKind kind() const override { return PlanKind::IndexScan; }
+};
+
+// 回表: 按子行物理位置直读堆页补全行值, 死引用(残留索引条目)跳过
+struct FetchPlan : PlanNode {
+    ct::TableHandle table;
+    std::unique_ptr<PlanNode> child;
+    PlanKind kind() const override { return PlanKind::Fetch; }
 };
 
 // 单行扫描: 无 FROM 的 SELECT 行源, 恒一行零列

@@ -56,6 +56,7 @@ void prune_filter(std::unique_ptr<PlanNode>& plan)
     switch (plan->kind()) {
     case PlanKind::Empty:
     case PlanKind::SeqScan:
+    case PlanKind::IndexScan:
     case PlanKind::DummyScan:
     case PlanKind::Insert:
     case PlanKind::CreateTable:
@@ -84,6 +85,9 @@ void prune_filter(std::unique_ptr<PlanNode>& plan)
         }
         return;
     }
+    case PlanKind::Fetch:
+        prune_filter(static_cast<FetchPlan&>(*plan).child);
+        return;
     case PlanKind::Project:
         prune_filter(static_cast<ProjectPlan&>(*plan).child);
         return;

@@ -102,7 +102,7 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt, const std::string&
     // 计划期: 绑定语句转计划节点树
     std::unique_ptr<pl::PlanNode> plan = pl::build(*bound);
     // 计划期优化: 就地串接运行各优化 pass, 常量运算错误(溢出/除零)在此报错
-    pl::optimize(plan);
+    pl::optimize(db, plan);
     switch (plan->kind()) {
     case pl::PlanKind::CreateTable: {
         const auto& p = static_cast<const pl::CreateTablePlan&>(*plan);

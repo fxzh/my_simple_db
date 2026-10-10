@@ -25,6 +25,8 @@ void set_file_root(char* page, uint32_t v)
     std::memcpy(page + PAGE_HEADER_SIZE, &v, sizeof(v));
 }
 
+}  // namespace
+
 // 键三路比较: 非 NULL 按值序, NULL 排最大, 负/零/正 对应 小于/等于/大于
 int key_cmp(const IndexKey& a, const IndexKey& b)
 {
@@ -36,6 +38,8 @@ int key_cmp(const IndexKey& a, const IndexKey& b)
     }
     return 0;
 }
+
+namespace {
 
 // 复合序三路比较: 先键(NULL 最大), 同键按行定位(页号, 槽), 负/零/正 对应 小于/等于/大于
 int entry_cmp(const BTreeEntry& a, const BTreeEntry& b)

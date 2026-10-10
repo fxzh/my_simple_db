@@ -1,0 +1,116 @@
+CREATE TABLE si_t (id int, v bigint, f double, flag bool);
+CREATE
+CREATE INDEX si_id ON si_t (id);
+CREATE
+CREATE INDEX si_v ON si_t (v);
+CREATE
+CREATE INDEX si_flag ON si_t (flag);
+CREATE
+INSERT INTO si_t VALUES (1, 10, 1.5, true);
+INSERT 1
+INSERT INTO si_t VALUES (2, 20, 2.5, false);
+INSERT 1
+INSERT INTO si_t VALUES (3, NULL, NULL, NULL);
+INSERT 1
+INSERT INTO si_t VALUES (4, 40, 4.5, true);
+INSERT 1
+INSERT INTO si_t VALUES (2, 25, 2.5, false);
+INSERT 1
+-- 等值命中(重复键全返回)
+SELECT * FROM si_t WHERE id = 2 ORDER BY v;
+ id | v  |  f  | flag
+----+----+-----+-------
+ 2  | 20 | 2.5 | false
+ 2  | 25 | 2.5 | false
+(2 行)
+-- 区间命中(NULL 行不入)
+SELECT * FROM si_t WHERE v > 15 ORDER BY v;
+ id | v  |  f  | flag
+----+----+-----+-------
+ 2  | 20 | 2.5 | false
+ 2  | 25 | 2.5 | false
+ 4  | 40 | 4.5 | true
+(3 行)
+-- 同列多谓词区间交
+SELECT * FROM si_t WHERE id >= 2 AND id < 4 AND id <> 3 ORDER BY v;
+ id | v  |  f  | flag
+----+----+-----+-------
+ 2  | 20 | 2.5 | false
+ 2  | 25 | 2.5 | false
+(2 行)
+-- ne 两段扫描
+SELECT * FROM si_t WHERE id <> 2 ORDER BY v;
+ id |  v   |  f   | flag
+----+------+------+------
+ 1  | 10   | 1.5  | true
+ 4  | 40   | 4.5  | true
+ 3  | NULL | NULL | NULL
+(3 行)
+-- 判空条件命中
+SELECT * FROM si_t WHERE v IS NULL;
+ id |  v   |  f   | flag
+----+------+------+------
+ 3  | NULL | NULL | NULL
+(1 行)
+SELECT * FROM si_t WHERE v IS NOT NULL ORDER BY v;
+ id | v  |  f  | flag
+----+----+-----+-------
+ 1  | 10 | 1.5 | true
+ 2  | 20 | 2.5 | false
+ 2  | 25 | 2.5 | false
+ 4  | 40 | 4.5 | true
+(4 行)
+-- 常量在左的镜像形态
+SELECT * FROM si_t WHERE 2 = id ORDER BY v;
+ id | v  |  f  | flag
+----+----+-----+-------
+ 2  | 20 | 2.5 | false
+ 2  | 25 | 2.5 | false
+(2 行)
+-- 等值索引优先于区间索引, 其余谓词留作残余过滤
+SELECT * FROM si_t WHERE id = 2 AND v = 20 ORDER BY v;
+ id | v  |  f  | flag
+----+----+-----+-------
+ 2  | 20 | 2.5 | false
+(1 行)
+-- bool 列等值命中
+SELECT * FROM si_t WHERE flag = true ORDER BY v;
+ id | v  |  f  | flag
+----+----+-----+------
+ 1  | 10 | 1.5 | true
+ 4  | 40 | 4.5 | true
+(2 行)
+-- 未建索引的列走顺序扫描
+SELECT * FROM si_t WHERE f > 2.0 ORDER BY v;
+ id | v  |  f  | flag
+----+----+-----+-------
+ 2  | 20 | 2.5 | false
+ 2  | 25 | 2.5 | false
+ 4  | 40 | 4.5 | true
+(3 行)
+-- 跨族常量(浮点常量对整型列)不命中索引
+SELECT * FROM si_t WHERE v = 20.5 ORDER BY v;
+ id | v | f | flag
+(0 行)
+-- 命中区间交空为空结果
+SELECT * FROM si_t WHERE id = 1 AND id > 3;
+ id | v | f | flag
+(0 行)
+DROP TABLE si_t;
+DROP
+CREATE TABLE si_f (x float);
+CREATE
+CREATE INDEX si_fx ON si_f (x);
+CREATE
+INSERT INTO si_f VALUES (1.5);
+INSERT 1
+INSERT INTO si_f VALUES (2.5);
+INSERT 1
+-- float 列不参与索引选择
+SELECT * FROM si_f WHERE x > 2.0;
+  x
+-----
+ 2.5
+(1 行)
+DROP TABLE si_f;
+DROP

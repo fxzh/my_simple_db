@@ -37,6 +37,71 @@ struct EmptyOp : Operator {
     void close() override {}
 };
 
+// 索引扫描: open 时(语句锁内)逐区间各建扫描器, next 顺序吐行物理位置(值列空)
+struct IndexScanOp : Operator {
+    ct::Catalog& db;
+    uint64_t index_fid;
+    uint64_t heap_fid;
+    const std::vector<pl::IndexRange>& ranges;
+    std::vector<std::unique_ptr<st::BTreeScanner>> scanners;
+    size_t pos = 0;
+
+    IndexScanOp(ct::Catalog& db_, uint64_t index_fid_, uint64_t heap_fid_,
+                const std::vector<pl::IndexRange>& ranges_)
+        : db(db_), index_fid(index_fid_), heap_fid(heap_fid_), ranges(ranges_)
+    {
+    }
+
+    void open() override
+    {
+        scanners.clear();
+        scanners.reserve(ranges.size());
+        for (const pl::IndexRange& r : ranges) {
+            scanners.push_back(db.index_scan(index_fid, r.lo, r.hi));
+        }
+        pos = 0;
+    }
+    bool next(st::Row* out) override
+    {
+        st::BTreeEntry e;
+        while (pos < scanners.size()) {
+            if (scanners[pos]->next(&e)) {
+                *out = st::Row{};
+                out->ref = st::RowRef{st::PageId{heap_fid, e.page_no}, e.slot};
+                return true;
+            }
+            ++pos;
+        }
+        return false;
+    }
+    void close() override { scanners.clear(); }
+};
+
+// 回表: 按子行物理位置直读堆页补全行值, 死引用(残留索引条目)跳过
+struct FetchOp : Operator {
+    std::unique_ptr<Operator> child;
+    ct::Catalog& db;
+    const std::vector<st::ColumnSpec>& cols;
+
+    FetchOp(std::unique_ptr<Operator> child_, ct::Catalog& db_,
+            const std::vector<st::ColumnSpec>& cols_)
+        : child(std::move(child_)), db(db_), cols(cols_)
+    {
+    }
+
+    void open() override { child->open(); }
+    bool next(st::Row* out) override
+    {
+        while (child->next(out)) {
+            if (db.read_row(out->ref, cols, out)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    void close() override { child->close(); }
+};
+
 // 单行扫描: 无 FROM 的 SELECT 行源, open 后恰吐一行空行
 struct DummyScanOp : Operator {
     bool done = false;
@@ -167,6 +232,14 @@ std::unique_ptr<Operator> make_operator(ct::Catalog& db, const pl::PlanNode& nod
     case pl::PlanKind::SeqScan: {
         const auto& p = static_cast<const pl::SeqScanPlan&>(node);
         return std::make_unique<SeqScanOp>(db, p.table.meta);
+    }
+    case pl::PlanKind::IndexScan: {
+        const auto& p = static_cast<const pl::IndexScanPlan&>(node);
+        return std::make_unique<IndexScanOp>(db, p.index_fid, p.table.meta.file_id, p.ranges);
+    }
+    case pl::PlanKind::Fetch: {
+        const auto& p = static_cast<const pl::FetchPlan&>(node);
+        return std::make_unique<FetchOp>(make_operator(db, *p.child), db, p.table.meta.cols);
     }
     case pl::PlanKind::DummyScan:
         return std::make_unique<DummyScanOp>();

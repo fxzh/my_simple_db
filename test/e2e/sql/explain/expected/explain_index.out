@@ -1,0 +1,125 @@
+CREATE TABLE ei_t (a int, b int, c double);
+CREATE
+CREATE INDEX ei_a ON ei_t (a);
+CREATE
+CREATE INDEX ei_b ON ei_t (b);
+CREATE
+-- 等值命中: 索引扫描 + 回表
+EXPLAIN SELECT * FROM ei_t WHERE a = 1;
+                    QUERY PLAN
+--------------------------------------------------
+ Project
+   Output: a, b, c
+   ->  Fetch on public.ei_t
+         ->  Index Scan using ei_a on public.ei_t
+               Index Cond: (a = 1)
+(5 行)
+-- 命中项摘除后残余谓词分离为 Filter
+EXPLAIN SELECT * FROM ei_t WHERE a = 1 AND b > 2;
+                       QUERY PLAN
+--------------------------------------------------------
+ Project
+   Output: a, b, c
+   ->  Filter: (b > 2)
+         ->  Fetch on public.ei_t
+               ->  Index Scan using ei_a on public.ei_t
+                     Index Cond: (a = 1)
+(6 行)
+-- 同列区间交
+EXPLAIN SELECT * FROM ei_t WHERE a > 1 AND a < 5;
+                    QUERY PLAN
+--------------------------------------------------
+ Project
+   Output: a, b, c
+   ->  Fetch on public.ei_t
+         ->  Index Scan using ei_a on public.ei_t
+               Index Cond: ((a > 1) AND (a < 5))
+(5 行)
+-- ne 拆两段
+EXPLAIN SELECT * FROM ei_t WHERE a <> 1;
+                    QUERY PLAN
+--------------------------------------------------
+ Project
+   Output: a, b, c
+   ->  Fetch on public.ei_t
+         ->  Index Scan using ei_a on public.ei_t
+               Index Cond: (a <> 1)
+(5 行)
+-- 判空条件
+EXPLAIN SELECT * FROM ei_t WHERE a IS NULL;
+                    QUERY PLAN
+--------------------------------------------------
+ Project
+   Output: a, b, c
+   ->  Fetch on public.ei_t
+         ->  Index Scan using ei_a on public.ei_t
+               Index Cond: (a IS NULL)
+(5 行)
+EXPLAIN SELECT * FROM ei_t WHERE a IS NOT NULL;
+                    QUERY PLAN
+--------------------------------------------------
+ Project
+   Output: a, b, c
+   ->  Fetch on public.ei_t
+         ->  Index Scan using ei_a on public.ei_t
+               Index Cond: (a IS NOT NULL)
+(5 行)
+-- 多索引选择: 等值优先于区间
+EXPLAIN SELECT * FROM ei_t WHERE b > 1 AND a = 2;
+                       QUERY PLAN
+--------------------------------------------------------
+ Project
+   Output: a, b, c
+   ->  Filter: (b > 1)
+         ->  Fetch on public.ei_t
+               ->  Index Scan using ei_a on public.ei_t
+                     Index Cond: (a = 2)
+(6 行)
+-- 多索引选择: 同级取列序号小者
+EXPLAIN SELECT * FROM ei_t WHERE a = 1 AND b = 2;
+                       QUERY PLAN
+--------------------------------------------------------
+ Project
+   Output: a, b, c
+   ->  Filter: (b = 2)
+         ->  Fetch on public.ei_t
+               ->  Index Scan using ei_a on public.ei_t
+                     Index Cond: (a = 1)
+(6 行)
+-- 交空剪成空结果
+EXPLAIN SELECT * FROM ei_t WHERE a = 1 AND a > 3;
+            QUERY PLAN
+-----------------------------------
+ Project
+   Output: a, b, c
+   ->  Empty Result on public.ei_t
+(3 行)
+-- 无索引谓词走顺序扫描
+EXPLAIN SELECT * FROM ei_t WHERE c > 1.0;
+             QUERY PLAN
+-------------------------------------
+ Project
+   Output: a, b, c
+   ->  Filter: (c > 1)
+         ->  Seq Scan on public.ei_t
+(4 行)
+-- DML 改写形态
+EXPLAIN DELETE FROM ei_t WHERE a = 1;
+                    QUERY PLAN
+--------------------------------------------------
+ Delete on public.ei_t
+   ->  Fetch on public.ei_t
+         ->  Index Scan using ei_a on public.ei_t
+               Index Cond: (a = 1)
+(4 行)
+EXPLAIN UPDATE ei_t SET c = 0.0 WHERE a = 1;
+                    QUERY PLAN
+--------------------------------------------------
+ Update on public.ei_t
+   Set: c = 0
+   ->  Fetch on public.ei_t
+         ->  Index Scan using ei_a on public.ei_t
+               Index Cond: (a = 1)
+(5 行)
+DROP TABLE ei_t;
+DROP

@@ -3,11 +3,12 @@ add_library(planner STATIC
     bool_simplify.cpp
     const_fold.cpp
     filter_prune.cpp
+    index_select.cpp
     planner.cpp
 )
 
 target_include_directories(planner PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
-target_link_libraries(planner PUBLIC analyzer expr)
+target_link_libraries(planner PUBLIC analyzer expr catalog)
 
 target_link_libraries(planner PRIVATE log common)

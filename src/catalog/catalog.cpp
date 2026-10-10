@@ -143,14 +143,6 @@ std::vector<st::ColumnSpec> collect_columns(st::Engine& engine, uint64_t tid,
     return cols;
 }
 
-// db_index 行条目: 索引定义 + db_index 内的行位置
-struct IndexEntry {
-    std::string name;
-    uint16_t col_ordinal = 0;
-    uint64_t file_id = 0;
-    st::RowRef row_ref;
-};
-
 // 该表全部索引(须持锁): 扫 db_index 匹配 table_id, 行值非法当场报错; cols 为 db_index 列定义
 std::vector<IndexEntry> table_indexes(st::Engine& engine, const std::vector<st::ColumnSpec>& cols,
                                       uint64_t tid)
@@ -748,6 +740,24 @@ size_t Catalog::delete_all(const st::TableMeta& meta)
 std::unique_ptr<st::Scanner> Catalog::scan(const st::TableMeta& meta)
 {
     return std::make_unique<st::Scanner>(&engine_, meta);
+}
+
+std::vector<IndexEntry> Catalog::indexes(const st::TableMeta& meta)
+{
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    return table_indexes(engine_, index_cols_, meta.table_id);
+}
+
+std::unique_ptr<st::BTreeScanner> Catalog::index_scan(uint64_t index_fid,
+                                                      std::optional<st::ScanBound> lo,
+                                                      std::optional<st::ScanBound> hi)
+{
+    return engine_.index_scan(index_fid, std::move(lo), std::move(hi));
+}
+
+bool Catalog::read_row(const st::RowRef& ref, const std::vector<st::ColumnSpec>& cols, st::Row* out)
+{
+    return engine_.read_row(ref, cols, out);
 }
 
 size_t Catalog::row_count(const st::TableMeta& meta)

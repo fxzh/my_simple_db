@@ -37,26 +37,30 @@ struct RowsOp : Operator {
     void close() override {}
 };
 
+// 常量值转文本: 与 ast.hh 的 expr_to_string 常量形态对齐
+std::string const_text(const st::Value& v)
+{
+    if (const auto* i = std::get_if<int64_t>(&v.box)) {
+        return std::format("{}", *i);
+    }
+    if (const auto* d = std::get_if<double>(&v.box)) {
+        return std::format("{}", *d);
+    }
+    if (const auto* s = std::get_if<std::string>(&v.box)) {
+        return "'" + *s + "'";
+    }
+    if (const auto* b = std::get_if<bool>(&v.box)) {
+        return *b ? "true" : "false";
+    }
+    return "NULL";
+}
+
 // 语义分析表达式转文本: 格式与 ast.hh 的 expr_to_string 对齐, 列下标经 names 回填列名
 std::string bound_expr_to_string(const ana::BoundExpr& e, const std::vector<std::string>& names)
 {
     switch (e.kind()) {
-    case ana::BoundExprKind::Const: {
-        const auto& v = static_cast<const ana::BoundConst&>(e).value.box;
-        if (const auto* i = std::get_if<int64_t>(&v)) {
-            return std::format("{}", *i);
-        }
-        if (const auto* d = std::get_if<double>(&v)) {
-            return std::format("{}", *d);
-        }
-        if (const auto* s = std::get_if<std::string>(&v)) {
-            return "'" + *s + "'";
-        }
-        if (const auto* b = std::get_if<bool>(&v)) {
-            return *b ? "true" : "false";
-        }
-        return "NULL";
-    }
+    case ana::BoundExprKind::Const:
+        return const_text(static_cast<const ana::BoundConst&>(e).value);
     case ana::BoundExprKind::ColRef:
         return names[static_cast<const ana::BoundColRef&>(e).col_idx];
     case ana::BoundExprKind::Arith: {
@@ -109,6 +113,8 @@ std::vector<std::string> output_names(const pl::PlanNode& node)
     switch (node.kind()) {
     case pl::PlanKind::SeqScan:
         return table_col_names(static_cast<const pl::SeqScanPlan&>(node).table);
+    case pl::PlanKind::Fetch:
+        return table_col_names(static_cast<const pl::FetchPlan&>(node).table);
     case pl::PlanKind::DummyScan:
         return {};  // 单行零列, 谓词不含列引用
     case pl::PlanKind::Filter:
@@ -136,6 +142,12 @@ std::string node_header(const pl::PlanNode& node)
     switch (node.kind()) {
     case pl::PlanKind::SeqScan:
         return "Seq Scan on " + static_cast<const pl::SeqScanPlan&>(node).table.display;
+    case pl::PlanKind::IndexScan: {
+        const auto& p = static_cast<const pl::IndexScanPlan&>(node);
+        return "Index Scan using " + p.index + " on " + p.table.display;
+    }
+    case pl::PlanKind::Fetch:
+        return "Fetch on " + static_cast<const pl::FetchPlan&>(node).table.display;
     case pl::PlanKind::DummyScan:
         return "Dummy Scan";
     case pl::PlanKind::Empty: {
@@ -189,6 +201,23 @@ std::vector<std::string> node_props(const pl::PlanNode& node)
 {
     std::vector<std::string> props;
     switch (node.kind()) {
+    case pl::PlanKind::IndexScan: {
+        const auto& p = static_cast<const pl::IndexScanPlan&>(node);
+        std::string out;
+        for (size_t i = 0; i < p.conds.size(); ++i) {
+            const pl::IndexCond& c = p.conds[i];
+            if (i > 0) {
+                out += " AND ";
+            }
+            out += c.is_null ? "(" + c.col + (c.negate ? " IS NOT NULL)" : " IS NULL)")
+                             : "(" + c.col + " " + cmp_to_string(c.op) + " " + const_text(c.value) + ")";
+        }
+        if (p.conds.size() > 1) {
+            out = "(" + out + ")";
+        }
+        props.push_back("Index Cond: " + out);
+        break;
+    }
     case pl::PlanKind::Project: {
         const auto& p = static_cast<const pl::ProjectPlan&>(node);
         std::string out;
@@ -251,6 +280,8 @@ void render_node(const pl::PlanNode& node, const std::string& node_prefix, size_
     const pl::PlanNode* child = nullptr;
     if (node.kind() == pl::PlanKind::Filter) {
         child = static_cast<const pl::FilterPlan&>(node).child.get();
+    } else if (node.kind() == pl::PlanKind::Fetch) {
+        child = static_cast<const pl::FetchPlan&>(node).child.get();
     } else if (node.kind() == pl::PlanKind::Project) {
         child = static_cast<const pl::ProjectPlan&>(node).child.get();
     } else if (node.kind() == pl::PlanKind::Sort) {

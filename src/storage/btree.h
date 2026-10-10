@@ -26,6 +26,9 @@ struct IndexKey {
 // NULL 入索引且排最大(PG 行为); char/varchar 变长键暂不支持, 当场报错
 IndexKey encode_key(ColType type, const Value& v);
 
+// 键三路比较: 非 NULL 按值序, NULL 排最大, 负/零/正 对应 小于/等于/大于
+int key_cmp(const IndexKey& a, const IndexKey& b);
+
 // 叶子单元格与内节点分隔项定长: [键值 8B][NULL 标志 1B][堆页号 4B][槽 2B]
 constexpr uint16_t BTREE_CELL_SIZE = 15;
 

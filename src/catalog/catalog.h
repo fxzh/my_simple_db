@@ -68,6 +68,14 @@ struct RowUpdate {
     std::vector<st::Value> values;
 };
 
+// 索引目录条目: 索引定义 + db_index 内的行位置
+struct IndexEntry {
+    std::string name;
+    uint16_t col_ordinal = 0;
+    uint64_t file_id = 0;
+    st::RowRef row_ref;
+};
+
 // 数据目录门面: 打开/关闭, 建表/删表/插入/删除/更新/全表扫描
 // 元数据以 db_table/db_column/db_schema 三张表为唯一事实来源, 查找实时扫描, 无目录文件与内存缓存
 // 名字只经 create_table 与 table_meta 进入, DML 门面按绑定层一次解析的元数据进入
@@ -118,6 +126,14 @@ public:
 
     // 按绑定层元数据开扫描, 游标不持锁(仅持页 pin), 并发 DDL 期间扫描是未定义行为
     std::unique_ptr<st::Scanner> scan(const st::TableMeta& meta);
+    // 该表全部索引(按绑定层元数据): 扫 db_index 匹配 table_id, 供计划层选择索引
+    std::vector<IndexEntry> indexes(const st::TableMeta& meta);
+    // 按索引文件 id 开范围扫描, 边界缺省为最左/无上界; 游标不持锁(仅持页 pin),
+    // 须在语句事务锁内调用(首开索引文件会写引擎树表)
+    std::unique_ptr<st::BTreeScanner> index_scan(uint64_t index_fid, std::optional<st::ScanBound> lo,
+                                                 std::optional<st::ScanBound> hi);
+    // 回表: 按行物理位置直读堆页取行, 已删/槽位越界返回 false, 无效引用当场报错
+    bool read_row(const st::RowRef& ref, const std::vector<st::ColumnSpec>& cols, st::Row* out);
     // 存活行数统计(便利函数, 供测试与将来执行层使用)
     size_t row_count(const st::TableMeta& meta);
     // 按限定名取表元数据(实时扫描元数据表), 表不存在当场报错

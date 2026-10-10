@@ -14,8 +14,9 @@ namespace pl {
 // 计划构建移动消费绑定语句的容器字段(投影列/绑定树/值列表/列规格), 绑定语句之后不可再用
 std::unique_ptr<PlanNode> build(ana::BoundStmt& bound);
 
-// 计划优化入口: 在 build 产物上就地运行优化 pass, 常量运算错误(溢出/除零)在此报错
-void optimize(std::unique_ptr<PlanNode>& plan);
+// 计划优化入口: 在 build 产物上就地运行优化 pass, 常量运算错误(溢出/除零)在此报错;
+// 索引选择经 db 查该表索引元数据
+void optimize(ct::Catalog& db, std::unique_ptr<PlanNode>& plan);
 
 // 逻辑节点布尔化简: 单侧常量 bool 按支配/恒等规则整树替换, 未命中保持原树;
 // 由常量折叠在同一遍历中调用, 调用方保证 e 为 Logic 且两子树已折叠
@@ -28,6 +29,10 @@ void simplify_not(std::unique_ptr<ana::BoundExpr>& e);
 // 常量过滤器剪除: 恒真 Filter 以子节点替换, 恒不满足(含 NULL 常量谓词)的 Filter
 // 整棵子树剪成空结果节点; 在常量折叠之后运行
 void prune_filter(std::unique_ptr<PlanNode>& plan);
+
+// 索引选择: Filter(SeqScan) 命中索引时改写为 残Filter(Fetch(IndexScan)), 已覆盖合取项
+// 从 Filter 摘除(扫描区间精确等于被摘合取项), 交空剪成空结果节点; 在常量过滤器剪除之后运行
+void select_index(ct::Catalog& db, std::unique_ptr<PlanNode>& plan);
 
 }  // namespace pl
 
