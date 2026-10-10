@@ -47,5 +47,30 @@ SELECT * FROM di_t ORDER BY id;
 ----+----
  1  | 99
 (1 行)
+-- between 展开走索引更新: 两次更新计数正确, 同键扫描无重复
+UPDATE di_t SET v = 50 WHERE id BETWEEN 1 AND 3;
+UPDATE 1
+SELECT * FROM di_t WHERE id BETWEEN 1 AND 3;
+ id | v
+----+----
+ 1  | 50
+(1 行)
+UPDATE di_t SET v = 51 WHERE id BETWEEN 1 AND 3;
+UPDATE 1
+SELECT * FROM di_t ORDER BY id;
+ id | v
+----+----
+ 1  | 51
+(1 行)
+-- 删尾行后重插同键行, 索引等值扫描不重复
+DELETE FROM di_t WHERE id = 1;
+DELETE 1
+INSERT INTO di_t VALUES (1, 60);
+INSERT 1
+SELECT * FROM di_t WHERE id = 1;
+ id | v
+----+----
+ 1  | 60
+(1 行)
 DROP TABLE di_t;
 DROP

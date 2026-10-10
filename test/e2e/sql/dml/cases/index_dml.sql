@@ -19,4 +19,13 @@ DELETE FROM di_t WHERE id = 5;
 -- between 展开走索引删除
 DELETE FROM di_t WHERE v BETWEEN 20 AND 30;
 SELECT * FROM di_t ORDER BY id;
+-- between 展开走索引更新: 两次更新计数正确, 同键扫描无重复
+UPDATE di_t SET v = 50 WHERE id BETWEEN 1 AND 3;
+SELECT * FROM di_t WHERE id BETWEEN 1 AND 3;
+UPDATE di_t SET v = 51 WHERE id BETWEEN 1 AND 3;
+SELECT * FROM di_t ORDER BY id;
+-- 删尾行后重插同键行, 索引等值扫描不重复
+DELETE FROM di_t WHERE id = 1;
+INSERT INTO di_t VALUES (1, 60);
+SELECT * FROM di_t WHERE id = 1;
 DROP TABLE di_t;

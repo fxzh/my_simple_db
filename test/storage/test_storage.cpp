@@ -42,9 +42,10 @@ TEST(HeapPage, DeleteCompact)
     EXPECT_TRUE(slot_tombstone(page, 1));
     EXPECT_TRUE(!slot_tombstone(page, 0) && !slot_tombstone(page, 2));
 
-    // 删除尾行触发尾槽收缩
+    // 删除尾行: 槽位保留为墓碑, 不收缩不复用
     heap_delete(page, 2);
-    EXPECT_EQ(header(page)->slot_count, 1);
+    EXPECT_EQ(header(page)->slot_count, 3);
+    EXPECT_TRUE(slot_tombstone(page, 2));
     EXPECT_FALSE(slot_tombstone(page, 0));
     EXPECT_TRUE(page_valid(page, MAGIC_HEAP));
 

@@ -76,7 +76,7 @@ uint16_t free_space(const char* page);
 // 堆追加: 记录贴到数据区末尾并追加槽, 空间不足返回 false
 bool heap_append(char* page, const uint8_t* rec, uint16_t rec_len, uint16_t* slot_out);
 
-// 删除槽: 标记为墓碑(off/len 清零), 尾部连续墓碑一并回收槽空间
+// 删除槽: 标记为墓碑(off/len 清零), 槽位永不复用(残留索引条目依赖此约束不指向新行)
 void heap_delete(char* page, uint16_t slot);
 
 // 槽是否为删除墓碑

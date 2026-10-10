@@ -155,15 +155,10 @@ bool slot_tombstone(const char* page, uint16_t slot)
 
 void heap_delete(char* page, uint16_t slot)
 {
-    PageHeader* h = header(page);
     Slot* s = slot_at(page, slot);
     s->off = 0;
     s->len = 0;
-    while (h->slot_count > 0 && slot_tombstone(page, static_cast<uint16_t>(h->slot_count - 1))) {
-        --h->slot_count;
-        h->free_end = static_cast<uint16_t>(h->free_end + SLOT_SIZE);
-    }
-    h->checksum = page_checksum(page);
+    header(page)->checksum = page_checksum(page);
 }
 
 void heap_compact(char* page)
