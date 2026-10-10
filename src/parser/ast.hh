@@ -70,7 +70,7 @@ inline std::string type_to_string(DataType type, std::optional<long long> length
 // 表达式种类, 供执行层等上层按类型分派
 enum class ExprKind {
     Int, Float, String, Identifier, BinaryOp, UnaryOp, Null, Bool,
-    Compare, Logic, Not, IsNull,
+    Compare, Logic, Not, IsNull, Between,
 };
 
 // 表达式基类
@@ -263,6 +263,24 @@ struct IsNullExpr : Expr {
     ExprKind kind() const override { return ExprKind::IsNull; }
 };
 
+// BETWEEN 谓词节点: expr BETWEEN lo AND hi; NOT BETWEEN 由外层 NotExpr 承载
+struct BetweenExpr : Expr {
+    std::unique_ptr<Expr> expr;
+    std::unique_ptr<Expr> lo;
+    std::unique_ptr<Expr> hi;
+    BetweenExpr(std::unique_ptr<Expr> e, std::unique_ptr<Expr> lo_, std::unique_ptr<Expr> hi_)
+        : expr(std::move(e)), lo(std::move(lo_)), hi(std::move(hi_)) {}
+
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "Between" << std::endl;
+        expr->print(os, indent + 4);
+        lo->print(os, indent + 4);
+        hi->print(os, indent + 4);
+    }
+    ExprKind kind() const override { return ExprKind::Between; }
+};
+
 // 表达式反生成 SQL 文本: 供输出列命名与日志使用
 inline std::string expr_to_string(const Expr& e)
 {
@@ -302,6 +320,11 @@ inline std::string expr_to_string(const Expr& e)
     case ExprKind::IsNull: {
         const auto& i = static_cast<const IsNullExpr&>(e);
         return "(" + expr_to_string(*i.operand) + (i.negate ? " IS NOT NULL" : " IS NULL") + ")";
+    }
+    case ExprKind::Between: {
+        const auto& b = static_cast<const BetweenExpr&>(e);
+        return "(" + expr_to_string(*b.expr) + " BETWEEN " + expr_to_string(*b.lo) + " AND "
+               + expr_to_string(*b.hi) + ")";
     }
     }
     return "";

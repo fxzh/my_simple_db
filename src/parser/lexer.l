@@ -85,6 +85,7 @@ WS       [ \t\r]
 "or"       { return yy::parser::token::OR; }
 "not"      { return yy::parser::token::NOT; }
 "is"       { return yy::parser::token::IS; }
+"between"  { return yy::parser::token::BETWEEN; }
 "set"      { return yy::parser::token::SET; }
 "begin"    { return yy::parser::token::BEGIN_TXN; }
 "start"    { return yy::parser::token::START; }

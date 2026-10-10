@@ -216,6 +216,8 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, st:
         type = st::ColType::Bool;
         return std::make_unique<BoundIsNull>(std::move(operand), e.negate);
     }
+    case ExprKind::Between:
+        DB_RAISE(db::ErrCode::NotImplemented, LogModule::ANALYZER, "BETWEEN 暂不支持");
     }
     // 不可达: 全部表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知表达式节点");
@@ -250,6 +252,10 @@ bool may_be_null(const Expr& expr)
         return may_be_null(*static_cast<const NotExpr&>(expr).operand);
     case ExprKind::IsNull:
         return false;
+    case ExprKind::Between: {
+        const auto& e = static_cast<const BetweenExpr&>(expr);
+        return may_be_null(*e.expr) || may_be_null(*e.lo) || may_be_null(*e.hi);
+    }
     }
     // 不可达: 全部表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知表达式节点");
@@ -285,6 +291,10 @@ bool has_col_ref(const Expr& expr)
         return has_col_ref(*static_cast<const NotExpr&>(expr).operand);
     case ExprKind::IsNull:
         return has_col_ref(*static_cast<const IsNullExpr&>(expr).operand);
+    case ExprKind::Between: {
+        const auto& e = static_cast<const BetweenExpr&>(expr);
+        return has_col_ref(*e.expr) || has_col_ref(*e.lo) || has_col_ref(*e.hi);
+    }
     }
     // 不可达: 全部表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知表达式节点");

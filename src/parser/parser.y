@@ -57,7 +57,7 @@
 %token TOK_ERROR
 %token CREATE TABLE DROP SCHEMA INSERT INTO VALUES DELETE FROM UPDATE INDEX ON
 %token INT BIGINT FLOAT CHAR VARCHAR DOUBLE BOOLEAN BOOL
-%token EXPLAIN SELECT AS NULL_T TRUE_T FALSE_T WHERE AND OR NOT IS SET
+%token EXPLAIN SELECT AS NULL_T TRUE_T FALSE_T WHERE AND OR NOT IS SET BETWEEN
 %token ORDER BY ASC DESC
 %token BEGIN_TXN START TRANSACTION COMMIT WORK ROLLBACK
 %token EQ NE LE GE
@@ -70,11 +70,11 @@
 // 预期移进/归约冲突数, 实际超出即报错
 %expect 0
 
-// 运算符优先级: OR < AND < NOT < IS(非结合) < 比较(非结合) < 加减 < 乘除
+// 运算符优先级: OR < AND < NOT < IS/BETWEEN(非结合) < 比较(非结合) < 加减 < 乘除
 %left OR
 %left AND
 %left NOT
-%nonassoc IS
+%nonassoc IS BETWEEN
 %nonassoc EQ NE '<' LE '>' GE
 %left '+' '-'
 %left '*' '/'
@@ -88,7 +88,7 @@
 %type <QualifiedName> qualified_name
 %type <std::vector<std::unique_ptr<Expr>>> value_list
 %type <std::vector<std::vector<std::unique_ptr<Expr>>>> values_rows
-%type <std::unique_ptr<Expr>> value expression where_opt
+%type <std::unique_ptr<Expr>> value expression where_opt between_operand
 %type <bool> null_not_opt not_null_opt
 %type <std::pair<std::string, SetValueForm>> set_value
 %type <std::vector<SelectItem>> select_list select_items
@@ -525,11 +525,42 @@ expression:
         }
     |   NOT expression { $$ = std::make_unique<NotExpr>(std::move($2)); }
     |   expression IS null_not_opt NULL_T { $$ = std::make_unique<IsNullExpr>(std::move($1), $3); }
+    |   expression BETWEEN between_operand AND between_operand %prec BETWEEN
+        {
+            $$ = std::make_unique<BetweenExpr>(std::move($1), std::move($3), std::move($5));
+        }
+    |   expression NOT BETWEEN between_operand AND between_operand %prec BETWEEN
+        {
+            auto b = std::make_unique<BetweenExpr>(std::move($1), std::move($4), std::move($6));
+            $$ = std::make_unique<NotExpr>(std::move(b));
+        }
     ;
 
 null_not_opt:
         /* empty */ { $$ = false; }
     |   NOT { $$ = true; }
+    ;
+
+// BETWEEN 边界: 不含顶层 AND/OR(否则与边界分隔 AND 产生归约二义), 复杂边界用括号
+between_operand:
+        INTEGER     { $$ = std::make_unique<IntExpr>($1); }
+    |   FLOAT_NUM   { $$ = std::make_unique<FloatExpr>($1); }
+    |   STRING      { $$ = std::make_unique<StringExpr>(std::move($1)); }
+    |   NULL_T      { $$ = std::make_unique<NullExpr>(); }
+    |   TRUE_T      { $$ = std::make_unique<BoolExpr>(true); }
+    |   FALSE_T     { $$ = std::make_unique<BoolExpr>(false); }
+    |   IDENTIFIER  { $$ = std::make_unique<IdentifierExpr>(std::move($1)); }
+    |   '(' expression ')' { $$ = std::move($2); }
+    |   '+' between_operand %prec UMINUS { $$ = std::make_unique<UnaryOpExpr>('+', std::move($2)); }
+    |   '-' between_operand %prec UMINUS { $$ = std::make_unique<UnaryOpExpr>('-', std::move($2)); }
+    |   between_operand '+' between_operand
+        { $$ = std::make_unique<BinaryOpExpr>('+', std::move($1), std::move($3)); }
+    |   between_operand '-' between_operand
+        { $$ = std::make_unique<BinaryOpExpr>('-', std::move($1), std::move($3)); }
+    |   between_operand '*' between_operand
+        { $$ = std::make_unique<BinaryOpExpr>('*', std::move($1), std::move($3)); }
+    |   between_operand '/' between_operand
+        { $$ = std::make_unique<BinaryOpExpr>('/', std::move($1), std::move($3)); }
     ;
 
 %%
