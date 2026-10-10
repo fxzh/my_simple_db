@@ -3,12 +3,12 @@ CREATE SCHEMA s_test;
 CREATE
 CREATE SCHEMA s_test;
 ERROR: schema 已存在: s_test
-SELECT schema_name FROM system.db_schema;
+SELECT schema_name FROM system.db_schema ORDER BY schema_name;
  schema_name
 -------------
- system
  public
  s_test
+ system
 (3 行)
 DROP SCHEMA system;
 ERROR: schema 非空禁止删除: system

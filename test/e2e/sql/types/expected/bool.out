@@ -12,7 +12,7 @@ INSERT INTO t_bool VALUES (3, NULL, null);
 INSERT 1
 INSERT INTO t_bool VALUES (4, 1 > 2, NOT true);
 INSERT 1
-SELECT * FROM t_bool;
+SELECT * FROM t_bool ORDER BY id;
  id | flag  |  ok
 ----+-------+-------
  1  | true  | true
@@ -36,13 +36,13 @@ SELECT true FROM t_bool WHERE id = 1;
 ------
  true
 (1 行)
-SELECT flag < true FROM t_bool;
+SELECT flag < true FROM t_bool ORDER BY 1;
  (flag < true)
 ---------------
  false
  true
- NULL
  true
+ NULL
 (4 行)
 -- WHERE: 裸列、比较、逻辑、三值逻辑
 SELECT id FROM t_bool WHERE flag;
@@ -50,19 +50,19 @@ SELECT id FROM t_bool WHERE flag;
 ----
  1
 (1 行)
-SELECT id FROM t_bool WHERE NOT flag;
+SELECT id FROM t_bool WHERE NOT flag ORDER BY id;
  id
 ----
  2
  4
 (2 行)
-SELECT id FROM t_bool WHERE flag = false;
+SELECT id FROM t_bool WHERE flag = false ORDER BY id;
  id
 ----
  2
  4
 (2 行)
-SELECT id FROM t_bool WHERE flag < true;
+SELECT id FROM t_bool WHERE flag < true ORDER BY id;
  id
 ----
  2
@@ -78,7 +78,7 @@ SELECT id FROM t_bool WHERE flag IS NULL;
 ----
  3
 (1 行)
-SELECT id FROM t_bool WHERE flag IS NOT NULL;
+SELECT id FROM t_bool WHERE flag IS NOT NULL ORDER BY id;
  id
 ----
  1
@@ -88,7 +88,7 @@ SELECT id FROM t_bool WHERE flag IS NOT NULL;
 SELECT id FROM t_bool WHERE flag = NULL;
  id
 (0 行)
-SELECT id FROM t_bool WHERE true;
+SELECT id FROM t_bool WHERE true ORDER BY id;
  id
 ----
  1
@@ -115,33 +115,33 @@ UPDATE t_bool SET ok = flag WHERE id = 2;
 UPDATE 1
 UPDATE t_bool SET flag = NOT flag WHERE id = 1;
 UPDATE 1
-SELECT flag, ok FROM t_bool WHERE id <= 2;
+SELECT flag, ok FROM t_bool WHERE id <= 2 ORDER BY id;
  flag  |  ok
 -------+-------
- false | false
  false | true
+ false | false
 (2 行)
 -- bool 条件删除
 DELETE FROM t_bool WHERE flag IS NULL;
 DELETE 1
-SELECT * FROM t_bool;
+SELECT * FROM t_bool ORDER BY id;
  id | flag  |  ok
 ----+-------+-------
- 4  | false | false
- 2  | false | false
  1  | false | true
+ 2  | false | false
+ 4  | false | false
 (3 行)
 -- bool 列建索引与索引列上的过滤
 CREATE INDEX idx_bool ON t_bool (flag);
 CREATE
 INSERT INTO t_bool VALUES (5, true, false);
 INSERT 1
-SELECT id FROM t_bool WHERE flag = false;
+SELECT id FROM t_bool WHERE flag = false ORDER BY id;
  id
 ----
- 4
- 2
  1
+ 2
+ 4
 (3 行)
 SELECT id FROM t_bool WHERE flag = true;
  id

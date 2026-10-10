@@ -5,11 +5,11 @@ INSERT INTO t_ln VALUES (9223372036854775807, 1.5);
 INSERT 1
 INSERT INTO t_ln VALUES (0, .125);
 INSERT 1
-SELECT * FROM t_ln;
+SELECT * FROM t_ln ORDER BY i;
           i          |   d
 ---------------------+-------
- 9223372036854775807 | 1.5
  0                   | 0.125
+ 9223372036854775807 | 1.5
 (2 行)
 SELECT 123. FROM t_ln;
  123

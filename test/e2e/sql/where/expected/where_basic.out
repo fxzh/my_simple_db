@@ -11,7 +11,7 @@ INSERT INTO t_w VALUES (3, 'carol', 78.5);
 INSERT 1
 INSERT INTO t_w VALUES (4, 'dave', 40.0);
 INSERT 1
-SELECT id, name FROM t_w WHERE score >= 78.5;
+SELECT id, name FROM t_w WHERE score >= 78.5 ORDER BY id;
  id | name
 ----+-------
  1  | alice
@@ -22,7 +22,7 @@ SELECT id FROM t_w WHERE score > 60 AND id < 3;
 ----
  1
 (1 行)
-SELECT id FROM t_w WHERE id = 1 OR id = 4;
+SELECT id FROM t_w WHERE id = 1 OR id = 4 ORDER BY id;
  id
 ----
  1
@@ -60,7 +60,7 @@ SELECT id FROM t_w WHERE 1 = 1 AND score > 60;
 SELECT id FROM t_w WHERE 1 = 2 AND score > 60;
  id
 (0 行)
-SELECT id FROM t_w WHERE 2 > 1 OR score > 60;
+SELECT id FROM t_w WHERE 2 > 1 OR score > 60 ORDER BY id;
  id
 ----
  1

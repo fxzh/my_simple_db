@@ -7,5 +7,5 @@ SELECT id FROM t_c WHERE c = 'ab ';
 SELECT id FROM t_c WHERE v = 'ab';
 SELECT id FROM t_c WHERE v = 'ab ';
 SELECT id FROM t_c WHERE c = v;
-SELECT id FROM t_c WHERE c IS NULL OR v IS NOT NULL;
+SELECT id FROM t_c WHERE c IS NULL OR v IS NOT NULL ORDER BY id;
 DROP TABLE t_c;

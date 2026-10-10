@@ -30,11 +30,11 @@ INSERT INTO nosuch_si VALUES (1);
 ERROR: 表不存在: public.nosuch_si
 INSERT INTO t_si VALUES (1, 2, 3.0, 4.0, 'ab', 'abcde');
 INSERT 1
-SELECT * FROM t_si;
+SELECT * FROM t_si ORDER BY a;
   a   | b | c | f |  s  |   v
 ------+---+---+---+-----+-------
- NULL | 1 | 1 | 1 | a   | a
  1    | 2 | 3 | 4 | ab  | abcde
+ NULL | 1 | 1 | 1 | a   | a
 (2 行)
 DROP TABLE t_si;
 DROP
@@ -81,7 +81,7 @@ INSERT INTO t_sn VALUES (2, NULL, 'y'), (NULL, 3, 'z');
 ERROR: NOT NULL 列不允许 NULL: a
 INSERT INTO t_sn VALUES (3, 4, 'ok'), (5, 6, 'no');
 INSERT 2
-SELECT * FROM t_sn;
+SELECT * FROM t_sn ORDER BY a;
  a |  b   | s
 ---+------+----
  1 | NULL | x

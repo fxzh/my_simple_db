@@ -29,7 +29,7 @@ SELECT id FROM t_c WHERE c = v;
 ----
  1
 (1 行)
-SELECT id FROM t_c WHERE c IS NULL OR v IS NOT NULL;
+SELECT id FROM t_c WHERE c IS NULL OR v IS NOT NULL ORDER BY id;
  id
 ----
  1

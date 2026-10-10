@@ -4,16 +4,16 @@ INSERT INTO t_upd VALUES (1, 'alice', 90.5), (2, 'bob', 60.0), (3, 'carol', 75.0
 INSERT 3
 UPDATE t_upd SET score = 100.0 WHERE id = 1;
 UPDATE 1
-SELECT * FROM t_upd;
+SELECT * FROM t_upd ORDER BY id;
  id | name  | score
 ----+-------+-------
+ 1  | alice | 100
  2  | bob   | 60
  3  | carol | 75
- 1  | alice | 100
 (3 行)
 UPDATE t_upd SET name = 'dave' WHERE id > 1;
 UPDATE 2
-SELECT * FROM t_upd;
+SELECT * FROM t_upd ORDER BY id;
  id | name  | score
 ----+-------+-------
  1  | alice | 100
@@ -22,7 +22,7 @@ SELECT * FROM t_upd;
 (3 行)
 UPDATE t_upd SET score = score + 0.5;
 UPDATE 3
-SELECT * FROM t_upd;
+SELECT * FROM t_upd ORDER BY id;
  id | name  | score
 ----+-------+-------
  1  | alice | 100.5
@@ -36,7 +36,7 @@ UPDATE t_upd SET score = 0.0 WHERE false;
 UPDATE 0
 UPDATE t_upd SET id = id + 10, score = score * 2.0 WHERE id <= 12;
 UPDATE 3
-SELECT * FROM t_upd;
+SELECT * FROM t_upd ORDER BY id;
  id | name  | score
 ----+-------+-------
  11 | alice | 201
@@ -51,7 +51,7 @@ INSERT INTO t_swap VALUES (1, 2), (3, 4);
 INSERT 2
 UPDATE t_swap SET a = b, b = a;
 UPDATE 2
-SELECT * FROM t_swap;
+SELECT * FROM t_swap ORDER BY a;
  a | b
 ---+---
  2 | 1
@@ -65,7 +65,7 @@ INSERT INTO t_err VALUES (1, 10, 'alice'), (2, NULL, 'bob');
 INSERT 2
 UPDATE t_err SET id = n;
 ERROR: 值与列类型不匹配
-SELECT * FROM t_err;
+SELECT * FROM t_err ORDER BY id;
  id |  n   | name
 ----+------+-------
  1  | 10   | alice
@@ -73,7 +73,7 @@ SELECT * FROM t_err;
 (2 行)
 UPDATE t_err SET id = n WHERE name = 'alice';
 UPDATE 1
-SELECT * FROM t_err;
+SELECT * FROM t_err ORDER BY id;
  id |  n   | name
 ----+------+-------
  2  | NULL | bob
@@ -81,7 +81,7 @@ SELECT * FROM t_err;
 (2 行)
 UPDATE t_err SET name = 'xx';
 UPDATE 2
-SELECT * FROM t_err;
+SELECT * FROM t_err ORDER BY id;
  id |  n   | name
 ----+------+------
  2  | NULL | xx

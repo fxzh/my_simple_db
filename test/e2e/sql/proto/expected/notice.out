@@ -16,9 +16,9 @@ DEBUG: 收到 SQL: INSERT INTO t_notice VALUES (2);
 DEBUG: 解析成功: INSERT INTO t_notice VALUES (2);
 DEBUG: 执行结果: INSERT 1
 INSERT 1
-SELECT * FROM t_notice;
-DEBUG: 收到 SQL: SELECT * FROM t_notice;
-DEBUG: 解析成功: SELECT * FROM t_notice;
+SELECT * FROM t_notice ORDER BY id;
+DEBUG: 收到 SQL: SELECT * FROM t_notice ORDER BY id;
+DEBUG: 解析成功: SELECT * FROM t_notice ORDER BY id;
 DEBUG: 执行结果: 返回 2 行
  id
 ----

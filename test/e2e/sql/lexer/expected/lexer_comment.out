@@ -5,27 +5,27 @@ INSERT INTO t_lc VALUES (1, 'a'); -- 行尾注释
 INSERT 1
 INSERT INTO t_lc VALUES (2, 'b'); /* 行尾块注释 */
 INSERT 1
-SELECT id, val FROM t_lc; /* 行内块注释 */
+SELECT id, val FROM t_lc ORDER BY id; /* 行内块注释 */
  id |       val
 ----+------------------
  1  | a               
  2  | b               
 (2 行)
-/* 含分号的块注释 ; */ SELECT id FROM t_lc;
+/* 含分号的块注释 ; */ SELECT id FROM t_lc ORDER BY id;
  id
 ----
  1
  2
 (2 行)
 /* 跨行
-块注释 */ SELECT val FROM t_lc;
+块注释 */ SELECT val FROM t_lc ORDER BY val;
        val
 ------------------
  a               
  b               
 (2 行)
 SELECT id -- 1
-FROM t_lc;
+FROM t_lc ORDER BY id;
  id
 ----
  1

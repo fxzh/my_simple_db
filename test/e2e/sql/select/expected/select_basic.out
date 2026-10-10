@@ -4,19 +4,19 @@ INSERT INTO t_score VALUES (1, 95.5);
 INSERT 1
 INSERT INTO t_score VALUES (2, 88.0);
 INSERT 1
-SELECT * FROM t_score;
+SELECT * FROM t_score ORDER BY id;
  id | score
 ----+-------
  1  | 95.5
  2  | 88
 (2 行)
-SELECT id, score FROM t_score;
+SELECT id, score FROM t_score ORDER BY id;
  id | score
 ----+-------
  1  | 95.5
  2  | 88
 (2 行)
-SELECT id AS user_id, score * 2 FROM t_score;
+SELECT id AS user_id, score * 2 FROM t_score ORDER BY id;
  user_id | (score * 2)
 ---------+-------------
  1       | 191

@@ -1,9 +1,9 @@
 CREATE TABLE t_score (id int, score double);
 INSERT INTO t_score VALUES (1, 95.5);
 INSERT INTO t_score VALUES (2, 88.0);
-SELECT * FROM t_score;
-SELECT id, score FROM t_score;
-SELECT id AS user_id, score * 2 FROM t_score;
+SELECT * FROM t_score ORDER BY id;
+SELECT id, score FROM t_score ORDER BY id;
+SELECT id AS user_id, score * 2 FROM t_score ORDER BY id;
 SELECT 1 + 2 * 3, 'hi', 7.5 FROM t_score;
 -- 常量折叠: 整型除法截断/浮点提升/NULL 传播
 SELECT 7 / 2, 1.0 + 1, 1 + NULL FROM t_score;

@@ -24,7 +24,7 @@ DELETE FROM t_d WHERE nosuch = 1;
 ERROR: 列不存在: nosuch
 DELETE FROM t_d WHERE v >= 30;
 DELETE 2
-SELECT * FROM t_d;
+SELECT * FROM t_d ORDER BY id;
  id | v
 ----+----
  1  | 10
@@ -35,7 +35,7 @@ DELETE 0
 -- 恒假条件删除: 0 行
 DELETE FROM t_d WHERE false;
 DELETE 0
-SELECT * FROM t_d;
+SELECT * FROM t_d ORDER BY id;
  id | v
 ----+----
  1  | 10

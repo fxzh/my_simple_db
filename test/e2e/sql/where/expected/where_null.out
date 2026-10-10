@@ -6,7 +6,7 @@ INSERT INTO t_n VALUES (2, NULL);
 INSERT 1
 INSERT INTO t_n VALUES (3, 30);
 INSERT 1
-SELECT id FROM t_n WHERE v > 5;
+SELECT id FROM t_n WHERE v > 5 ORDER BY id;
  id
 ----
  1
@@ -15,7 +15,7 @@ SELECT id FROM t_n WHERE v > 5;
 SELECT id FROM t_n WHERE NOT (v > 5);
  id
 (0 行)
-SELECT id FROM t_n WHERE v > 5 OR v IS NULL;
+SELECT id FROM t_n WHERE v > 5 OR v IS NULL ORDER BY id;
  id
 ----
  1
@@ -27,7 +27,7 @@ SELECT id FROM t_n WHERE v IS NULL;
 ----
  2
 (1 行)
-SELECT id FROM t_n WHERE v IS NOT NULL;
+SELECT id FROM t_n WHERE v IS NOT NULL ORDER BY id;
  id
 ----
  1

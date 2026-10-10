@@ -44,7 +44,7 @@ CREATE INDEX idx_h ON idx_t (id);
 ERROR: 事务内不允许 DDL 或 SET 语句, 事务已回滚
 CREATE INDEX idx_a ON idx_t (score);
 CREATE
-SELECT * FROM idx_t;
+SELECT * FROM idx_t ORDER BY id;
  id | name | score
 ----+------+-------
  1  | a    | 1.5

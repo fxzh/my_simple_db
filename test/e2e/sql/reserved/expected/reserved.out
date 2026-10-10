@@ -59,43 +59,43 @@ SELECT * FROM t_reserved;
 ----
  7
 (1 行)
-SELECT table_name FROM system.db_table;
+SELECT table_name FROM system.db_table ORDER BY table_name;
  table_name
 ------------
- db_table
  db_column
- db_schema
  db_index
+ db_schema
+ db_table
  db_version
  t_reserved
 (6 行)
-SELECT col_name, ordinal, type, length, not_null FROM system.db_column;
+SELECT col_name, ordinal, type, length, not_null FROM system.db_column ORDER BY col_name, ordinal;
   col_name   | ordinal | type | length | not_null
 -------------+---------+------+--------+----------
- table_id    | 0       | 2    | 0      | 1
- table_name  | 1       | 4    | 64     | 1
- file_id     | 2       | 2    | 0      | 1
- schema_id   | 3       | 2    | 0      | 1
- table_id    | 0       | 2    | 0      | 1
  col_name    | 1       | 4    | 64     | 1
- ordinal     | 2       | 1    | 0      | 1
- type        | 3       | 1    | 0      | 1
+ col_ordinal | 2       | 1    | 0      | 1
+ file_id     | 2       | 2    | 0      | 1
+ file_id     | 3       | 2    | 0      | 1
+ id          | 0       | 1    | 0      | 0
+ index_name  | 1       | 4    | 64     | 1
  length      | 4       | 1    | 0      | 1
  not_null    | 5       | 1    | 0      | 1
+ ordinal     | 2       | 1    | 0      | 1
  schema_id   | 0       | 2    | 0      | 1
+ schema_id   | 3       | 2    | 0      | 1
  schema_name | 1       | 4    | 64     | 1
  table_id    | 0       | 2    | 0      | 1
- index_name  | 1       | 4    | 64     | 1
- col_ordinal | 2       | 1    | 0      | 1
- file_id     | 3       | 2    | 0      | 1
+ table_id    | 0       | 2    | 0      | 1
+ table_id    | 0       | 2    | 0      | 1
+ table_name  | 1       | 4    | 64     | 1
+ type        | 3       | 1    | 0      | 1
  version     | 0       | 2    | 0      | 1
- id          | 0       | 1    | 0      | 0
 (18 行)
-SELECT schema_name FROM system.db_schema;
+SELECT schema_name FROM system.db_schema ORDER BY schema_name;
  schema_name
 -------------
- system
  public
+ system
 (2 行)
 SELECT * FROM system.db_index;
  table_id | index_name | col_ordinal | file_id
@@ -105,12 +105,12 @@ SELECT * FROM system.db_version;
 (0 行)
 DROP TABLE t_reserved;
 DROP
-SELECT table_name FROM system.db_table;
+SELECT table_name FROM system.db_table ORDER BY table_name;
  table_name
 ------------
- db_table
  db_column
- db_schema
  db_index
+ db_schema
+ db_table
  db_version
 (5 行)

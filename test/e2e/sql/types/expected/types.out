@@ -8,11 +8,11 @@ INSERT INTO t_types VALUES (2, 'abcdef', 'x');
 ERROR: 值与列类型不匹配
 INSERT INTO t_types VALUES (3, 'ok', '01234567890');
 ERROR: 值与列类型不匹配
-SELECT * FROM t_types;
+SELECT * FROM t_types ORDER BY id;
          id          |   c   |     v
 ---------------------+-------+------------
- 9223372036854775807 | abc   | hello
  1                   | abcde | 0123456789
+ 9223372036854775807 | abc   | hello
 (2 行)
 DROP TABLE t_types;
 DROP
@@ -25,12 +25,12 @@ INSERT INTO t_fd VALUES (1, 2.0);
 ERROR: 值与列类型不匹配
 INSERT INTO t_fd VALUES (390000000000000000000000000000000000000.0, 1.0);
 ERROR: 值与列类型不匹配
-SELECT * FROM t_fd;
+SELECT * FROM t_fd ORDER BY f;
   f   |  d
 ------+------
+ -2.5 | -2.5
  0.1  | 0.1
  1    | 1
- -2.5 | -2.5
  NULL | NULL
 (4 行)
 DROP TABLE t_fd;

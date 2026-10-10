@@ -21,7 +21,7 @@ CREATE INDEX idx_a ON idx_u (v);
 BEGIN;
 CREATE INDEX idx_h ON idx_t (id);
 CREATE INDEX idx_a ON idx_t (score);
-SELECT * FROM idx_t;
+SELECT * FROM idx_t ORDER BY id;
 DROP TABLE idx_u;
 DROP TABLE idx_t;
 SELECT * FROM system.db_index;

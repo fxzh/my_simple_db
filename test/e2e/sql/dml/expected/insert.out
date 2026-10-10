@@ -18,13 +18,13 @@ INSERT INTO t_nullable VALUES (2, 'bob', NULL);
 INSERT 1
 INSERT INTO t_nullable VALUES (NULL, 'carol', 75.0);
 INSERT 1
-SELECT * FROM t_nullable;
+SELECT * FROM t_nullable ORDER BY id, name;
   id  | name  | score
 ------+-------+-------
  1    | alice | 90.5
- NULL | NULL  | NULL
  2    | bob   | NULL
  NULL | carol | 75
+ NULL | NULL  | NULL
 (4 行)
 INSERT INTO t_nullable VALUES (NULL + 1, 'dave', 60.0);
 INSERT 1
@@ -34,27 +34,27 @@ INSERT INTO t_nullable VALUES (-NULL, 'frank', 50.0);
 INSERT 1
 INSERT INTO t_nullable VALUES ('abc' + NULL, 'gina', 45.0);
 ERROR: 算术运算操作数不是数值
-SELECT id + 1 FROM t_nullable;
+SELECT id + 1 FROM t_nullable ORDER BY id;
  (id + 1)
 ----------
  2
- NULL
  3
  NULL
  NULL
  NULL
  NULL
+ NULL
 (7 行)
-SELECT * FROM t_nullable;
+SELECT * FROM t_nullable ORDER BY id, name;
   id  | name  | score
 ------+-------+-------
  1    | alice | 90.5
- NULL | NULL  | NULL
  2    | bob   | NULL
  NULL | carol | 75
  NULL | dave  | 60
  NULL | eve   | 55.5
  NULL | frank | 50
+ NULL | NULL  | NULL
 (7 行)
 DROP TABLE t_nullable;
 DROP
@@ -74,16 +74,16 @@ INSERT INTO t_cols (score, id) VALUES (50.0, 3);
 INSERT 1
 INSERT INTO t_cols (id, score) VALUES (4, 10 + 5.5);
 INSERT 1
-SELECT * FROM t_cols;
+SELECT * FROM t_cols ORDER BY id, name, score;
   id  | name  | score
 ------+-------+-------
  1    | alice | 90.5
  2    | NULL  | NULL
+ 3    | NULL  | 50
+ 4    | NULL  | 15.5
  NULL | bob   | 60.5
  NULL | NULL  | 75
  NULL | NULL  | NULL
- 3    | NULL  | 50
- 4    | NULL  | 15.5
 (7 行)
 DROP TABLE t_cols;
 DROP
@@ -95,16 +95,16 @@ INSERT INTO t_multi VALUES (4, 'dave', NULL), (NULL, NULL, NULL);
 INSERT 2
 INSERT INTO t_multi VALUES (5, 'eve', 50 + 25.5), (6, 'frank', NULL / 0);
 INSERT 2
-SELECT * FROM t_multi;
+SELECT * FROM t_multi ORDER BY id;
   id  | name  | score
 ------+-------+-------
  1    | alice | 90.5
  2    | bob   | 60
  3    | carol | 75.5
  4    | dave  | NULL
- NULL | NULL  | NULL
  5    | eve   | 75.5
  6    | frank | NULL
+ NULL | NULL  | NULL
 (7 行)
 INSERT INTO t_multi VALUES (7), (8, 'gina', 40.0);
 ERROR: 值的数量与列数不符
@@ -114,18 +114,18 @@ INSERT INTO t_multi (id, score) VALUES (11, 1.0), (12, 2.0);
 INSERT 2
 INSERT INTO t_multi (id, score) VALUES (14, 4.0), (15);
 ERROR: 值的数量与列数不符
-SELECT * FROM t_multi;
+SELECT * FROM t_multi ORDER BY id;
   id  | name  | score
 ------+-------+-------
  1    | alice | 90.5
  2    | bob   | 60
  3    | carol | 75.5
  4    | dave  | NULL
- NULL | NULL  | NULL
  5    | eve   | 75.5
  6    | frank | NULL
  11   | NULL  | 1
  12   | NULL  | 2
+ NULL | NULL  | NULL
 (9 行)
 DROP TABLE t_multi;
 DROP

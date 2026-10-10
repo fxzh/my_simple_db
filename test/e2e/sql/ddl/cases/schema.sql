@@ -1,7 +1,7 @@
 -- create/drop schema 生命周期与重名/保护行为
 CREATE SCHEMA s_test;
 CREATE SCHEMA s_test;
-SELECT schema_name FROM system.db_schema;
+SELECT schema_name FROM system.db_schema ORDER BY schema_name;
 DROP SCHEMA system;
 DROP SCHEMA s_test;
 DROP SCHEMA s_test;
