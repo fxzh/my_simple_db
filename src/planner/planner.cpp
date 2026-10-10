@@ -11,10 +11,12 @@ namespace pl {
 
 namespace {
 
-// SELECT → Project([Filter](行源)), 无 WHERE 省 Filter
+// SELECT → [Sort](Project([Sort]([Filter](行源)))), 无 WHERE 省 Filter;
+// 键全命中输出列时排序在投影后, 否则在投影前
 std::unique_ptr<PlanNode> build_select(std::unique_ptr<PlanNode> input,
                                        std::unique_ptr<ana::BoundExpr> where,
-                                       std::vector<ana::ProjCol>&& projs)
+                                       std::vector<ana::ProjCol>&& projs,
+                                       std::vector<ana::BoundOrderItem>&& orders, bool sort_on_output)
 {
     if (where != nullptr) {
         auto filter = std::make_unique<FilterPlan>();
@@ -23,10 +25,27 @@ std::unique_ptr<PlanNode> build_select(std::unique_ptr<PlanNode> input,
         input = std::move(filter);
     }
 
+    const bool has_orders = !orders.empty();
+    if (has_orders && !sort_on_output) {
+        auto sort = std::make_unique<SortPlan>();
+        sort->orders = std::move(orders);
+        sort->child = std::move(input);
+        input = std::move(sort);
+    }
+
     auto project = std::make_unique<ProjectPlan>();
     project->projs = std::move(projs);
     project->child = std::move(input);
-    return project;
+    input = std::move(project);
+
+    if (has_orders && sort_on_output) {
+        auto sort = std::make_unique<SortPlan>();
+        sort->orders = std::move(orders);
+        sort->sort_on_output = true;
+        sort->child = std::move(input);
+        input = std::move(sort);
+    }
+    return input;
 }
 
 }  // namespace
@@ -114,20 +133,15 @@ std::unique_ptr<PlanNode> build(ana::BoundStmt& bound)
     }
     case ana::BoundKind::Select: {
         auto& bs = static_cast<ana::BoundSelect&>(bound);
-        if (!bs.orders.empty()) {
-            DB_RAISE(db::ErrCode::NotImplemented, LogModule::PLANNER, "select 排序尚未支持");
-        }
         auto scan = std::make_unique<SeqScanPlan>();
         scan->table = bs.table;
-        return build_select(std::move(scan), std::move(bs.where), std::move(bs.projs));
+        return build_select(std::move(scan), std::move(bs.where), std::move(bs.projs),
+                            std::move(bs.orders), bs.sort_on_output);
     }
     case ana::BoundKind::SelectNoFrom: {
         auto& bs = static_cast<ana::BoundSelectNoFrom&>(bound);
-        if (!bs.orders.empty()) {
-            DB_RAISE(db::ErrCode::NotImplemented, LogModule::PLANNER, "select 排序尚未支持");
-        }
         return build_select(std::make_unique<DummyScanPlan>(), std::move(bs.where),
-                            std::move(bs.projs));
+                            std::move(bs.projs), std::move(bs.orders), bs.sort_on_output);
     }
     case ana::BoundKind::Set: {
         const auto& bs = static_cast<const ana::BoundSet&>(bound);

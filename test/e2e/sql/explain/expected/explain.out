@@ -221,5 +221,43 @@ BEGIN;
 BEGIN
 EXPLAIN CREATE TABLE t_txn (a int);
 ERROR: 事务内不允许 DDL 或 SET 语句, 事务已回滚
+-- 排序计划: 键命中输出列在投影后, 行上下文键在投影前
+EXPLAIN SELECT a, b FROM t_ex ORDER BY a DESC, b;
+             QUERY PLAN
+-------------------------------------
+ Sort
+   Sort Key: a DESC, b
+   ->  Project
+         Output: a, b
+         ->  Seq Scan on public.t_ex
+(5 行)
+EXPLAIN SELECT a FROM t_ex WHERE a > 0 ORDER BY b + 1;
+                QUERY PLAN
+-------------------------------------------
+ Project
+   Output: a
+   ->  Sort
+         Sort Key: (b + 1)
+         ->  Filter: (a > 0)
+               ->  Seq Scan on public.t_ex
+(6 行)
+EXPLAIN SELECT a FROM t_ex ORDER BY a + b;
+             QUERY PLAN
+-------------------------------------
+ Project
+   Output: a
+   ->  Sort
+         Sort Key: (a + b)
+         ->  Seq Scan on public.t_ex
+(5 行)
+EXPLAIN SELECT 1 AS x ORDER BY x;
+       QUERY PLAN
+------------------------
+ Sort
+   Sort Key: x
+   ->  Project
+         Output: x
+         ->  Dummy Scan
+(5 行)
 DROP TABLE t_ex;
 DROP

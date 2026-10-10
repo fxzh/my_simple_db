@@ -9,7 +9,7 @@
 
 namespace pl {
 
-// 生成一条语句的计划: select → Project(Filter(SeqScan))(无 WHERE 省 Filter),
+// 生成一条语句的计划: select → [Sort](Project([Sort]([Filter](SeqScan))))(无 WHERE/排序省对应节点),
 // delete 带 WHERE → Delete(Filter(SeqScan))(无 WHERE 为无 child 叶子), 其余为叶子计划;
 // 计划构建移动消费绑定语句的容器字段(投影列/绑定树/值列表/列规格), 绑定语句之后不可再用
 std::unique_ptr<PlanNode> build(ana::BoundStmt& bound);

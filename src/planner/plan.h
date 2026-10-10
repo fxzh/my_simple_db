@@ -13,7 +13,7 @@ namespace pl {
 
 // 计划节点种类, 供执行层按类型分派
 enum class PlanKind {
-    SeqScan, DummyScan, Filter, Project, Empty, Insert, Delete, Update, CreateTable, DropTable,
+    SeqScan, DummyScan, Filter, Project, Sort, Empty, Insert, Delete, Update, CreateTable, DropTable,
     CreateSchema, DropSchema, CreateIndex, DropIndex, Set, Explain,
 };
 
@@ -46,6 +46,15 @@ struct ProjectPlan : PlanNode {
     std::unique_ptr<PlanNode> child;
     std::vector<ana::ProjCol> projs;
     PlanKind kind() const override { return PlanKind::Project; }
+};
+
+// 排序: 物化子树全部行, 按键排序后输出; sort_on_output 为 true 时键取子行输出列下标
+// (挂 Project 之上), 为 false 时键为行上下文表达式(挂 Project 之下, 对原始行求值)
+struct SortPlan : PlanNode {
+    std::unique_ptr<PlanNode> child;
+    std::vector<ana::BoundOrderItem> orders;
+    bool sort_on_output = false;
+    PlanKind kind() const override { return PlanKind::Sort; }
 };
 
 // 空结果: 恒不满足的过滤子树剪枝产物, 恒 0 行

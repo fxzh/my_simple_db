@@ -69,6 +69,9 @@ void prune_filter(std::unique_ptr<PlanNode>& plan)
     case PlanKind::Project:
         prune_filter(static_cast<ProjectPlan&>(*plan).child);
         return;
+    case PlanKind::Sort:
+        prune_filter(static_cast<SortPlan&>(*plan).child);
+        return;
     case PlanKind::Delete: {
         auto& d = static_cast<DeletePlan&>(*plan);
         if (d.child != nullptr) {  // child 为空表示全表删除

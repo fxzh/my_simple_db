@@ -122,6 +122,16 @@ void fold_const(pl::PlanNode& plan)
         fold_const(*p.child);
         return;
     }
+    case pl::PlanKind::Sort: {
+        auto& s = static_cast<pl::SortPlan&>(plan);
+        if (!s.sort_on_output) {  // 输出列下标键无表达式
+            for (ana::BoundOrderItem& o : s.orders) {
+                fold_expr(o.expr);
+            }
+        }
+        fold_const(*s.child);
+        return;
+    }
     case pl::PlanKind::Insert: {
         auto& ip = static_cast<pl::InsertPlan&>(plan);
         for (std::vector<std::unique_ptr<ana::BoundExpr>>& row : ip.rows) {

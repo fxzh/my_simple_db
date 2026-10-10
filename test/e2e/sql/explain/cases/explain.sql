@@ -42,4 +42,9 @@ EXPLAIN UPDATE t_ex SET b = 1.0 WHERE false;
 -- 事务内解释 DDL: 拒绝并回滚
 BEGIN;
 EXPLAIN CREATE TABLE t_txn (a int);
+-- 排序计划: 键命中输出列在投影后, 行上下文键在投影前
+EXPLAIN SELECT a, b FROM t_ex ORDER BY a DESC, b;
+EXPLAIN SELECT a FROM t_ex WHERE a > 0 ORDER BY b + 1;
+EXPLAIN SELECT a FROM t_ex ORDER BY a + b;
+EXPLAIN SELECT 1 AS x ORDER BY x;
 DROP TABLE t_ex;

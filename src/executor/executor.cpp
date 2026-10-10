@@ -33,7 +33,12 @@ ExecResult tag_result(proto::CommandTag tag, uint64_t count)
 // SELECT 执行: 建算子并 open, 计划树随行携带(算子引用其中数据), 行由调用方经 next 逐行拉取
 ExecResult run_select(ct::Catalog& db, std::unique_ptr<pl::PlanNode> plan)
 {
-    const auto& pp = static_cast<const pl::ProjectPlan&>(*plan);
+    // 根为 Sort 时其子节点必为 Project(键命中输出列的排序在投影后)
+    const pl::PlanNode* root = plan.get();
+    if (root->kind() == pl::PlanKind::Sort) {
+        root = static_cast<const pl::SortPlan&>(*root).child.get();
+    }
+    const auto& pp = static_cast<const pl::ProjectPlan&>(*root);
     ExecResult result;
     result.is_result_set = true;
     result.col_names.reserve(pp.projs.size());
@@ -41,7 +46,7 @@ ExecResult run_select(ct::Catalog& db, std::unique_ptr<pl::PlanNode> plan)
         result.col_names.push_back(p.name);
     }
     result.plan = std::move(plan);
-    result.stream = make_operator(db, pp);
+    result.stream = make_operator(db, *result.plan);
     result.stream->open();
     return result;
 }
@@ -151,6 +156,7 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt, const std::string&
         return tag_result(proto::CommandTag::Update, run_update(db, p));
     }
     case pl::PlanKind::Project:
+    case pl::PlanKind::Sort:
         return run_select(db, std::move(plan));
     case pl::PlanKind::Explain:
         return run_explain(static_cast<const pl::ExplainPlan&>(*plan));

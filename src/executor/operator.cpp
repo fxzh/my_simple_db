@@ -1,6 +1,7 @@
-// operator.cpp: 迭代子算子实现: 顺序扫描/过滤/投影
+// operator.cpp: 迭代子算子实现: 顺序扫描/过滤/投影/排序
 #include "operator.h"
 
+#include <algorithm>
 #include <memory>
 #include <string>
 #include <utility>
@@ -100,6 +101,64 @@ struct ProjectOp : Operator {
     void close() override { child->close(); }
 };
 
+// 排序: open 时物化子行并预计算键值, 排序后顺序吐出; 同键行相对次序不保证
+struct SortOp : Operator {
+    using RowKeys = std::pair<st::Row, std::vector<st::Value>>;
+
+    std::unique_ptr<Operator> child;
+    const pl::SortPlan& plan;
+    std::vector<RowKeys> rows;  // 物化行 + 预计算键值
+    size_t pos = 0;
+
+    SortOp(std::unique_ptr<Operator> child_, const pl::SortPlan& plan_)
+        : child(std::move(child_)), plan(plan_) {}
+
+    // 键序列比较: 逐键三向比较, desc 键取反, 全相等视为相等
+    static bool key_less(const RowKeys& l, const RowKeys& r,
+                         const std::vector<ana::BoundOrderItem>& orders)
+    {
+        for (size_t i = 0; i < orders.size(); ++i) {
+            int c = expr::value_cmp(l.second[i], r.second[i]);
+            if (orders[i].desc) {
+                c = -c;
+            }
+            if (c != 0) {
+                return c < 0;
+            }
+        }
+        return false;
+    }
+
+    void open() override
+    {
+        child->open();
+        rows.clear();
+        st::Row row;
+        while (child->next(&row)) {
+            std::vector<st::Value> keys;
+            keys.reserve(plan.orders.size());
+            for (const ana::BoundOrderItem& o : plan.orders) {
+                keys.push_back(plan.sort_on_output ? row.values[o.out_idx]
+                                                   : expr::eval_row(*o.expr, row));
+            }
+            rows.emplace_back(std::move(row), std::move(keys));
+            row = st::Row{};
+        }
+        std::sort(rows.begin(), rows.end(),
+                  [this](const RowKeys& l, const RowKeys& r) { return key_less(l, r, plan.orders); });
+        pos = 0;
+    }
+    bool next(st::Row* out) override
+    {
+        if (pos >= rows.size()) {
+            return false;
+        }
+        *out = rows[pos++].first;
+        return true;
+    }
+    void close() override { child->close(); }
+};
+
 }  // namespace
 
 std::unique_ptr<Operator> make_operator(ct::Catalog& db, const pl::PlanNode& node)
@@ -120,6 +179,10 @@ std::unique_ptr<Operator> make_operator(ct::Catalog& db, const pl::PlanNode& nod
     case pl::PlanKind::Project: {
         const auto& p = static_cast<const pl::ProjectPlan&>(node);
         return std::make_unique<ProjectOp>(make_operator(db, *p.child), p.projs);
+    }
+    case pl::PlanKind::Sort: {
+        const auto& p = static_cast<const pl::SortPlan&>(node);
+        return std::make_unique<SortOp>(make_operator(db, *p.child), p);
     }
     default:
         break;

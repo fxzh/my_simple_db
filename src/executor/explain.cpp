@@ -102,7 +102,8 @@ std::vector<std::string> table_col_names(const ct::TableHandle& table)
     return names;
 }
 
-// 节点输出列名序列: 供谓词/赋值的列引用回填文本; 过滤节点透传子节点输出
+// 节点输出列名序列: 供谓词/排序键/赋值的列引用回填文本; 过滤/排序节点透传子节点输出,
+// 投影节点取投影列名
 std::vector<std::string> output_names(const pl::PlanNode& node)
 {
     switch (node.kind()) {
@@ -112,6 +113,17 @@ std::vector<std::string> output_names(const pl::PlanNode& node)
         return {};  // 单行零列, 谓词不含列引用
     case pl::PlanKind::Filter:
         return output_names(*static_cast<const pl::FilterPlan&>(node).child);
+    case pl::PlanKind::Project: {
+        const auto& p = static_cast<const pl::ProjectPlan&>(node);
+        std::vector<std::string> names;
+        names.reserve(p.projs.size());
+        for (const ana::ProjCol& c : p.projs) {
+            names.push_back(c.name);
+        }
+        return names;
+    }
+    case pl::PlanKind::Sort:
+        return output_names(*static_cast<const pl::SortPlan&>(node).child);
     default:
         break;
     }
@@ -135,6 +147,8 @@ std::string node_header(const pl::PlanNode& node)
     }
     case pl::PlanKind::Project:
         return "Project";
+    case pl::PlanKind::Sort:
+        return "Sort";
     case pl::PlanKind::Insert:
         return "Insert on " + static_cast<const pl::InsertPlan&>(node).table.display;
     case pl::PlanKind::Delete:
@@ -185,6 +199,23 @@ std::vector<std::string> node_props(const pl::PlanNode& node)
         props.push_back("Output: " + out);
         break;
     }
+    case pl::PlanKind::Sort: {
+        const auto& p = static_cast<const pl::SortPlan&>(node);
+        const std::vector<std::string> names = output_names(*p.child);
+        std::string out;
+        for (size_t i = 0; i < p.orders.size(); ++i) {
+            if (i > 0) {
+                out += ", ";
+            }
+            out += p.sort_on_output ? names[p.orders[i].out_idx]
+                                    : bound_expr_to_string(*p.orders[i].expr, names);
+            if (p.orders[i].desc) {
+                out += " DESC";
+            }
+        }
+        props.push_back("Sort Key: " + out);
+        break;
+    }
     case pl::PlanKind::Update: {
         const auto& p = static_cast<const pl::UpdatePlan&>(node);
         const std::vector<std::string> names = table_col_names(p.table);
@@ -220,6 +251,8 @@ void render_node(const pl::PlanNode& node, const std::string& node_prefix, size_
         child = static_cast<const pl::FilterPlan&>(node).child.get();
     } else if (node.kind() == pl::PlanKind::Project) {
         child = static_cast<const pl::ProjectPlan&>(node).child.get();
+    } else if (node.kind() == pl::PlanKind::Sort) {
+        child = static_cast<const pl::SortPlan&>(node).child.get();
     } else if (node.kind() == pl::PlanKind::Delete) {
         const auto& p = static_cast<const pl::DeletePlan&>(node);
         child = p.child.get();  // 全表删除无子树
