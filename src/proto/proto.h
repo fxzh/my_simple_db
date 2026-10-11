@@ -443,7 +443,7 @@ enum class WireErrCode : uint16_t {
     SchemaNotFound = 9, // schema 不存在
     SchemaExists = 10,  // schema 已存在
     SchemaNotEmpty = 11, // 非空 schema 禁止删除
-    ProtectedTable = 12, // 保留段表禁止删除
+    ProtectedTable = 12, // 保留表禁止修改
     InvalidDdl = 13,     // 建表参数非法
     ValueMismatch = 14,  // 插入值与列类型不匹配
     RecordTooLong = 15,  // 记录超长

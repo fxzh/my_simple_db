@@ -33,7 +33,7 @@ enum class ErrCode {
     SchemaNotEmpty, // 非空 schema 禁止删除
     IndexExists,    // 索引已存在
     IndexNotFound,  // 索引不存在
-    ProtectedTable, // 保留段表禁止删除
+    ProtectedTable, // 保留表禁止修改
     InvalidDdl,     // 建表参数非法
     ValueMismatch,  // 插入值与列类型不匹配
     RecordTooLong,  // 记录超长

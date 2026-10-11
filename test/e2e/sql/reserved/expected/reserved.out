@@ -1,4 +1,4 @@
--- 元数据同名表在 public 下可建可用, system 名下 create 报已存在且 drop/insert/delete 拦截
+-- 元数据同名表在 public 下可建可用, system 名下一律拦截
 CREATE TABLE db_table (id int);
 CREATE
 INSERT INTO db_table VALUES (1);
@@ -11,53 +11,58 @@ SELECT * FROM db_table;
 DROP TABLE db_table;
 DROP
 CREATE TABLE system.db_table (id int);
-ERROR: 表已存在: system.db_table
+ERROR: system schema 禁止修改: system.db_table
 CREATE TABLE system.db_column (id int);
-ERROR: 表已存在: system.db_column
+ERROR: system schema 禁止修改: system.db_column
 CREATE TABLE system.db_schema (id int);
-ERROR: 表已存在: system.db_schema
+ERROR: system schema 禁止修改: system.db_schema
 DROP TABLE system.db_table;
-ERROR: 保留表名禁止使用: system.db_table
+ERROR: system schema 禁止修改: system.db_table
 DROP TABLE system.db_column;
-ERROR: 保留表名禁止使用: system.db_column
+ERROR: system schema 禁止修改: system.db_column
 DROP TABLE system.db_schema;
-ERROR: 保留表名禁止使用: system.db_schema
+ERROR: system schema 禁止修改: system.db_schema
 INSERT INTO system.db_table VALUES (1, 'x');
-ERROR: 保留表名禁止使用: system.db_table
+ERROR: system schema 禁止修改: system.db_table
 INSERT INTO system.db_column VALUES (1, 'x', 0, 1, 0, 1);
-ERROR: 保留表名禁止使用: system.db_column
+ERROR: system schema 禁止修改: system.db_column
 INSERT INTO system.db_schema VALUES (1, 'x');
-ERROR: 保留表名禁止使用: system.db_schema
+ERROR: system schema 禁止修改: system.db_schema
 DELETE FROM system.db_table;
-ERROR: 保留表名禁止使用: system.db_table
+ERROR: system schema 禁止修改: system.db_table
 DELETE FROM system.db_column;
-ERROR: 保留表名禁止使用: system.db_column
+ERROR: system schema 禁止修改: system.db_column
 DELETE FROM system.db_schema;
-ERROR: 保留表名禁止使用: system.db_schema
+ERROR: system schema 禁止修改: system.db_schema
 CREATE TABLE system.db_index (id int);
-ERROR: 表已存在: system.db_index
+ERROR: system schema 禁止修改: system.db_index
 CREATE TABLE system.db_version (id int);
-ERROR: 表已存在: system.db_version
+ERROR: system schema 禁止修改: system.db_version
 CREATE TABLE system.db_func (id int);
-ERROR: 表已存在: system.db_func
+ERROR: system schema 禁止修改: system.db_func
 DROP TABLE system.db_index;
-ERROR: 保留表名禁止使用: system.db_index
+ERROR: system schema 禁止修改: system.db_index
 DROP TABLE system.db_version;
-ERROR: 保留表名禁止使用: system.db_version
+ERROR: system schema 禁止修改: system.db_version
 DROP TABLE system.db_func;
-ERROR: 保留表名禁止使用: system.db_func
+ERROR: system schema 禁止修改: system.db_func
 INSERT INTO system.db_index VALUES (1);
-ERROR: 保留表名禁止使用: system.db_index
+ERROR: system schema 禁止修改: system.db_index
 INSERT INTO system.db_version VALUES (1);
-ERROR: 保留表名禁止使用: system.db_version
+ERROR: system schema 禁止修改: system.db_version
 INSERT INTO system.db_func VALUES (1);
-ERROR: 保留表名禁止使用: system.db_func
+ERROR: system schema 禁止修改: system.db_func
 DELETE FROM system.db_index;
-ERROR: 保留表名禁止使用: system.db_index
+ERROR: system schema 禁止修改: system.db_index
 DELETE FROM system.db_version;
-ERROR: 保留表名禁止使用: system.db_version
+ERROR: system schema 禁止修改: system.db_version
 DELETE FROM system.db_func;
-ERROR: 保留表名禁止使用: system.db_func
+ERROR: system schema 禁止修改: system.db_func
+-- system 名下任意表名与 update 同样拦截
+CREATE TABLE system.t_sys (id int);
+ERROR: system schema 禁止修改: system.t_sys
+UPDATE system.db_func SET func_name = 'x';
+ERROR: system schema 禁止修改: system.db_func
 CREATE TABLE t_reserved (id int);
 CREATE
 INSERT INTO t_reserved VALUES (7);

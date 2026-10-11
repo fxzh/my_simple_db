@@ -1,4 +1,4 @@
--- 元数据同名表在 public 下可建可用, system 名下 create 报已存在且 drop/insert/delete 拦截
+-- 元数据同名表在 public 下可建可用, system 名下一律拦截
 CREATE TABLE db_table (id int);
 INSERT INTO db_table VALUES (1);
 SELECT * FROM db_table;
@@ -27,6 +27,9 @@ INSERT INTO system.db_func VALUES (1);
 DELETE FROM system.db_index;
 DELETE FROM system.db_version;
 DELETE FROM system.db_func;
+-- system 名下任意表名与 update 同样拦截
+CREATE TABLE system.t_sys (id int);
+UPDATE system.db_func SET func_name = 'x';
 CREATE TABLE t_reserved (id int);
 INSERT INTO t_reserved VALUES (7);
 SELECT * FROM t_reserved;

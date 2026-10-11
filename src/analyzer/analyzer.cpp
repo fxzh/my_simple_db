@@ -512,17 +512,11 @@ std::vector<std::unique_ptr<BoundExpr>> bind_insert_row(
     return row;
 }
 
-// 保留表名拦截: system schema 下的元数据表禁止 drop/insert/delete/update
-// (select 可查元数据, create 由 schema 内同名已存在拒绝; 其他 schema 同名表不受限)
+// system schema 拦截: 一切建改删语句拒绝(select 可查, 其他 schema 同名表不受限)
 void check_reserved_table(const ct::TableRef& table)
 {
-    if (table.schema != ct::kSystemSchemaName) {
-        return;
-    }
-    if (table.name == ct::kTableMetaName || table.name == ct::kColumnMetaName
-        || table.name == ct::kSchemaMetaName || table.name == ct::kIndexMetaName
-        || table.name == ct::kVersionMetaName || table.name == ct::kFuncMetaName) {
-        DB_RAISE(db::ErrCode::ProtectedTable, LogModule::ANALYZER, "保留表名禁止使用: {}",
+    if (table.schema == ct::kSystemSchemaName) {
+        DB_RAISE(db::ErrCode::ProtectedTable, LogModule::ANALYZER, "system schema 禁止修改: {}",
                  table_ref_to_string(table));
     }
 }
@@ -695,8 +689,13 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
     switch (stmt.kind()) {
     case StmtKind::CreateTable: {
         const auto& cs = static_cast<const CreateTableStmt&>(stmt);
+        const ct::TableRef table = to_table_ref(cs.table_name(), current_schema);
+        // bootstrap 会话自举建 system 元数据表, 放行
+        if (!db.bootstrap_mode()) {
+            check_reserved_table(table);
+        }
         auto b = std::make_unique<BoundCreateTable>();
-        b->table = to_table_ref(cs.table_name(), current_schema);
+        b->table = table;
         convert_columns(cs.column_defs(), b->cols);
         return b;
     }
