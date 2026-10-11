@@ -50,6 +50,19 @@ bool write_pid_file(int pid_fd, pid_t pid)
     return ftruncate(pid_fd, 0) == 0 && pwrite(pid_fd, pid_str.data(), pid_str.size(), 0) >= 0;
 }
 
+// daemon 握手写入: 接收端(中间父进程)超时退出后 EPIPE 属预期, 忽略写入结果
+void daemon_notify(int fd, char tag, const std::string& msg)
+{
+    if (fd < 0) {
+        return;  // 前台模式无握手
+    }
+    ssize_t n = write(fd, &tag, 1);
+    if (!msg.empty()) {
+        n = write(fd, msg.data(), msg.size());
+    }
+    (void)n;
+}
+
 }  // namespace
 
 // 服务器主函数
@@ -156,21 +169,64 @@ int main(int argc, char* argv[])
     signal(SIGTERM, signal_handler);
     signal(SIGHUP, signal_handler);
 
-    // --daemon: fork 后父进程写 pidfile 退出, 子进程脱离会话与控制终端
+    // daemon 就绪/失败握手管道写端, daemon 子进程内有效, 前台恒为 -1
+    int daemon_notify_fd = -1;
+    // --daemon: fork 后父进程写 pidfile 并读握手结果, 子进程脱离会话与控制终端
     if (daemon_mode) {
+        int notify_pipe[2];
+        if (pipe(notify_pipe) != 0) {
+            DB_CRITICAL(SYSTEM, "创建握手管道失败: {}", std::strerror(errno));
+        }
         pid_t daemon_pid = fork();
         if (daemon_pid < 0) {
             DB_CRITICAL(SYSTEM, "daemon fork 失败");
         }
         if (daemon_pid > 0) {
-            // 父进程: 写 pidfile(子进程 pid) 后立即退出
+            // 父进程: 写 pidfile(子进程 pid) 后读握手结果
             if (!write_pid_file(pid_fd, daemon_pid)) {
                 kill(daemon_pid, SIGTERM);  // 终止刚 fork 的 daemon, 避免留下孤儿进程
                 DB_CRITICAL(SYSTEM, "写入 pidfile 失败: {}", std::strerror(errno));
             }
-            _exit(0);
+            close(notify_pipe[1]);
+            // 读握手(≤5s): R=就绪, F+消息=失败, EOF=子进程未通知即退出, 超时交 serverctl 轮询
+            pollfd npfd{notify_pipe[0], POLLIN, 0};
+            int pret = poll(&npfd, 1, 5000);
+            char tag = 0;
+            ssize_t n = -1;
+            if (pret > 0) {
+                do {
+                    n = read(notify_pipe[0], &tag, 1);
+                } while (n < 0 && errno == EINTR);
+            }
+            if (n == 1 && tag == 'R') {
+                _exit(0);
+            }
+            if (n == 1 && tag == 'F') {
+                std::string msg;
+                char buf[512];
+                while ((n = read(notify_pipe[0], buf, sizeof(buf))) > 0) {
+                    msg.append(buf, static_cast<size_t>(n));
+                }
+                std::cerr << msg << std::endl;  // 原因行, 结论行由 serverctl 输出
+                unlink(pidfile.c_str());
+                _exit(1);
+            }
+            if (n == 0) {
+                std::cerr << "daemon 进程异常退出, 原因见日志: " << log_path << std::endl;
+                unlink(pidfile.c_str());
+                _exit(1);
+            }
+            if (pret == 0 || (n < 0 && errno == EINTR) || (pret < 0 && errno == EINTR)) {
+                _exit(0);  // 超时/被打断: daemon 仍在启动(如长恢复), 交 serverctl 轮询
+            }
+            kill(daemon_pid, SIGTERM);  // 握手通道异常, daemon 状态未知, 终止防孤儿
+            std::cerr << "读握手失败: " << std::strerror(errno) << std::endl;
+            unlink(pidfile.c_str());
+            _exit(1);
         }
-        // 子进程(daemon): 脱离会话与控制终端
+        // 子进程(daemon): 关读端, 脱离会话与控制终端
+        close(notify_pipe[0]);
+        daemon_notify_fd = notify_pipe[1];
         if (setsid() < 0) {
             DB_CRITICAL(SYSTEM, "setsid 失败");
         }
@@ -194,10 +250,17 @@ int main(int argc, char* argv[])
         db.open();
     } catch (const db::DbError& e) {
         if (e.code() == db::ErrCode::CatalogMissing) {
-            std::cout << "数据目录未初始化, 请先执行 initdb" << std::endl;
+            if (daemon_notify_fd >= 0) {
+                daemon_notify(daemon_notify_fd, 'F', "数据目录未初始化, 请先执行 initdb");
+            } else {
+                std::cout << "数据目录未初始化, 请先执行 initdb" << std::endl;
+            }
+        } else {
+            daemon_notify(daemon_notify_fd, 'F', e.what());
         }
         DB_CRITICAL(SYSTEM, "打开数据目录失败: {}", e.what());
     } catch (const std::exception& e) {
+        daemon_notify(daemon_notify_fd, 'F', e.what());
         DB_CRITICAL(SYSTEM, "打开数据目录失败: {}", e.what());
     }
     std::cout << "已打开数据目录: " << data_dir << std::endl;
@@ -218,6 +281,9 @@ int main(int argc, char* argv[])
 
     // status 回复快照: 登记实际监听端口与就绪时刻
     set_control_status_info(listen_port);
+
+    // daemon 就绪握手: 通知中间父进程, 前台为空操作
+    daemon_notify(daemon_notify_fd, 'R', "");
 
     // 主循环: poll 双 socket(数据连接 + 控制连接)
     pollfd fds[2];
