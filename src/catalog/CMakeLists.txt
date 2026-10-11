@@ -3,6 +3,9 @@
 
 add_library(catalog STATIC
     catalog.cpp
+    catalog_ddl.cpp
+    catalog_dml.cpp
+    catalog_meta.cpp
 )
 
 target_include_directories(catalog PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
