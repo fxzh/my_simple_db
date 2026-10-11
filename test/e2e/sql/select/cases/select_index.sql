@@ -35,6 +35,10 @@ CREATE TABLE si_f (x float);
 CREATE INDEX si_fx ON si_f (x);
 INSERT INTO si_f VALUES (1.5);
 INSERT INTO si_f VALUES (2.5);
--- float 列不参与索引选择
-SELECT * FROM si_f WHERE x > 2.0;
+INSERT INTO si_f VALUES (0.1);
+-- float 列等值命中: 常量语境收窄为单精度, 不可精确表示的字面量也命中
+SELECT * FROM si_f WHERE x = 0.1;
+-- float 列区间命中
+SELECT * FROM si_f WHERE x > 0.5 ORDER BY x;
+EXPLAIN SELECT * FROM si_f WHERE x = 1.5;
 DROP TABLE si_f;

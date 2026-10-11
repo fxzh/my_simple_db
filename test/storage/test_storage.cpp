@@ -104,8 +104,8 @@ TEST_F(StorageDb, ReopenLifecycle)
                 {"grade", ColType::Char, 3},
         });
         const TableMeta t2_meta = db.table_meta({"system", "t2"});
-        db.insert(t2_meta,{double_val(0.5), char_val("A")});
-        db.insert(t2_meta,{double_val(-1.25), char_val("XYZ")});
+        db.insert(t2_meta,{float_val(0.5f), char_val("A")});
+        db.insert(t2_meta,{float_val(-1.25f), char_val("XYZ")});
         db.commit_txn();
         db.close();
     }
@@ -142,11 +142,11 @@ TEST_F(StorageDb, ReopenLifecycle)
             while (s->next(&r)) {
                 ++n2;
                 if (n2 == 1) {
-                    EXPECT_EQ(std::get<double>(r.values[0].box), 0.5);
+                    EXPECT_EQ(std::get<float>(r.values[0].box), 0.5f);
                     EXPECT_EQ(std::get<std::string>(r.values[1].box), "A  ");  // 定长补空格读出
                 }
                 if (n2 == 2) {
-                    EXPECT_EQ(std::get<double>(r.values[0].box), -1.25);
+                    EXPECT_EQ(std::get<float>(r.values[0].box), -1.25f);
                     EXPECT_EQ(std::get<std::string>(r.values[1].box), "XYZ");
                 }
             }

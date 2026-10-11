@@ -51,18 +51,18 @@ struct TableMeta {
     std::vector<ColumnSpec> cols;
 };
 
-// 行值: 语义类型 + 宽化存储; type 与 box 形态对应: Int/BigInt→int64_t,
-// Float/Double→double, Char/VarChar→string, Bool→bool; 构造一律走下方工厂, 禁止聚合直造,
+// 行值: 语义类型 + 存储形态; type 与 box 形态对应: Int/BigInt→int64_t,
+// Float→float, Double→double, Char/VarChar→string, Bool→bool; 构造一律走下方工厂, 禁止聚合直造,
 // 缺省即 (Null, monostate)
 struct Value {
     ColType type = ColType::Null;
-    std::variant<std::monostate, bool, int64_t, double, std::string> box;
+    std::variant<std::monostate, bool, int64_t, double, float, std::string> box;
 };
 
 // 值工厂: 类型与存储形态绑定, 防裸构造陷阱(字符串字面量会静默选中 bool 备选)
 inline Value int_val(int64_t v) { return Value{ColType::Int, v}; }
 inline Value bigint_val(int64_t v) { return Value{ColType::BigInt, v}; }
-inline Value float_val(double v) { return Value{ColType::Float, v}; }
+inline Value float_val(float v) { return Value{ColType::Float, v}; }
 inline Value double_val(double v) { return Value{ColType::Double, v}; }
 inline Value char_val(std::string v) { return Value{ColType::Char, std::move(v)}; }
 inline Value str_val(std::string v) { return Value{ColType::VarChar, std::move(v)}; }

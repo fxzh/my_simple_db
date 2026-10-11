@@ -14,14 +14,29 @@ namespace {
 
 st::Value eval_bound(const ana::BoundExpr& expr, const st::Row* row);
 
-// 数值转 double(整型提升), 非数值形态当场报错
+// 数值转 double(整型/单精度提升, 单精度宽化无损), 非数值形态当场报错
 double to_double(const st::Value& v)
 {
     if (const auto* d = std::get_if<double>(&v.box)) {
         return *d;
     }
+    if (const auto* f = std::get_if<float>(&v.box)) {
+        return static_cast<double>(*f);
+    }
     if (const auto* i = std::get_if<int64_t>(&v.box)) {
         return static_cast<double>(*i);
+    }
+    DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 数值操作数形态非法");
+}
+
+// 数值转 float(整型单次舍入, 不经 double 中转), 非数值形态当场报错
+float to_float(const st::Value& v)
+{
+    if (const auto* f = std::get_if<float>(&v.box)) {
+        return *f;
+    }
+    if (const auto* i = std::get_if<int64_t>(&v.box)) {
+        return static_cast<float>(*i);
     }
     DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 数值操作数形态非法");
 }
@@ -88,9 +103,11 @@ st::Value eval_neg(const ana::BoundNeg& e, const st::Row* row)
     if (is_null(v)) {
         return v;  // NULL 传播
     }
-    if (e.type == st::ColType::Float || e.type == st::ColType::Double) {
-        const double out = -to_double(v);  // 有限值取反仍有限
-        return e.type == st::ColType::Float ? st::float_val(out) : st::double_val(out);
+    if (e.type == st::ColType::Float) {
+        return st::float_val(-to_float(v));  // 有限值取反仍有限
+    }
+    if (e.type == st::ColType::Double) {
+        return st::double_val(-to_double(v));  // 有限值取反仍有限
     }
     const int64_t i = get_int(v);
     if (i == INT64_MIN || (e.type == st::ColType::Int && i == INT32_MIN)) {
@@ -109,7 +126,23 @@ st::Value eval_binary(const ana::BoundArith& e, const st::Row* row)
     if (is_null(lv) || is_null(rv)) {
         return st::Value{};  // NULL 传播, 短路于除零/溢出检查
     }
-    if (e.type == st::ColType::Float || e.type == st::ColType::Double) {
+    if (e.type == st::ColType::Float) {
+        // 单精度域逐运算舍入
+        const float l = to_float(lv);
+        const float r = to_float(rv);
+        float out = 0.0f;
+        switch (e.op) {
+        case '+': out = l + r; break;
+        case '-': out = l - r; break;
+        case '*': out = l * r; break;
+        case '/': out = l / r; break;
+        }
+        if (!std::isfinite(out)) {
+            DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "浮点运算溢出或除零");
+        }
+        return st::float_val(out);
+    }
+    if (e.type == st::ColType::Double) {
         double out = 0.0;
         switch (e.op) {
         case '+': out = to_double(lv) + to_double(rv); break;
@@ -120,7 +153,7 @@ st::Value eval_binary(const ana::BoundArith& e, const st::Row* row)
         if (!std::isfinite(out)) {
             DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "浮点运算溢出或除零");
         }
-        return e.type == st::ColType::Float ? st::float_val(out) : st::double_val(out);
+        return st::double_val(out);
     }
     const int64_t l = get_int(lv);
     const int64_t r = get_int(rv);

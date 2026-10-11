@@ -148,16 +148,12 @@ bool encode_row(const std::vector<ColumnSpec>& cols, const std::vector<Value>& v
                 break;
             }
             case ColType::Float: {
-                double v = 0.0;
-                if (!get_double(values[i], &v)) {
-                    return false;
-                }
-                const float f = static_cast<float>(v);
-                if (std::isfinite(v) && !std::isfinite(f)) {
-                    return false;  // 超出 float 可表示范围
+                const float* f = std::get_if<float>(&values[i].box);
+                if (f == nullptr || !std::isfinite(*f)) {
+                    return false;  // 形态不匹配或非有限值
                 }
                 uint32_t bits = 0;
-                std::memcpy(&bits, &f, sizeof(bits));
+                std::memcpy(&bits, f, sizeof(bits));
                 put_u32(out, bits);
                 break;
             }
@@ -271,7 +267,7 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
                 uint32_t bits = read_u32(data + pos);
                 float f = 0.0f;
                 std::memcpy(&f, &bits, sizeof(f));
-                out.push_back(float_val(static_cast<double>(f)));  // float→double 宽化无损
+                out.push_back(float_val(f));
                 pos += 4;
                 break;
             }

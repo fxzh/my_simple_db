@@ -1,8 +1,10 @@
 // executor.cpp: 执行层实现: 计划节点树转 catalog 调用
 #include "executor.h"
 
+#include <cmath>
 #include <cstdint>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "ast.hh"
@@ -26,6 +28,23 @@ ExecResult tag_result(proto::CommandTag tag, uint64_t count)
     r.tag = tag;
     r.count = count;
     return r;
+}
+
+// 写入列的值按列类型收窄: Float 列的 Double 值收为单精度, 不可表示当场报错, 其余原样
+st::Value coerce_col_value(const st::ColumnSpec& col, st::Value v)
+{
+    if (col.type != st::ColType::Float) {
+        return v;
+    }
+    const double* d = std::get_if<double>(&v.box);
+    if (d == nullptr) {
+        return v;
+    }
+    const float f = static_cast<float>(*d);
+    if (std::isfinite(*d) && !std::isfinite(f)) {
+        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXECUTOR, "浮点值超出 float 可表示范围");
+    }
+    return st::float_val(f);
 }
 
 // ==================== SELECT 执行 ====================
@@ -86,7 +105,8 @@ uint64_t run_update(ct::Catalog& db, const pl::UpdatePlan& up)
     for (const st::Row& old : olds) {
         std::vector<st::Value> vals = old.values;
         for (const ana::BoundUpdateItem& a : up.assigns) {
-            vals[a.col_idx] = expr::eval_row(*a.value, old);
+            vals[a.col_idx] = coerce_col_value(up.table.meta.cols[a.col_idx],
+                                               expr::eval_row(*a.value, old));
         }
         rows.push_back(ct::RowUpdate{old.ref, std::move(vals)});
     }
@@ -139,8 +159,9 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt, const std::string&
         for (const auto& plan_row : p.rows) {
             std::vector<st::Value> values;
             values.reserve(plan_row.size());
-            for (const auto& v : plan_row) {
-                values.push_back(expr::eval_const(*v));
+            for (size_t i = 0; i < plan_row.size(); ++i) {
+                values.push_back(coerce_col_value(p.table.meta.cols[i],
+                                                  expr::eval_const(*plan_row[i])));
             }
             db.insert(p.table.meta, values);
         }

@@ -30,10 +30,11 @@ struct BoundConst : BoundExpr {
     BoundExprKind kind() const override { return BoundExprKind::Const; }
 };
 
-// 列引用: 行内下标在绑定期固化
+// 列引用: 行内下标在绑定期固化, type 为列静态类型(供计划期语境判定)
 struct BoundColRef : BoundExpr {
     size_t col_idx = 0;
-    explicit BoundColRef(size_t idx) : col_idx(idx) {}
+    st::ColType type = st::ColType::Null;
+    BoundColRef(size_t idx, st::ColType t) : col_idx(idx), type(t) {}
     BoundExprKind kind() const override { return BoundExprKind::ColRef; }
 };
 

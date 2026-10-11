@@ -106,11 +106,29 @@ INSERT INTO si_f VALUES (1.5);
 INSERT 1
 INSERT INTO si_f VALUES (2.5);
 INSERT 1
--- float 列不参与索引选择
-SELECT * FROM si_f WHERE x > 2.0;
+INSERT INTO si_f VALUES (0.1);
+INSERT 1
+-- float 列等值命中: 常量语境收窄为单精度, 不可精确表示的字面量也命中
+SELECT * FROM si_f WHERE x = 0.1;
   x
 -----
- 2.5
+ 0.1
 (1 行)
+-- float 列区间命中
+SELECT * FROM si_f WHERE x > 0.5 ORDER BY x;
+  x
+-----
+ 1.5
+ 2.5
+(2 行)
+EXPLAIN SELECT * FROM si_f WHERE x = 1.5;
+                    QUERY PLAN
+---------------------------------------------------
+ Project
+   Output: x
+   ->  Fetch on public.si_f
+         ->  Index Scan using si_fx on public.si_f
+               Index Cond: (x = 1.5)
+(5 行)
 DROP TABLE si_f;
 DROP

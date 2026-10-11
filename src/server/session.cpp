@@ -114,7 +114,7 @@ void send_notice(int sock, LogLevel session_level, LogLevel msg_level, const std
                       proto::encode_notice(static_cast<uint8_t>(msg_level), message));
 }
 
-// st::Value 按语义类型分派为协议单元格: 判空先行, Float 窄化为单精度
+// st::Value 按语义类型分派为协议单元格: 判空先行
 proto::CellVal to_cell(const st::Value& v)
 {
     if (st::value_is_null(v)) {
@@ -127,7 +127,7 @@ proto::CellVal to_cell(const st::Value& v)
     case st::ColType::BigInt:
         return *std::get_if<int64_t>(&v.box);
     case st::ColType::Float:
-        return static_cast<float>(*std::get_if<double>(&v.box));
+        return *std::get_if<float>(&v.box);
     case st::ColType::Double:
         return *std::get_if<double>(&v.box);
     case st::ColType::Char:

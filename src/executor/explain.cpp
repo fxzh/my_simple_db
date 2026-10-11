@@ -46,6 +46,9 @@ std::string const_text(const st::Value& v)
     if (const auto* d = std::get_if<double>(&v.box)) {
         return std::format("{}", *d);
     }
+    if (const auto* f = std::get_if<float>(&v.box)) {
+        return std::format("{}", *f);
+    }
     if (const auto* s = std::get_if<std::string>(&v.box)) {
         return "'" + *s + "'";
     }

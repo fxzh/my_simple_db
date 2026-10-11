@@ -153,7 +153,7 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, st:
             DB_RAISE(db::ErrCode::UnknownColumn, LogModule::ANALYZER, "列不存在: {}", id.name);
         }
         type = schema->col_types[it->second];
-        return std::make_unique<BoundColRef>(it->second);
+        return std::make_unique<BoundColRef>(it->second, type);
     }
     case ExprKind::BinaryOp: {
         const auto& e = static_cast<const BinaryOpExpr&>(expr);
@@ -656,7 +656,8 @@ std::vector<BoundOrderItem> bind_orders(const std::vector<OrderItem>& items, con
             o.expr = bind_expr(*pb.src[keys[i].out_idx], &schema, t);
         } else if (keys[i].is_out) {
             // star 展开列(仅带 FROM 的 SELECT 存在): 取行内列引用
-            o.expr = std::make_unique<BoundColRef>(pb.projs[keys[i].out_idx].col_idx);
+            const size_t idx = pb.projs[keys[i].out_idx].col_idx;
+            o.expr = std::make_unique<BoundColRef>(idx, schema.col_types[idx]);
         } else {
             o.expr = std::move(keys[i].expr);
         }

@@ -99,7 +99,7 @@ std::vector<IndexRange> cmp_ranges(CmpOp op, const st::IndexKey& k)
     DB_RAISE(db::ErrCode::Internal, LogModule::PLANNER, "index_select: 未知比较种类");
 }
 
-// 常量与列同族才可入键: int64↔Int/BigInt, double↔Double(Float 列不参与), bool↔Bool
+// 常量与列同族才可入键: int64↔Int/BigInt, double↔Double, float↔Float, bool↔Bool
 bool key_of(const st::ColumnSpec& col, const st::Value& v, st::IndexKey& out)
 {
     if (st::value_is_null(v)) {
@@ -111,6 +111,10 @@ bool key_of(const st::ColumnSpec& col, const st::Value& v, st::IndexKey& out)
         }
     } else if (std::get_if<double>(&v.box) != nullptr) {
         if (col.type != st::ColType::Double) {
+            return false;
+        }
+    } else if (std::get_if<float>(&v.box) != nullptr) {
+        if (col.type != st::ColType::Float) {
             return false;
         }
     } else if (std::get_if<bool>(&v.box) != nullptr) {

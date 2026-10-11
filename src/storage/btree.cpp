@@ -232,6 +232,21 @@ bool tree_page_type(uint8_t type)
 
 // ==================== 键编码 ====================
 
+namespace {
+
+// IEEE754 位变换: -0 归一为 +0, 负数按位取反、正数翻符号位, 无符号序即浮点全序;
+// 单精度宽化到 double 后同变换(无损单射), 键序与键值一致
+IndexKey double_key(double x)
+{
+    constexpr uint64_t sign_flip = 0x8000'0000'0000'0000ULL;
+    x = (x == 0.0) ? 0.0 : x;
+    uint64_t bits = 0;
+    std::memcpy(&bits, &x, sizeof(bits));
+    return IndexKey{(bits >> 63) ? ~bits : (bits | sign_flip), false};
+}
+
+}  // namespace
+
 IndexKey encode_key(ColType type, const Value& v)
 {
     constexpr uint64_t sign_flip = 0x8000'0000'0000'0000ULL;
@@ -254,17 +269,16 @@ IndexKey encode_key(ColType type, const Value& v)
         return IndexKey{static_cast<uint64_t>(*i) ^ sign_flip, false};
     }
     if (const double* d = std::get_if<double>(&v.box)) {
-        if (type != ColType::Double && type != ColType::Float) {
+        if (type != ColType::Double) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "索引键值与列类型不匹配");
         }
-        // float 列按列类型窄化到单精度再入键, 字面量直插与解码回填路径键一致
-        double x = type == ColType::Float ? static_cast<double>(static_cast<float>(*d)) : *d;
-        // -0.0 归一为 +0.0, 两零编码一致
-        x = (x == 0.0) ? 0.0 : x;
-        uint64_t bits = 0;
-        std::memcpy(&bits, &x, sizeof(bits));
-        // IEEE754: 负数按位取反、正数翻符号位, 无符号序即浮点全序
-        return IndexKey{(bits >> 63) ? ~bits : (bits | sign_flip), false};
+        return double_key(*d);
+    }
+    if (const float* f = std::get_if<float>(&v.box)) {
+        if (type != ColType::Float) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "索引键值与列类型不匹配");
+        }
+        return double_key(static_cast<double>(*f));
     }
     DB_RAISE(db::ErrCode::NotImplemented, LogModule::STORAGE, "索引键类型未支持(变长键)");
 }
