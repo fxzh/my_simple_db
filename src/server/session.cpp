@@ -123,17 +123,17 @@ proto::CellVal to_cell(const st::Value& v)
     }
     switch (v.type) {
     case st::ColType::Bool:
-        return *std::get_if<bool>(&v.box);
+        return std::get<bool>(v.box);
     case st::ColType::Int:
     case st::ColType::BigInt:
-        return *std::get_if<int64_t>(&v.box);
+        return std::get<int64_t>(v.box);
     case st::ColType::Float:
-        return *std::get_if<float>(&v.box);
+        return std::get<float>(v.box);
     case st::ColType::Double:
-        return *std::get_if<double>(&v.box);
+        return std::get<double>(v.box);
     case st::ColType::Char:
     case st::ColType::VarChar:
-        return *std::get_if<std::string>(&v.box);
+        return std::get<std::string>(v.box);
     case st::ColType::Null:
         break;
     }
