@@ -40,6 +40,8 @@ inline void bootstrap_version_marker(const std::string& path)
     db.set_bootstrap_table_id(5);
     db.create_table({"system", ct::kFuncMetaName}, {{"func_id", st::ColType::BigInt, 0, true},
                                          {"func_name", st::ColType::VarChar, 64, true}});
+    db.insert(db.table_meta({"system", ct::kFuncMetaName}),
+              {st::bigint_val(1), st::str_val("abs")});
     db.set_bootstrap_table_id(6);
     db.create_table({"system", ct::kVersionMetaName}, {{"version", st::ColType::BigInt, 0, true}});
     db.commit_txn();

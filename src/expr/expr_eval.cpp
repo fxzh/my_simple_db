@@ -290,6 +290,8 @@ st::Value eval_bound(const ana::BoundExpr& expr, const st::Row* row)
         return eval_not(static_cast<const ana::BoundNot&>(expr), row);
     case ana::BoundExprKind::IsNull:
         return eval_is_null(static_cast<const ana::BoundIsNull&>(expr), row);
+    case ana::BoundExprKind::FuncCall:
+        DB_RAISE(db::ErrCode::NotImplemented, LogModule::EXPR, "函数求值暂不支持");
     }
     // 不可达: 全部绑定表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 未知绑定表达式节点");

@@ -255,6 +255,7 @@ void Catalog::open()
     }
     // 索引文件同占 file_id 段: 并入分配起点
     max_fid = std::max(max_fid, load_index_meta());
+    load_func_meta();
     next_file_id_.store(static_cast<uint64_t>(max_fid) + 1);
     next_table_id_.store(static_cast<uint64_t>(
             std::max(max_tid + 1, static_cast<int64_t>(kFirstUserTableId))));
@@ -283,6 +284,19 @@ int64_t Catalog::load_index_meta()
         max_fid = std::max(max_fid, row_int(row, 3));
     }
     return max_fid;
+}
+
+// 加载 db_func 列定义入缓存: bootstrap 模式 db_func 由 bootstrap.sql 在 open 之后创建, 缺失直接返回;
+// 正常模式初始化完成后必存在, 缺失即元数据损坏
+void Catalog::load_func_meta()
+{
+    if (!engine_.table_file_exists(kFuncMetaId)) {
+        if (bootstrap_mode_) {
+            return;
+        }
+        DB_CRITICAL(LogModule::CATALOG, "db_func 元数据表缺失");
+    }
+    func_cols_ = collect_columns(engine_, kFuncMetaId, kFuncMetaName);
 }
 
 void Catalog::close()
@@ -418,6 +432,10 @@ uint64_t Catalog::create_table_bootstrap(uint64_t sid, const TableRef& table,
     if (tid == kIndexMetaId) {
         // bootstrap 建 db_index: 填充内存列定义缓存(open 时该表尚不存在)
         index_cols_ = cols;
+    }
+    if (tid == kFuncMetaId) {
+        // bootstrap 建 db_func: 填充内存列定义缓存(open 时该表尚不存在)
+        func_cols_ = cols;
     }
     return tid;
 }
@@ -746,6 +764,21 @@ std::vector<IndexEntry> Catalog::indexes(const st::TableMeta& meta)
 {
     std::lock_guard<std::recursive_mutex> lock(mutex_);
     return table_indexes(engine_, index_cols_, meta.table_id);
+}
+
+std::optional<uint64_t> Catalog::func_id(const std::string& name)
+{
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    for (const std::vector<st::Value>& row : engine_.read_rows(kFuncMetaId, func_cols_)) {
+        if (row_str(row, 1) == name) {
+            const int64_t id = row_int(row, 0);
+            if (id <= 0) {
+                DB_CRITICAL(LogModule::CATALOG, "db_func 函数 id 非法: {}", id);
+            }
+            return static_cast<uint64_t>(id);
+        }
+    }
+    return std::nullopt;
 }
 
 std::unique_ptr<st::BTreeScanner> Catalog::index_scan(uint64_t index_fid,

@@ -11,6 +11,7 @@ create table system.db_index(table_id bigint not null,
 set table_id = 5;
 create table system.db_func(func_id bigint not null,
                             func_name varchar(64) not null);
+insert into system.db_func values(1, 'abs');
 
 -- db_version 完成标记表永远位于文件结尾
 set table_id = 6;

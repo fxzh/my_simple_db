@@ -93,6 +93,18 @@ std::string bound_expr_to_string(const ana::BoundExpr& e, const std::vector<std:
         return "(" + bound_expr_to_string(*i.operand, names)
                + (i.negate ? " IS NOT NULL" : " IS NULL") + ")";
     }
+    case ana::BoundExprKind::FuncCall: {
+        const auto& f = static_cast<const ana::BoundFuncCall&>(e);
+        std::string s = func_name(f.func);
+        s += "(";
+        for (size_t i = 0; i < f.args.size(); ++i) {
+            if (i > 0) {
+                s += ", ";
+            }
+            s += bound_expr_to_string(*f.args[i], names);
+        }
+        return s + ")";
+    }
     }
     // 不可达: 全部绑定表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "explain: 未知绑定表达式节点");

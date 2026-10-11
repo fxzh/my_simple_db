@@ -130,6 +130,8 @@ public:
     std::unique_ptr<st::Scanner> scan(const st::TableMeta& meta);
     // 该表全部索引(按绑定层元数据): 扫 db_index 匹配 table_id, 供计划层选择索引
     std::vector<IndexEntry> indexes(const st::TableMeta& meta);
+    // 按名查内建函数 id: 扫 db_func, 未命中返回空
+    std::optional<uint64_t> func_id(const std::string& name);
     // 按索引文件 id 开范围扫描, 边界缺省为最左/无上界; 游标不持锁(仅持页 pin),
     // 须在语句事务锁内调用(首开索引文件会写引擎树表)
     std::unique_ptr<st::BTreeScanner> index_scan(uint64_t index_fid, std::optional<st::ScanBound> lo,
@@ -150,6 +152,8 @@ private:
     // 加载 db_index 并返回现存最大 file_id(open 期不持锁调用): 列定义载入内存缓存,
     // bootstrap 模式缺失返回 0(尚未由 bootstrap.sql 创建), 正常模式缺失报错
     int64_t load_index_meta();
+    // 加载 db_func 列定义入内存缓存(open 期不持锁调用), bootstrap 模式缺失直接返回
+    void load_func_meta();
     // 建表公共路径(须持锁): 校验后按指定 table_id 建数据文件、写元数据行, file_id 内部分配
     uint64_t create_table_impl(uint64_t sid, const TableRef& table,
                                const std::vector<st::ColumnSpec>& cols, uint64_t tid);
@@ -191,6 +195,7 @@ private:
     bool bootstrap_mode_ = false;        // bootstrap 模式标志, 构造时由 server --bootstrap 传入
     uint64_t bootstrap_table_id_ = 0;    // SET table_id 变量, 0 表示未 set, 与 next_table_id_ 分配器无关
     std::vector<st::ColumnSpec> index_cols_;  // db_index 列定义缓存, open 从 db_column 载入, bootstrap 建表时填充
+    std::vector<st::ColumnSpec> func_cols_;   // db_func 列定义缓存, open 从 db_column 载入, bootstrap 建表时填充
 };
 
 }  // namespace ct

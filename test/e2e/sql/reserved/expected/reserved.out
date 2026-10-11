@@ -121,7 +121,9 @@ SELECT * FROM system.db_version;
 (0 行)
 SELECT * FROM system.db_func;
  func_id | func_name
-(0 行)
+---------+-----------
+ 1       | abs
+(1 行)
 DROP TABLE t_reserved;
 DROP
 SELECT table_name FROM system.db_table ORDER BY table_name;

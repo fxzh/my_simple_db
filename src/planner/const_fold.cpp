@@ -46,6 +46,8 @@ st::ColType static_type(const ana::BoundExpr& e)
         return static_cast<const ana::BoundArith&>(e).type;
     case ana::BoundExprKind::Neg:
         return static_cast<const ana::BoundNeg&>(e).type;
+    case ana::BoundExprKind::FuncCall:
+        return static_cast<const ana::BoundFuncCall&>(e).type;
     case ana::BoundExprKind::Cmp:
     case ana::BoundExprKind::Logic:
     case ana::BoundExprKind::Not:
@@ -135,6 +137,13 @@ void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
         fold_expr(i.operand);
         if (is_const(*i.operand)) {
             e = to_fold_const(expr::eval_const(*e));
+        }
+        return;
+    }
+    case ana::BoundExprKind::FuncCall: {
+        auto& f = static_cast<ana::BoundFuncCall&>(*e);
+        for (std::unique_ptr<ana::BoundExpr>& a : f.args) {
+            fold_expr(a);  // 仅折叠实参, 调用节点不折叠
         }
         return;
     }

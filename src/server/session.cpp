@@ -94,6 +94,7 @@ proto::WireErrCode to_wire(db::ErrCode code)
     case db::ErrCode::TooManyClients: return proto::WireErrCode::TooManyClients;
     case db::ErrCode::InvalidVarValue: return proto::WireErrCode::InvalidVarValue;
     case db::ErrCode::StarNoFrom:      return proto::WireErrCode::StarNoFrom;
+    case db::ErrCode::UnknownFunction: return proto::WireErrCode::UnknownFunction;
     }
     return proto::WireErrCode::Internal;  // 不可达: 上方穷尽
 }

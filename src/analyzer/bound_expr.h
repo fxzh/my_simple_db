@@ -6,6 +6,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "ast.hh"
 #include "storage/types.h"
@@ -14,7 +15,7 @@ namespace ana {
 
 // 语义分析表达式种类, 供执行层按类型分派
 enum class BoundExprKind {
-    Const, ColRef, Arith, Neg, Cmp, Logic, Not, IsNull,
+    Const, ColRef, Arith, Neg, Cmp, Logic, Not, IsNull, FuncCall,
 };
 
 // 语义分析表达式基类: 常量上下文绑定的树不含 ColRef
@@ -93,6 +94,28 @@ struct BoundIsNull : BoundExpr {
     BoundIsNull(std::unique_ptr<BoundExpr> operand_, bool negate_)
         : operand(std::move(operand_)), negate(negate_) {}
     BoundExprKind kind() const override { return BoundExprKind::IsNull; }
+};
+
+// 内建函数种类: 取值与 db_func.func_id 数据行一致, 增改函数须同步 bootstrap.sql
+enum class FuncId : uint8_t { Abs = 1 };
+
+// 函数名(渲染与报错用)
+inline const char* func_name(FuncId f)
+{
+    switch (f) {
+    case FuncId::Abs: return "abs";
+    }
+    return "";
+}
+
+// 函数调用: func 为绑定期按名解析的内建函数, type 为绑定期推导的结果域, 实参已绑定
+struct BoundFuncCall : BoundExpr {
+    FuncId func = FuncId::Abs;
+    st::ColType type = st::ColType::Null;
+    std::vector<std::unique_ptr<BoundExpr>> args;
+    BoundFuncCall(FuncId f, std::vector<std::unique_ptr<BoundExpr>> a, st::ColType t)
+        : func(f), type(t), args(std::move(a)) {}
+    BoundExprKind kind() const override { return BoundExprKind::FuncCall; }
 };
 
 }  // namespace ana

@@ -80,7 +80,7 @@ std::string dump_meta_rows(const std::string& dir)
 
 TEST(Initdb, Ok)
 {
-    // 每轮重建状态目录, 供 serverctl 门控链复用, 无隐式历史
+    // 每轮重建状态目录, 供 serverctl 门控链复用
     std::error_code ec;
     std::filesystem::remove_all(kStateDir, ec);
     std::filesystem::create_directories(kStateDir, ec);
@@ -96,7 +96,6 @@ TEST(Initdb, Ok)
     EXPECT_TRUE(std::filesystem::is_regular_file(std::filesystem::path(data) / "t_1.dat"));
     EXPECT_TRUE(std::filesystem::is_regular_file(std::filesystem::path(data) / "t_2.dat"));
     EXPECT_TRUE(std::filesystem::is_regular_file(std::filesystem::path(data) / "t_3.dat"));
-    // bootstrap.sql 经 client 执行后新增 db_index(t_4) 与 db_version(t_5)
     EXPECT_TRUE(std::filesystem::is_regular_file(std::filesystem::path(data) / "t_4.dat"));
     EXPECT_TRUE(std::filesystem::is_regular_file(std::filesystem::path(data) / "t_5.dat"));
     std::ifstream in(conf);

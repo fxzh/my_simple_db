@@ -62,7 +62,8 @@ struct Schema {
 
 // 表达式静态类型直接用列类型推导: 字面量/列引用/算术按 ColType 级定型, Null 表示无类型
 // (NULL 字面量, 比较时通配); 推导规则与求值器行为逐点对齐, 绑定层放过的表达式执行层不因类型报错
-std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, st::ColType& type);
+std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, ct::Catalog& db,
+                                     st::ColType& type);
 
 // 数值类域等级: Int<BigInt<Float<Double, 非数值为 0(Null 单独判)
 int num_rank(st::ColType t)
@@ -113,8 +114,51 @@ void check_comparable(st::ColType lt, st::ColType rt)
     }
 }
 
+// 函数调用绑定: db_func 按名解析为内建函数, 实参递归绑定后校验个数与类型并固化结果域
+std::unique_ptr<BoundExpr> bind_func_call(const FuncCallExpr& f, const Schema* schema,
+                                          ct::Catalog& db, st::ColType& type)
+{
+    const std::optional<uint64_t> fid = db.func_id(f.name);
+    if (!fid.has_value()) {
+        DB_RAISE(db::ErrCode::UnknownFunction, LogModule::ANALYZER, "函数不存在: {}", f.name);
+    }
+    // db_func 数据行与内建函数清单一致, id 未注册即内部错误
+    FuncId func;
+    switch (*fid) {
+    case static_cast<uint64_t>(FuncId::Abs):
+        func = FuncId::Abs;
+        break;
+    default:
+        DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "db_func 函数 id 未注册: {}", *fid);
+    }
+    switch (func) {
+    case FuncId::Abs: {
+        if (f.args.size() != 1) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
+                     "函数参数个数不符: {} 须 1 个实参", f.name);
+        }
+        st::ColType at;
+        std::unique_ptr<BoundExpr> arg = bind_expr(*f.args[0], schema, db, at);
+        if (at == st::ColType::Null) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
+                     "函数实参类型未知, 无法推导结果域: {}", f.name);
+        }
+        if (!is_num_type(at)) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
+                     "函数实参类型不符: {} 须为数值", f.name);
+        }
+        type = at;  // 结果域镜像数值实参域
+        std::vector<std::unique_ptr<BoundExpr>> args;
+        args.push_back(std::move(arg));
+        return std::make_unique<BoundFuncCall>(func, std::move(args), at);
+    }
+    }
+    DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知内建函数");
+}
+
 // 绑定表达式: 递归建树并推导类型, 名字解析当场完成; schema 为空表示常量上下文(禁止引用列)
-std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, st::ColType& type)
+std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, ct::Catalog& db,
+                                     st::ColType& type)
 {
     switch (expr.kind()) {
     case ExprKind::Int: {
@@ -159,8 +203,8 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, st:
         const auto& e = static_cast<const BinaryOpExpr&>(expr);
         st::ColType lt;
         st::ColType rt;
-        std::unique_ptr<BoundExpr> l = bind_expr(*e.left, schema, lt);
-        std::unique_ptr<BoundExpr> r = bind_expr(*e.right, schema, rt);
+        std::unique_ptr<BoundExpr> l = bind_expr(*e.left, schema, db, lt);
+        std::unique_ptr<BoundExpr> r = bind_expr(*e.right, schema, db, rt);
         if ((!is_num_type(lt) && lt != st::ColType::Null)
             || (!is_num_type(rt) && rt != st::ColType::Null)) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "算术运算操作数不是数值");
@@ -172,7 +216,7 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, st:
     case ExprKind::UnaryOp: {
         const auto& e = static_cast<const UnaryOpExpr&>(expr);
         st::ColType t;
-        std::unique_ptr<BoundExpr> operand = bind_expr(*e.operand, schema, t);
+        std::unique_ptr<BoundExpr> operand = bind_expr(*e.operand, schema, db, t);
         if (!is_num_type(t) && t != st::ColType::Null) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "一元运算操作数不是数值");
         }
@@ -186,8 +230,8 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, st:
         const auto& e = static_cast<const CompareExpr&>(expr);
         st::ColType lt;
         st::ColType rt;
-        std::unique_ptr<BoundExpr> l = bind_expr(*e.left, schema, lt);
-        std::unique_ptr<BoundExpr> r = bind_expr(*e.right, schema, rt);
+        std::unique_ptr<BoundExpr> l = bind_expr(*e.left, schema, db, lt);
+        std::unique_ptr<BoundExpr> r = bind_expr(*e.right, schema, db, rt);
         check_comparable(lt, rt);
         type = st::ColType::Bool;
         return std::make_unique<BoundCmp>(e.op, std::move(l), std::move(r));
@@ -196,8 +240,8 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, st:
         const auto& e = static_cast<const LogicExpr&>(expr);
         st::ColType lt;
         st::ColType rt;
-        std::unique_ptr<BoundExpr> l = bind_expr(*e.left, schema, lt);
-        std::unique_ptr<BoundExpr> r = bind_expr(*e.right, schema, rt);
+        std::unique_ptr<BoundExpr> l = bind_expr(*e.left, schema, db, lt);
+        std::unique_ptr<BoundExpr> r = bind_expr(*e.right, schema, db, rt);
         if ((lt != st::ColType::Bool && lt != st::ColType::Null)
             || (rt != st::ColType::Bool && rt != st::ColType::Null)) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "逻辑运算操作数不是布尔值");
@@ -208,7 +252,7 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, st:
     case ExprKind::Not: {
         const auto& e = static_cast<const NotExpr&>(expr);
         st::ColType t;
-        std::unique_ptr<BoundExpr> operand = bind_expr(*e.operand, schema, t);
+        std::unique_ptr<BoundExpr> operand = bind_expr(*e.operand, schema, db, t);
         if (t != st::ColType::Bool && t != st::ColType::Null) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "逻辑运算操作数不是布尔值");
         }
@@ -218,7 +262,7 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, st:
     case ExprKind::IsNull: {
         const auto& e = static_cast<const IsNullExpr&>(expr);
         st::ColType t;
-        std::unique_ptr<BoundExpr> operand = bind_expr(*e.operand, schema, t);
+        std::unique_ptr<BoundExpr> operand = bind_expr(*e.operand, schema, db, t);
         type = st::ColType::Bool;
         return std::make_unique<BoundIsNull>(std::move(operand), e.negate);
     }
@@ -228,10 +272,10 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, st:
         st::ColType xt;
         st::ColType lot;
         st::ColType hit;
-        std::unique_ptr<BoundExpr> x1 = bind_expr(*e.expr, schema, xt);
-        std::unique_ptr<BoundExpr> lo = bind_expr(*e.lo, schema, lot);
-        std::unique_ptr<BoundExpr> x2 = bind_expr(*e.expr, schema, xt);
-        std::unique_ptr<BoundExpr> hi = bind_expr(*e.hi, schema, hit);
+        std::unique_ptr<BoundExpr> x1 = bind_expr(*e.expr, schema, db, xt);
+        std::unique_ptr<BoundExpr> lo = bind_expr(*e.lo, schema, db, lot);
+        std::unique_ptr<BoundExpr> x2 = bind_expr(*e.expr, schema, db, xt);
+        std::unique_ptr<BoundExpr> hi = bind_expr(*e.hi, schema, db, hit);
         check_comparable(xt, lot);
         check_comparable(xt, hit);
         type = st::ColType::Bool;
@@ -240,8 +284,7 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, st:
         return std::make_unique<BoundLogic>(LogicOp::And, std::move(ge), std::move(le));
     }
     case ExprKind::FuncCall:
-        DB_RAISE(db::ErrCode::NotImplemented, LogModule::ANALYZER, "函数调用暂不支持: {}",
-                 static_cast<const FuncCallExpr&>(expr).name);
+        return bind_func_call(static_cast<const FuncCallExpr&>(expr), schema, db, type);
     }
     // 不可达: 全部表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知表达式节点");
@@ -343,10 +386,11 @@ bool has_col_ref(const Expr& expr)
 }
 
 // WHERE 条件绑定: 须为布尔(NULL 视为 UNKNOWN 放行), 返回绑定谓词树
-std::unique_ptr<BoundExpr> bind_where(const Expr& where, const Schema& schema)
+std::unique_ptr<BoundExpr> bind_where(const Expr& where, const Schema& schema,
+                                      ct::Catalog& db)
 {
     st::ColType t;
-    std::unique_ptr<BoundExpr> pred = bind_expr(where, &schema, t);
+    std::unique_ptr<BoundExpr> pred = bind_expr(where, &schema, db, t);
     if (t != st::ColType::Bool && t != st::ColType::Null) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "WHERE 条件不是布尔表达式");
     }
@@ -471,14 +515,14 @@ InsertTargets resolve_insert_targets(const std::vector<std::string>& columns,
 // 产出与表列等宽的值序列, 未指定列补 NULL
 std::vector<std::unique_ptr<BoundExpr>> bind_insert_row(
     const std::vector<std::unique_ptr<Expr>>& values, const InsertTargets& t,
-    const st::TableMeta& meta)
+    const st::TableMeta& meta, ct::Catalog& db)
 {
     std::vector<std::unique_ptr<BoundExpr>> bound;
     std::vector<st::ColType> types;
     types.reserve(values.size());
     for (const auto& v : values) {
         st::ColType type;
-        bound.push_back(bind_expr(*v, nullptr, type));  // 常量上下文: 禁止引用列
+        bound.push_back(bind_expr(*v, nullptr, db, type));  // 常量上下文: 禁止引用列
         types.push_back(type);
     }
     if (values.size() != t.target.size()) {
@@ -543,10 +587,10 @@ Schema build_schema(const st::TableMeta& meta)
 }
 
 // 绑定单个投影项(非 star): 绑定表达式并定输出列名, 列名取别名>列名>表达式文本
-ProjCol bind_proj_item(const SelectItem& item, const Schema& schema)
+ProjCol bind_proj_item(const SelectItem& item, const Schema& schema, ct::Catalog& db)
 {
     st::ColType t;
-    std::unique_ptr<BoundExpr> e = bind_expr(*item.expr, &schema, t);
+    std::unique_ptr<BoundExpr> e = bind_expr(*item.expr, &schema, db, t);
     std::string name;
     if (!item.alias.empty()) {
         name = item.alias;
@@ -565,7 +609,8 @@ struct ProjBind {
 };
 
 // SELECT 投影: star 按表列展开
-ProjBind build_projs(const SelectStmt& ss, const st::TableMeta& meta, const Schema& schema)
+ProjBind build_projs(const SelectStmt& ss, const st::TableMeta& meta, const Schema& schema,
+                     ct::Catalog& db)
 {
     ProjBind out;
     for (const SelectItem& item : ss.items()) {
@@ -576,21 +621,22 @@ ProjBind build_projs(const SelectStmt& ss, const st::TableMeta& meta, const Sche
             }
             continue;
         }
-        out.projs.push_back(bind_proj_item(item, schema));
+        out.projs.push_back(bind_proj_item(item, schema, db));
         out.src.push_back(item.expr.get());
     }
     return out;
 }
 
 // 绑定无 FROM 的 SELECT 投影: 无列可解析, star 无表可展开
-ProjBind build_projs_no_from(const SelectNoFromStmt& ss, const Schema& schema)
+ProjBind build_projs_no_from(const SelectNoFromStmt& ss, const Schema& schema,
+                             ct::Catalog& db)
 {
     ProjBind out;
     for (const SelectItem& item : ss.items()) {
         if (item.star) {
             DB_RAISE(db::ErrCode::StarNoFrom, LogModule::ANALYZER, "无 FROM 的 SELECT 不允许 *");
         }
-        out.projs.push_back(bind_proj_item(item, schema));
+        out.projs.push_back(bind_proj_item(item, schema, db));
         out.src.push_back(item.expr.get());
     }
     return out;
@@ -605,7 +651,8 @@ struct OrderKey {
 
 // 解析单个排序键: 整数常量按输出列序号; 裸名先按输出列名解析(命中多个报歧义, 未命中转
 // 行上下文绑定); 非整数裸常量报错; 其余表达式按行上下文绑定
-OrderKey resolve_order_key(const OrderItem& item, const ProjBind& pb, const Schema& schema)
+OrderKey resolve_order_key(const OrderItem& item, const ProjBind& pb, const Schema& schema,
+                           ct::Catalog& db)
 {
     const Expr& e = *item.expr;
     OrderKey k;
@@ -642,20 +689,21 @@ OrderKey resolve_order_key(const OrderItem& item, const ProjBind& pb, const Sche
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "ORDER BY 不允许非整数常量");
     }
     st::ColType t;
-    k.expr = bind_expr(e, &schema, t);
+    k.expr = bind_expr(e, &schema, db, t);
     return k;
 }
 
 // SELECT 排序键: 全部键命中输出列时以输出列下标承载(排序在投影后), 否则全部键转
 // 行上下文表达式(排序在投影前), 命中输出列的键重绑其源表达式或取 star 列引用
 std::vector<BoundOrderItem> bind_orders(const std::vector<OrderItem>& items, const ProjBind& pb,
-                                        const Schema& schema, bool& sort_on_output)
+                                        const Schema& schema, bool& sort_on_output,
+                                        ct::Catalog& db)
 {
     std::vector<OrderKey> keys;
     keys.reserve(items.size());
     bool all_out = true;
     for (const OrderItem& item : items) {
-        keys.push_back(resolve_order_key(item, pb, schema));
+        keys.push_back(resolve_order_key(item, pb, schema, db));
         all_out = all_out && keys.back().is_out;
     }
     sort_on_output = all_out;
@@ -668,7 +716,7 @@ std::vector<BoundOrderItem> bind_orders(const std::vector<OrderItem>& items, con
             o.out_idx = keys[i].out_idx;
         } else if (keys[i].is_out && pb.src[keys[i].out_idx] != nullptr) {
             st::ColType t;
-            o.expr = bind_expr(*pb.src[keys[i].out_idx], &schema, t);
+            o.expr = bind_expr(*pb.src[keys[i].out_idx], &schema, db, t);
         } else if (keys[i].is_out) {
             // star 展开列(仅带 FROM 的 SELECT 存在): 取行内列引用
             const size_t idx = pb.projs[keys[i].out_idx].col_idx;
@@ -759,13 +807,16 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
     case StmtKind::Insert: {
         const auto& is = static_cast<const InsertStmt&>(stmt);
         const ct::TableRef table = to_table_ref(is.table_name(), current_schema);
-        check_reserved_table(table);
+        // bootstrap 会话向 system.db_func 灌内建函数行, 放行
+        if (!db.bootstrap_mode()) {
+            check_reserved_table(table);
+        }
         st::TableMeta meta = db.table_meta(table);
         const InsertTargets targets = resolve_insert_targets(is.columns(), meta);
         auto b = std::make_unique<BoundInsert>();
         b->rows.reserve(is.rows().size());
         for (const auto& row : is.rows()) {
-            b->rows.push_back(bind_insert_row(row, targets, meta));
+            b->rows.push_back(bind_insert_row(row, targets, meta, db));
         }
         b->table = ct::TableHandle{std::move(meta), table_ref_to_string(table)};
         return b;
@@ -777,7 +828,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
         auto b = std::make_unique<BoundDelete>();
         b->table = ct::TableHandle{db.table_meta(table), table_ref_to_string(table)};
         if (ds.where_expr() != nullptr) {
-            b->where = bind_where(*ds.where_expr(), build_schema(b->table.meta));
+            b->where = bind_where(*ds.where_expr(), build_schema(b->table.meta), db);
         }
         return b;
     }
@@ -805,7 +856,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
             a.col_idx = it->second;
             st::ColType t;
             // 行上下文: 右值基于旧行求值, 赋值间互不可见
-            a.value = bind_expr(*item.value, &schema, t);
+            a.value = bind_expr(*item.value, &schema, db, t);
             const st::ColumnSpec& col = b->table.meta.cols[it->second];
             if (has_col_ref(*item.value)) {
                 check_update_type(t, col);
@@ -820,7 +871,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
             b->assigns.push_back(std::move(a));
         }
         if (us.where_expr() != nullptr) {
-            b->where = bind_where(*us.where_expr(), schema);
+            b->where = bind_where(*us.where_expr(), schema, db);
         }
         return b;
     }
@@ -831,11 +882,11 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
         b->table = ct::TableHandle{db.table_meta(table), table_ref_to_string(table)};
         const Schema schema = build_schema(b->table.meta);
         if (ss.where_expr() != nullptr) {
-            b->where = bind_where(*ss.where_expr(), schema);
+            b->where = bind_where(*ss.where_expr(), schema, db);
         }
-        ProjBind pb = build_projs(ss, b->table.meta, schema);
+        ProjBind pb = build_projs(ss, b->table.meta, schema, db);
         if (!ss.orders().empty()) {
-            b->orders = bind_orders(ss.orders(), pb, schema, b->sort_on_output);
+            b->orders = bind_orders(ss.orders(), pb, schema, b->sort_on_output, db);
         }
         b->projs = std::move(pb.projs);
         return b;
@@ -845,11 +896,11 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
         auto b = std::make_unique<BoundSelectNoFrom>();
         const Schema schema;  // 空行结构: 无列可解析, 列引用按列不存在报
         if (ss.where_expr() != nullptr) {
-            b->where = bind_where(*ss.where_expr(), schema);
+            b->where = bind_where(*ss.where_expr(), schema, db);
         }
-        ProjBind pb = build_projs_no_from(ss, schema);
+        ProjBind pb = build_projs_no_from(ss, schema, db);
         if (!ss.orders().empty()) {
-            b->orders = bind_orders(ss.orders(), pb, schema, b->sort_on_output);
+            b->orders = bind_orders(ss.orders(), pb, schema, b->sort_on_output, db);
         }
         b->projs = std::move(pb.projs);
         return b;

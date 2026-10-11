@@ -76,22 +76,65 @@ SELECT 1 ORDER BY 'c';
 ERROR: ORDER BY 不允许非整数常量
 DROP TABLE t_so;
 DROP
--- 函数调用语法可解析, 语义层统一报暂不支持
-CREATE TABLE t_sf (i int);
+-- 函数语义检查: 名字/个数/实参类型, 绑定通过后执行期报未实现
+CREATE TABLE t_sf (i int, s char(4));
 CREATE
-SELECT abs(1);
-ERROR: 函数调用暂不支持: abs
-SELECT abs(i) FROM t_sf;
-ERROR: 函数调用暂不支持: abs
-SELECT abs(i, 1) FROM t_sf;
-ERROR: 函数调用暂不支持: abs
+INSERT INTO t_sf VALUES (1, 'a');
+INSERT 1
 SELECT nosuch() FROM t_sf;
-ERROR: 函数调用暂不支持: nosuch
+ERROR: 函数不存在: nosuch
 SELECT f() FROM t_sf;
-ERROR: 函数调用暂不支持: f
+ERROR: 函数不存在: f
+SELECT abs();
+ERROR: 函数参数个数不符: abs 须 1 个实参
+SELECT abs(i, 1) FROM t_sf;
+ERROR: 函数参数个数不符: abs 须 1 个实参
+SELECT abs(s) FROM t_sf;
+ERROR: 函数实参类型不符: abs 须为数值
+SELECT abs('x');
+ERROR: 函数实参类型不符: abs 须为数值
+SELECT abs(true);
+ERROR: 函数实参类型不符: abs 须为数值
+SELECT abs(NULL);
+ERROR: 函数实参类型未知, 无法推导结果域: abs
+SELECT i FROM t_sf WHERE abs(i);
+ERROR: WHERE 条件不是布尔表达式
+SELECT abs(i) FROM t_sf;
+ERROR: 函数求值暂不支持
 SELECT i FROM t_sf WHERE abs(i) > 0;
-ERROR: 函数调用暂不支持: abs
+ERROR: 函数求值暂不支持
 SELECT i FROM t_sf ORDER BY abs(i);
-ERROR: 函数调用暂不支持: abs
+ERROR: 函数求值暂不支持
+EXPLAIN SELECT abs(i) FROM t_sf;
+          QUERY PLAN
+-------------------------------
+ Project
+   Output: abs(i)
+   ->  Seq Scan on public.t_sf
+(3 行)
+EXPLAIN SELECT abs(i) AS a, i + abs(i) FROM t_sf WHERE abs(i) > 0;
+             QUERY PLAN
+-------------------------------------
+ Project
+   Output: a, (i + abs(i))
+   ->  Filter: (abs(i) > 0)
+         ->  Seq Scan on public.t_sf
+(4 行)
+EXPLAIN SELECT i FROM t_sf ORDER BY abs(i);
+             QUERY PLAN
+-------------------------------------
+ Project
+   Output: i
+   ->  Sort
+         Sort Key: abs(i)
+         ->  Seq Scan on public.t_sf
+(5 行)
+EXPLAIN SELECT abs(-1);
+     QUERY PLAN
+---------------------
+ Project
+   Output: abs((-1))
+   ->  Dummy Scan
+(3 行)
 DROP TABLE t_sf;
 DROP

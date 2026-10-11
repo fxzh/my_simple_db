@@ -463,6 +463,7 @@ enum class WireErrCode : uint16_t {
     IndexExists = 29,   // 索引已存在
     IndexNotFound = 30, // 索引不存在
     StarNoFrom = 31,    // 无 FROM 的 SELECT 不允许星号
+    UnknownFunction = 32, // 函数不存在
 };
 
 // Error body 布局: [code u16 大端][错误文案(余量全体)]
@@ -512,6 +513,7 @@ inline bool decode_error(std::string_view body, WireErrCode& code, std::string& 
     case WireErrCode::IndexExists:
     case WireErrCode::IndexNotFound:
     case WireErrCode::StarNoFrom:
+    case WireErrCode::UnknownFunction:
         code = static_cast<WireErrCode>(v);
         message.assign(body.substr(off));
         return true;
