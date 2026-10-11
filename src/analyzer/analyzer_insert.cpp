@@ -1,11 +1,12 @@
 // analyzer_insert.cpp: INSERT 绑定: 值与列类型校验, 列清单解析, 行值绑定
-#include "analyzer_internal.h"
+#include "analyzer_insert.h"
 
 #include <cmath>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "analyzer_expr.h"
 #include "ast.hh"
 #include "bound_expr.h"
 #include "catalog.h"

@@ -1,5 +1,5 @@
 // catalog_dml.cpp: DML 门面与扫描: 插入/更新/删除, 表扫描/索引扫描/回表/函数查询
-#include "catalog_internal.h"
+#include "catalog_meta.h"
 
 #include <utility>
 

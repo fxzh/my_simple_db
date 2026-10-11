@@ -1,5 +1,5 @@
 // catalog_meta.cpp: 元数据行编解码与查找: 元数据表列定义/行解码, 按名查表与 schema, has_* 查重
-#include "catalog_internal.h"
+#include "catalog_meta.h"
 
 #include <algorithm>
 #include <utility>

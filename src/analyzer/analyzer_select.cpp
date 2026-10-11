@@ -1,10 +1,11 @@
 // analyzer_select.cpp: SELECT 绑定: 投影展开与排序键绑定
-#include "analyzer_internal.h"
+#include "analyzer_select.h"
 
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "analyzer_expr.h"
 #include "ast.hh"
 #include "bound.h"
 #include "bound_expr.h"

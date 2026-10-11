@@ -1,5 +1,5 @@
 // analyzer_expr.cpp: 表达式绑定: AST 表达式 → 绑定表达式树, 含类型工具与行结构构建
-#include "analyzer_internal.h"
+#include "analyzer_expr.h"
 
 #include <cstdint>
 #include <memory>

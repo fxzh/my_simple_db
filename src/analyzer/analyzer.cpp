@@ -7,7 +7,9 @@
 #include <string>
 #include <vector>
 
-#include "analyzer_internal.h"
+#include "analyzer_expr.h"
+#include "analyzer_insert.h"
+#include "analyzer_select.h"
 #include "ast.hh"
 #include "catalog.h"
 #include "common/err.h"

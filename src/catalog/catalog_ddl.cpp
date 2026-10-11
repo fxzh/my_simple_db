@@ -1,5 +1,5 @@
 // catalog_ddl.cpp: 建删表/schema/索引(含 bootstrap 建表路径)与 id 分配
-#include "catalog_internal.h"
+#include "catalog_meta.h"
 
 #include "common/err.h"
 #include "log/log.h"

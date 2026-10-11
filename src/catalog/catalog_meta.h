@@ -1,6 +1,6 @@
-// catalog_internal.h: 目录层内部共享声明(元数据表列定义/行解码/索引条目查找), 仅供本目录使用
-#ifndef CATALOG_CATALOG_INTERNAL_H
-#define CATALOG_CATALOG_INTERNAL_H
+// catalog_meta.h: 目录层内部共享声明(元数据表列定义/行解码/索引条目查找), 仅供本目录使用
+#ifndef CATALOG_CATALOG_META_H
+#define CATALOG_CATALOG_META_H
 
 #include <cstdint>
 #include <string>
@@ -49,4 +49,4 @@ bool find_index(st::Engine& engine, const std::vector<st::ColumnSpec>& cols, uin
 
 }  // namespace ct
 
-#endif  // CATALOG_CATALOG_INTERNAL_H
+#endif  // CATALOG_CATALOG_META_H

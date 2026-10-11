@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <utility>
 
-#include "catalog_internal.h"
+#include "catalog_meta.h"
 #include "common/err.h"
 #include "config/config.h"
 #include "log/log.h"
