@@ -70,7 +70,7 @@ inline std::string type_to_string(DataType type, std::optional<long long> length
 // 表达式种类, 供执行层等上层按类型分派
 enum class ExprKind {
     Int, Float, String, Identifier, BinaryOp, UnaryOp, Null, Bool,
-    Compare, Logic, Not, IsNull, Between,
+    Compare, Logic, Not, IsNull, Between, FuncCall,
 };
 
 // 表达式基类
@@ -281,6 +281,24 @@ struct BetweenExpr : Expr {
     ExprKind kind() const override { return ExprKind::Between; }
 };
 
+// 函数调用节点: 函数名与实参列表
+struct FuncCallExpr : Expr {
+    std::string name;
+    std::vector<std::unique_ptr<Expr>> args;
+    FuncCallExpr(std::string n, std::vector<std::unique_ptr<Expr>> a)
+        : name(std::move(n)), args(std::move(a)) {}
+
+    void print(std::ostream& os, int indent) const override
+    {
+        os << std::string(static_cast<std::size_t>(indent), ' ') << "FuncCall: " << name
+           << std::endl;
+        for (const auto& arg : args) {
+            arg->print(os, indent + 4);
+        }
+    }
+    ExprKind kind() const override { return ExprKind::FuncCall; }
+};
+
 // 表达式反生成 SQL 文本: 供输出列命名与日志使用
 inline std::string expr_to_string(const Expr& e)
 {
@@ -325,6 +343,17 @@ inline std::string expr_to_string(const Expr& e)
         const auto& b = static_cast<const BetweenExpr&>(e);
         return "(" + expr_to_string(*b.expr) + " BETWEEN " + expr_to_string(*b.lo) + " AND "
                + expr_to_string(*b.hi) + ")";
+    }
+    case ExprKind::FuncCall: {
+        const auto& f = static_cast<const FuncCallExpr&>(e);
+        std::string s = f.name + "(";
+        for (size_t i = 0; i < f.args.size(); ++i) {
+            if (i > 0) {
+                s += ", ";
+            }
+            s += expr_to_string(*f.args[i]);
+        }
+        return s + ")";
     }
     }
     return "";

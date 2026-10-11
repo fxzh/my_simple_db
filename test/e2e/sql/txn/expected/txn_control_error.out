@@ -12,12 +12,13 @@ SELECT table_name FROM system.db_table ORDER BY table_name;
  table_name
 ------------
  db_column
+ db_func
  db_index
  db_schema
  db_table
  db_version
  t_ctl
-(6 行)
+(7 行)
 BEGIN;
 BEGIN
 SET x = 1;

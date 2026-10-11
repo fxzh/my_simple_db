@@ -76,3 +76,22 @@ SELECT 1 ORDER BY 'c';
 ERROR: ORDER BY 不允许非整数常量
 DROP TABLE t_so;
 DROP
+-- 函数调用语法可解析, 语义层统一报暂不支持
+CREATE TABLE t_sf (i int);
+CREATE
+SELECT abs(1);
+ERROR: 函数调用暂不支持: abs
+SELECT abs(i) FROM t_sf;
+ERROR: 函数调用暂不支持: abs
+SELECT abs(i, 1) FROM t_sf;
+ERROR: 函数调用暂不支持: abs
+SELECT nosuch() FROM t_sf;
+ERROR: 函数调用暂不支持: nosuch
+SELECT f() FROM t_sf;
+ERROR: 函数调用暂不支持: f
+SELECT i FROM t_sf WHERE abs(i) > 0;
+ERROR: 函数调用暂不支持: abs
+SELECT i FROM t_sf ORDER BY abs(i);
+ERROR: 函数调用暂不支持: abs
+DROP TABLE t_sf;
+DROP

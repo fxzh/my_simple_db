@@ -86,7 +86,7 @@
 %type <ColumnDef> column_definition
 %type <TypeInfo> type_specifier
 %type <QualifiedName> qualified_name
-%type <std::vector<std::unique_ptr<Expr>>> value_list
+%type <std::vector<std::unique_ptr<Expr>>> value_list func_args
 %type <std::vector<std::vector<std::unique_ptr<Expr>>>> values_rows
 %type <std::unique_ptr<Expr>> value expression where_opt between_operand
 %type <bool> null_not_opt not_null_opt
@@ -484,6 +484,10 @@ expression:
     |   TRUE_T                      { $$ = std::make_unique<BoolExpr>(true); }
     |   FALSE_T                     { $$ = std::make_unique<BoolExpr>(false); }
     |   IDENTIFIER                  { $$ = std::make_unique<IdentifierExpr>(std::move($1)); }
+    |   IDENTIFIER '(' func_args ')'
+        {
+            $$ = std::make_unique<FuncCallExpr>(std::move($1), std::move($3));
+        }
     |   expression '+' expression   { $$ = std::make_unique<BinaryOpExpr>('+', std::move($1), std::move($3)); }
     |   expression '-' expression   { $$ = std::make_unique<BinaryOpExpr>('-', std::move($1), std::move($3)); }
     |   expression '*' expression   { $$ = std::make_unique<BinaryOpExpr>('*', std::move($1), std::move($3)); }
@@ -561,6 +565,24 @@ between_operand:
         { $$ = std::make_unique<BinaryOpExpr>('*', std::move($1), std::move($3)); }
     |   between_operand '/' between_operand
         { $$ = std::make_unique<BinaryOpExpr>('/', std::move($1), std::move($3)); }
+    ;
+
+// 函数实参列表: 允许空列表
+func_args:
+        /* empty */
+        {
+            $$ = std::vector<std::unique_ptr<Expr>>();
+        }
+    |   func_args ',' expression
+        {
+            $1.push_back(std::move($3));
+            $$ = std::move($1);
+        }
+    |   expression
+        {
+            $$ = std::vector<std::unique_ptr<Expr>>();
+            $$.push_back(std::move($1));
+        }
     ;
 
 %%

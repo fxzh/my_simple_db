@@ -30,6 +30,8 @@ constexpr const char* kSchemaMetaName = "db_schema";
 // bootstrap.sql 创建的系统表(文档性 id 与文件内 set table_id 值一致), 列定义唯一事实来源在 bootstrap.sql
 constexpr uint64_t kIndexMetaId = 4;
 constexpr const char* kIndexMetaName = "db_index";
+constexpr uint64_t kFuncMetaId = 5;
+constexpr const char* kFuncMetaName = "db_func";
 
 // bootstrap.sql 末尾创建的完成标记表: 行存在即代表初始化全程成功, 正常模式 open() 按名检查
 constexpr const char* kVersionMetaName = "db_version";

@@ -10,3 +10,7 @@ UPDATE t_sem SET name = 'abcdefghijk';
 UPDATE t_sem SET id = id > 1;
 UPDATE t_sem SET id = 1 WHERE id + 1;
 DROP TABLE t_sem;
+-- 函数调用暂不支持
+CREATE TABLE t_suf (i int);
+UPDATE t_suf SET i = abs(1);
+DROP TABLE t_suf;

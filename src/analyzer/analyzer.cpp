@@ -239,6 +239,9 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, st:
         auto le = std::make_unique<BoundCmp>(CmpOp::Le, std::move(x2), std::move(hi));
         return std::make_unique<BoundLogic>(LogicOp::And, std::move(ge), std::move(le));
     }
+    case ExprKind::FuncCall:
+        DB_RAISE(db::ErrCode::NotImplemented, LogModule::ANALYZER, "函数调用暂不支持: {}",
+                 static_cast<const FuncCallExpr&>(expr).name);
     }
     // 不可达: 全部表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知表达式节点");
@@ -276,6 +279,15 @@ bool may_be_null(const Expr& expr)
     case ExprKind::Between: {
         const auto& e = static_cast<const BetweenExpr&>(expr);
         return may_be_null(*e.expr) || may_be_null(*e.lo) || may_be_null(*e.hi);
+    }
+    case ExprKind::FuncCall: {
+        const auto& f = static_cast<const FuncCallExpr&>(expr);
+        for (const auto& arg : f.args) {
+            if (may_be_null(*arg)) {
+                return true;
+            }
+        }
+        return false;
     }
     }
     // 不可达: 全部表达式种类已在上方穷尽
@@ -315,6 +327,15 @@ bool has_col_ref(const Expr& expr)
     case ExprKind::Between: {
         const auto& e = static_cast<const BetweenExpr&>(expr);
         return has_col_ref(*e.expr) || has_col_ref(*e.lo) || has_col_ref(*e.hi);
+    }
+    case ExprKind::FuncCall: {
+        const auto& f = static_cast<const FuncCallExpr&>(expr);
+        for (const auto& arg : f.args) {
+            if (has_col_ref(*arg)) {
+                return true;
+            }
+        }
+        return false;
     }
     }
     // 不可达: 全部表达式种类已在上方穷尽
@@ -500,7 +521,7 @@ void check_reserved_table(const ct::TableRef& table)
     }
     if (table.name == ct::kTableMetaName || table.name == ct::kColumnMetaName
         || table.name == ct::kSchemaMetaName || table.name == ct::kIndexMetaName
-        || table.name == ct::kVersionMetaName) {
+        || table.name == ct::kVersionMetaName || table.name == ct::kFuncMetaName) {
         DB_RAISE(db::ErrCode::ProtectedTable, LogModule::ANALYZER, "保留表名禁止使用: {}",
                  table_ref_to_string(table));
     }

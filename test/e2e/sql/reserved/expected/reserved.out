@@ -38,18 +38,26 @@ CREATE TABLE system.db_index (id int);
 ERROR: 表已存在: system.db_index
 CREATE TABLE system.db_version (id int);
 ERROR: 表已存在: system.db_version
+CREATE TABLE system.db_func (id int);
+ERROR: 表已存在: system.db_func
 DROP TABLE system.db_index;
 ERROR: 保留表名禁止使用: system.db_index
 DROP TABLE system.db_version;
 ERROR: 保留表名禁止使用: system.db_version
+DROP TABLE system.db_func;
+ERROR: 保留表名禁止使用: system.db_func
 INSERT INTO system.db_index VALUES (1);
 ERROR: 保留表名禁止使用: system.db_index
 INSERT INTO system.db_version VALUES (1);
 ERROR: 保留表名禁止使用: system.db_version
+INSERT INTO system.db_func VALUES (1);
+ERROR: 保留表名禁止使用: system.db_func
 DELETE FROM system.db_index;
 ERROR: 保留表名禁止使用: system.db_index
 DELETE FROM system.db_version;
 ERROR: 保留表名禁止使用: system.db_version
+DELETE FROM system.db_func;
+ERROR: 保留表名禁止使用: system.db_func
 CREATE TABLE t_reserved (id int);
 CREATE
 INSERT INTO t_reserved VALUES (7);
@@ -63,12 +71,13 @@ SELECT table_name FROM system.db_table ORDER BY table_name;
  table_name
 ------------
  db_column
+ db_func
  db_index
  db_schema
  db_table
  db_version
  t_reserved
-(6 行)
+(7 行)
 SELECT col_name, ordinal, type, length, not_null FROM system.db_column ORDER BY col_name, ordinal;
   col_name   | ordinal | type | length | not_null
 -------------+---------+------+--------+----------
@@ -76,6 +85,8 @@ SELECT col_name, ordinal, type, length, not_null FROM system.db_column ORDER BY 
  col_ordinal | 2       | 1    | 0      | 1
  file_id     | 2       | 2    | 0      | 1
  file_id     | 3       | 2    | 0      | 1
+ func_id     | 0       | 2    | 0      | 1
+ func_name   | 1       | 4    | 64     | 1
  id          | 0       | 1    | 0      | 0
  index_name  | 1       | 4    | 64     | 1
  length      | 4       | 1    | 0      | 1
@@ -90,7 +101,7 @@ SELECT col_name, ordinal, type, length, not_null FROM system.db_column ORDER BY 
  table_name  | 1       | 4    | 64     | 1
  type        | 3       | 1    | 0      | 1
  version     | 0       | 2    | 0      | 1
-(18 行)
+(20 行)
 SELECT schema_name FROM system.db_schema ORDER BY schema_name;
  schema_name
 -------------
@@ -103,14 +114,18 @@ SELECT * FROM system.db_index;
 SELECT * FROM system.db_version;
  version
 (0 行)
+SELECT * FROM system.db_func;
+ func_id | func_name
+(0 行)
 DROP TABLE t_reserved;
 DROP
 SELECT table_name FROM system.db_table ORDER BY table_name;
  table_name
 ------------
  db_column
+ db_func
  db_index
  db_schema
  db_table
  db_version
-(5 行)
+(6 行)

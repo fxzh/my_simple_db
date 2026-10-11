@@ -33,3 +33,13 @@ SELECT 1 AS x, 2 AS x ORDER BY x;
 SELECT 1 ORDER BY nosuch;
 SELECT 1 ORDER BY 'c';
 DROP TABLE t_so;
+-- 函数调用语法可解析, 语义层统一报暂不支持
+CREATE TABLE t_sf (i int);
+SELECT abs(1);
+SELECT abs(i) FROM t_sf;
+SELECT abs(i, 1) FROM t_sf;
+SELECT nosuch() FROM t_sf;
+SELECT f() FROM t_sf;
+SELECT i FROM t_sf WHERE abs(i) > 0;
+SELECT i FROM t_sf ORDER BY abs(i);
+DROP TABLE t_sf;

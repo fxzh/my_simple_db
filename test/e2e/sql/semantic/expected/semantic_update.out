@@ -22,3 +22,10 @@ UPDATE t_sem SET id = 1 WHERE id + 1;
 ERROR: WHERE 条件不是布尔表达式
 DROP TABLE t_sem;
 DROP
+-- 函数调用暂不支持
+CREATE TABLE t_suf (i int);
+CREATE
+UPDATE t_suf SET i = abs(1);
+ERROR: 函数调用暂不支持: abs
+DROP TABLE t_suf;
+DROP
