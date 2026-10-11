@@ -1,0 +1,364 @@
+// analyzer_expr.cpp: 表达式绑定: AST 表达式 → 绑定表达式树, 含类型工具与行结构构建
+#include "analyzer_internal.h"
+
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "ast.hh"
+#include "bound_expr.h"
+#include "catalog.h"
+#include "common/err.h"
+#include "log/log.h"
+
+namespace ana {
+
+namespace {
+
+// 数值类域等级: Int<BigInt<Float<Double, 非数值为 0(Null 单独判)
+int num_rank(st::ColType t)
+{
+    switch (t) {
+    case st::ColType::Int: return 1;
+    case st::ColType::BigInt: return 2;
+    case st::ColType::Float: return 3;
+    case st::ColType::Double: return 4;
+    default: return 0;
+    }
+}
+
+// 数值类(Int/BigInt/Float/Double)判定
+bool is_num_type(st::ColType t)
+{
+    return num_rank(t) > 0;
+}
+
+// 比较两侧静态类型可比性校验: 同族才可比, 任一侧无类型(Null)放行
+void check_comparable(st::ColType lt, st::ColType rt)
+{
+    const bool same_num = is_num_type(lt) && is_num_type(rt);
+    const bool same_str = is_text_type(lt) && is_text_type(rt);
+    const bool same_bool = lt == st::ColType::Bool && rt == st::ColType::Bool;
+    if (lt != st::ColType::Null && rt != st::ColType::Null && !same_num && !same_str
+        && !same_bool) {
+        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
+                 "比较运算两侧须同为数值、字符串或布尔");
+    }
+}
+
+// 函数调用绑定: db_func 按名解析为内建函数, 实参递归绑定后校验个数与类型并固化结果域
+std::unique_ptr<BoundExpr> bind_func_call(const FuncCallExpr& f, const Schema* schema,
+                                          ct::Catalog& db, st::ColType& type)
+{
+    const std::optional<uint64_t> fid = db.func_id(f.name);
+    if (!fid.has_value()) {
+        DB_RAISE(db::ErrCode::UnknownFunction, LogModule::ANALYZER, "函数不存在: {}", f.name);
+    }
+    // db_func 数据行与内建函数清单一致, id 未注册即内部错误
+    FuncId func;
+    switch (*fid) {
+    case static_cast<uint64_t>(FuncId::Abs):
+        func = FuncId::Abs;
+        break;
+    default:
+        DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "db_func 函数 id 未注册: {}", *fid);
+    }
+    switch (func) {
+    case FuncId::Abs: {
+        if (f.args.size() != 1) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
+                     "函数参数个数不符: {} 须 1 个实参", f.name);
+        }
+        st::ColType at;
+        std::unique_ptr<BoundExpr> arg = bind_expr(*f.args[0], schema, db, at);
+        if (at == st::ColType::Null) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
+                     "函数实参类型未知, 无法推导结果域: {}", f.name);
+        }
+        if (!is_num_type(at)) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
+                     "函数实参类型不符: {} 须为数值", f.name);
+        }
+        type = at;  // 结果域镜像数值实参域
+        std::vector<std::unique_ptr<BoundExpr>> args;
+        args.push_back(std::move(arg));
+        return std::make_unique<BoundFuncCall>(func, std::move(args), at);
+    }
+    }
+    DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知内建函数");
+}
+
+}  // namespace
+
+// ==================== 类型工具 ====================
+
+bool is_int_type(st::ColType t)
+{
+    return t == st::ColType::Int || t == st::ColType::BigInt;
+}
+
+bool is_float_type(st::ColType t)
+{
+    return t == st::ColType::Float || t == st::ColType::Double;
+}
+
+bool is_text_type(st::ColType t)
+{
+    return t == st::ColType::Char || t == st::ColType::VarChar;
+}
+
+// ==================== 表达式绑定 ====================
+
+std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, ct::Catalog& db,
+                                     st::ColType& type)
+{
+    switch (expr.kind()) {
+    case ExprKind::Int: {
+        const int64_t v = static_cast<const IntExpr&>(expr).value;
+        // int32 范围内定型 Int, 超界定型 BigInt
+        if (v >= INT32_MIN && v <= INT32_MAX) {
+            type = st::ColType::Int;
+            return std::make_unique<BoundConst>(st::int_val(v));
+        }
+        type = st::ColType::BigInt;
+        return std::make_unique<BoundConst>(st::bigint_val(v));
+    }
+    case ExprKind::Float:
+        // 词法浮点值即 double, 字面量定型 Double
+        type = st::ColType::Double;
+        return std::make_unique<BoundConst>(
+            st::double_val(static_cast<const FloatExpr&>(expr).value));
+    case ExprKind::String:
+        type = st::ColType::VarChar;
+        return std::make_unique<BoundConst>(
+            st::str_val(static_cast<const StringExpr&>(expr).value));
+    case ExprKind::Null:
+        type = st::ColType::Null;
+        return std::make_unique<BoundConst>(st::null_val());
+    case ExprKind::Bool:
+        type = st::ColType::Bool;
+        return std::make_unique<BoundConst>(st::bool_val(static_cast<const BoolExpr&>(expr).value));
+    case ExprKind::Identifier: {
+        const auto& id = static_cast<const IdentifierExpr&>(expr);
+        if (schema == nullptr) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
+                     "常量上下文不允许引用列: {}", id.name);
+        }
+        const auto it = schema->cols.find(id.name);
+        if (it == schema->cols.end()) {
+            DB_RAISE(db::ErrCode::UnknownColumn, LogModule::ANALYZER, "列不存在: {}", id.name);
+        }
+        type = schema->col_types[it->second];
+        return std::make_unique<BoundColRef>(it->second, type);
+    }
+    case ExprKind::BinaryOp: {
+        const auto& e = static_cast<const BinaryOpExpr&>(expr);
+        st::ColType lt;
+        st::ColType rt;
+        std::unique_ptr<BoundExpr> l = bind_expr(*e.left, schema, db, lt);
+        std::unique_ptr<BoundExpr> r = bind_expr(*e.right, schema, db, rt);
+        if ((!is_num_type(lt) && lt != st::ColType::Null)
+            || (!is_num_type(rt) && rt != st::ColType::Null)) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "算术运算操作数不是数值");
+        }
+        // 结果取两侧较高数值域
+        type = num_rank(lt) >= num_rank(rt) ? lt : rt;
+        return std::make_unique<BoundArith>(e.op, std::move(l), std::move(r), type);
+    }
+    case ExprKind::UnaryOp: {
+        const auto& e = static_cast<const UnaryOpExpr&>(expr);
+        st::ColType t;
+        std::unique_ptr<BoundExpr> operand = bind_expr(*e.operand, schema, db, t);
+        if (!is_num_type(t) && t != st::ColType::Null) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "一元运算操作数不是数值");
+        }
+        type = t;
+        if (e.op == '+') {
+            return operand;  // 一元正号原值返回, 绑定期折为操作数本身
+        }
+        return std::make_unique<BoundNeg>(std::move(operand), t);
+    }
+    case ExprKind::Compare: {
+        const auto& e = static_cast<const CompareExpr&>(expr);
+        st::ColType lt;
+        st::ColType rt;
+        std::unique_ptr<BoundExpr> l = bind_expr(*e.left, schema, db, lt);
+        std::unique_ptr<BoundExpr> r = bind_expr(*e.right, schema, db, rt);
+        check_comparable(lt, rt);
+        type = st::ColType::Bool;
+        return std::make_unique<BoundCmp>(e.op, std::move(l), std::move(r));
+    }
+    case ExprKind::Logic: {
+        const auto& e = static_cast<const LogicExpr&>(expr);
+        st::ColType lt;
+        st::ColType rt;
+        std::unique_ptr<BoundExpr> l = bind_expr(*e.left, schema, db, lt);
+        std::unique_ptr<BoundExpr> r = bind_expr(*e.right, schema, db, rt);
+        if ((lt != st::ColType::Bool && lt != st::ColType::Null)
+            || (rt != st::ColType::Bool && rt != st::ColType::Null)) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "逻辑运算操作数不是布尔值");
+        }
+        type = st::ColType::Bool;
+        return std::make_unique<BoundLogic>(e.op, std::move(l), std::move(r));
+    }
+    case ExprKind::Not: {
+        const auto& e = static_cast<const NotExpr&>(expr);
+        st::ColType t;
+        std::unique_ptr<BoundExpr> operand = bind_expr(*e.operand, schema, db, t);
+        if (t != st::ColType::Bool && t != st::ColType::Null) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "逻辑运算操作数不是布尔值");
+        }
+        type = st::ColType::Bool;
+        return std::make_unique<BoundNot>(std::move(operand));
+    }
+    case ExprKind::IsNull: {
+        const auto& e = static_cast<const IsNullExpr&>(expr);
+        st::ColType t;
+        std::unique_ptr<BoundExpr> operand = bind_expr(*e.operand, schema, db, t);
+        type = st::ColType::Bool;
+        return std::make_unique<BoundIsNull>(std::move(operand), e.negate);
+    }
+    case ExprKind::Between: {
+        const auto& e = static_cast<const BetweenExpr&>(expr);
+        // 被测式绑定两份, 分别作两个比较的左操作数
+        st::ColType xt;
+        st::ColType lot;
+        st::ColType hit;
+        std::unique_ptr<BoundExpr> x1 = bind_expr(*e.expr, schema, db, xt);
+        std::unique_ptr<BoundExpr> lo = bind_expr(*e.lo, schema, db, lot);
+        std::unique_ptr<BoundExpr> x2 = bind_expr(*e.expr, schema, db, xt);
+        std::unique_ptr<BoundExpr> hi = bind_expr(*e.hi, schema, db, hit);
+        check_comparable(xt, lot);
+        check_comparable(xt, hit);
+        type = st::ColType::Bool;
+        auto ge = std::make_unique<BoundCmp>(CmpOp::Ge, std::move(x1), std::move(lo));
+        auto le = std::make_unique<BoundCmp>(CmpOp::Le, std::move(x2), std::move(hi));
+        return std::make_unique<BoundLogic>(LogicOp::And, std::move(ge), std::move(le));
+    }
+    case ExprKind::FuncCall:
+        return bind_func_call(static_cast<const FuncCallExpr&>(expr), schema, db, type);
+    }
+    // 不可达: 全部表达式种类已在上方穷尽
+    DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知表达式节点");
+}
+
+std::unique_ptr<BoundExpr> bind_where(const Expr& where, const Schema& schema, ct::Catalog& db)
+{
+    st::ColType t;
+    std::unique_ptr<BoundExpr> pred = bind_expr(where, &schema, db, t);
+    if (t != st::ColType::Bool && t != st::ColType::Null) {
+        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "WHERE 条件不是布尔表达式");
+    }
+    return pred;
+}
+
+// ==================== AST 走查 ====================
+
+bool may_be_null(const Expr& expr)
+{
+    switch (expr.kind()) {
+    case ExprKind::Null: return true;
+    case ExprKind::Int:
+    case ExprKind::Float:
+    case ExprKind::String:
+    case ExprKind::Bool:
+    case ExprKind::Identifier:
+        return false;
+    case ExprKind::BinaryOp: {
+        const auto& e = static_cast<const BinaryOpExpr&>(expr);
+        return may_be_null(*e.left) || may_be_null(*e.right);
+    }
+    case ExprKind::UnaryOp:
+        return may_be_null(*static_cast<const UnaryOpExpr&>(expr).operand);
+    case ExprKind::Compare: {
+        const auto& e = static_cast<const CompareExpr&>(expr);
+        return may_be_null(*e.left) || may_be_null(*e.right);
+    }
+    case ExprKind::Logic: {
+        const auto& e = static_cast<const LogicExpr&>(expr);
+        return may_be_null(*e.left) || may_be_null(*e.right);
+    }
+    case ExprKind::Not:
+        return may_be_null(*static_cast<const NotExpr&>(expr).operand);
+    case ExprKind::IsNull:
+        return false;
+    case ExprKind::Between: {
+        const auto& e = static_cast<const BetweenExpr&>(expr);
+        return may_be_null(*e.expr) || may_be_null(*e.lo) || may_be_null(*e.hi);
+    }
+    case ExprKind::FuncCall: {
+        const auto& f = static_cast<const FuncCallExpr&>(expr);
+        for (const auto& arg : f.args) {
+            if (may_be_null(*arg)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    }
+    // 不可达: 全部表达式种类已在上方穷尽
+    DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知表达式节点");
+}
+
+bool has_col_ref(const Expr& expr)
+{
+    switch (expr.kind()) {
+    case ExprKind::Int:
+    case ExprKind::Float:
+    case ExprKind::String:
+    case ExprKind::Bool:
+    case ExprKind::Null:
+        return false;
+    case ExprKind::Identifier:
+        return true;
+    case ExprKind::BinaryOp: {
+        const auto& e = static_cast<const BinaryOpExpr&>(expr);
+        return has_col_ref(*e.left) || has_col_ref(*e.right);
+    }
+    case ExprKind::UnaryOp:
+        return has_col_ref(*static_cast<const UnaryOpExpr&>(expr).operand);
+    case ExprKind::Compare: {
+        const auto& e = static_cast<const CompareExpr&>(expr);
+        return has_col_ref(*e.left) || has_col_ref(*e.right);
+    }
+    case ExprKind::Logic: {
+        const auto& e = static_cast<const LogicExpr&>(expr);
+        return has_col_ref(*e.left) || has_col_ref(*e.right);
+    }
+    case ExprKind::Not:
+        return has_col_ref(*static_cast<const NotExpr&>(expr).operand);
+    case ExprKind::IsNull:
+        return has_col_ref(*static_cast<const IsNullExpr&>(expr).operand);
+    case ExprKind::Between: {
+        const auto& e = static_cast<const BetweenExpr&>(expr);
+        return has_col_ref(*e.expr) || has_col_ref(*e.lo) || has_col_ref(*e.hi);
+    }
+    case ExprKind::FuncCall: {
+        const auto& f = static_cast<const FuncCallExpr&>(expr);
+        for (const auto& arg : f.args) {
+            if (has_col_ref(*arg)) {
+                return true;
+            }
+        }
+        return false;
+    }
+    }
+    // 不可达: 全部表达式种类已在上方穷尽
+    DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知表达式节点");
+}
+
+// ==================== 行结构 ====================
+
+Schema build_schema(const st::TableMeta& meta)
+{
+    Schema schema;
+    schema.col_types.reserve(meta.cols.size());
+    for (size_t i = 0; i < meta.cols.size(); ++i) {
+        schema.cols.emplace(meta.cols[i].name, i);
+        schema.col_types.push_back(meta.cols[i].type);
+    }
+    return schema;
+}
+
+}  // namespace ana
