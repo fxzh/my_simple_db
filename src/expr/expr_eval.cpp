@@ -260,6 +260,39 @@ st::Value eval_is_null(const ana::BoundIsNull& e, const st::Row* row)
     return st::bool_val(e.negate ? !is_null(v) : is_null(v));
 }
 
+// 函数调用: 任一实参为 NULL 即原样传布, 其余按绑定期固化域计算装配,
+// 整型溢出当场报错; 实参个数与类型由语义层保证
+st::Value eval_func_call(const ana::BoundFuncCall& e, const st::Row* row)
+{
+    std::vector<st::Value> argv;
+    argv.reserve(e.args.size());
+    for (const std::unique_ptr<ana::BoundExpr>& a : e.args) {
+        const st::Value v = eval_bound(*a, row);
+        if (is_null(v)) {
+            return v;  // NULL 严格传布
+        }
+        argv.push_back(v);
+    }
+    switch (e.func) {
+    case ana::FuncId::Abs: {
+        const st::Value& v = argv[0];
+        if (e.type == st::ColType::Float) {
+            return st::float_val(std::fabs(to_float(v)));
+        }
+        if (e.type == st::ColType::Double) {
+            return st::double_val(std::fabs(to_double(v)));
+        }
+        const int64_t i = get_int(v);
+        if (i == INT64_MIN || (e.type == st::ColType::Int && i == INT32_MIN)) {
+            DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "整型绝对值溢出");
+        }
+        const int64_t out = i < 0 ? -i : i;
+        return e.type == st::ColType::Int ? st::int_val(out) : st::bigint_val(out);
+    }
+    }
+    DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 未知内建函数");
+}
+
 // 统一求值入口: row 为空表示常量上下文(绑定树不含列引用)
 st::Value eval_bound(const ana::BoundExpr& expr, const st::Row* row)
 {
@@ -291,7 +324,7 @@ st::Value eval_bound(const ana::BoundExpr& expr, const st::Row* row)
     case ana::BoundExprKind::IsNull:
         return eval_is_null(static_cast<const ana::BoundIsNull&>(expr), row);
     case ana::BoundExprKind::FuncCall:
-        DB_RAISE(db::ErrCode::NotImplemented, LogModule::EXPR, "函数求值暂不支持");
+        return eval_func_call(static_cast<const ana::BoundFuncCall&>(expr), row);
     }
     // 不可达: 全部绑定表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 未知绑定表达式节点");

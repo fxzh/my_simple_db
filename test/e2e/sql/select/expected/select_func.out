@@ -1,0 +1,97 @@
+-- abs 执行: 结果域镜像数值实参域, NULL 严格传布
+CREATE TABLE t_fa (i int, b bigint, f float, d double);
+CREATE
+INSERT INTO t_fa VALUES (-5, -9000000000, -1.5, -2.25);
+INSERT 1
+INSERT INTO t_fa VALUES (3, NULL, NULL, NULL);
+INSERT 1
+SELECT i, abs(i), b, abs(b), f, abs(f), d, abs(d) FROM t_fa ORDER BY i;
+ i  | abs(i) |      b      |   abs(b)   |  f   | abs(f) |   d   | abs(d)
+----+--------+-------------+------------+------+--------+-------+--------
+ -5 | 5      | -9000000000 | 9000000000 | -1.5 | 1.5    | -2.25 | 2.25
+ 3  | 3      | NULL        | NULL       | NULL | NULL   | NULL  | NULL
+(2 行)
+SELECT abs(i) + 1, abs(i + 10) FROM t_fa ORDER BY abs(i);
+ (abs(i) + 1) | abs((i + 10))
+--------------+---------------
+ 4            | 13
+ 6            | 5
+(2 行)
+SELECT i FROM t_fa WHERE abs(i) > 3;
+ i
+----
+ -5
+(1 行)
+SELECT i FROM t_fa ORDER BY abs(i);
+ i
+----
+ 3
+ -5
+(2 行)
+-- 常量调用计划期折叠为常量
+SELECT abs(-1), abs(-1.5), abs(1 + NULL);
+ abs((-1)) | abs((-1.5)) | abs((1 + NULL))
+-----------+-------------+-----------------
+ 1         | 1.5         | NULL
+(1 行)
+EXPLAIN SELECT abs(-1);
+     QUERY PLAN
+---------------------
+ Project
+   Output: abs((-1))
+   ->  Dummy Scan
+(3 行)
+EXPLAIN SELECT i FROM t_fa WHERE abs(i) > 3;
+             QUERY PLAN
+-------------------------------------
+ Project
+   Output: i
+   ->  Filter: (abs(i) > 3)
+         ->  Seq Scan on public.t_fa
+(4 行)
+-- 恒真函数谓词折叠后被剪除, 折叠期溢出在 EXPLAIN 即报
+EXPLAIN SELECT 1 WHERE abs(-1) > 0;
+    QUERY PLAN
+------------------
+ Project
+   Output: 1
+   ->  Dummy Scan
+(3 行)
+EXPLAIN SELECT abs(-9223372036854775807 - 1);
+ERROR: 整型绝对值溢出
+-- 常量上下文求值
+CREATE TABLE t_fb (i int);
+CREATE
+INSERT INTO t_fb VALUES (abs(-7));
+INSERT 1
+UPDATE t_fb SET i = abs(i);
+UPDATE 1
+SELECT i FROM t_fb;
+ i
+---
+ 7
+(1 行)
+DROP TABLE t_fb;
+DROP
+-- 溢出: bigint 最小值绝对值不可表示, 折叠期与执行期报错
+SELECT abs(-9223372036854775807 - 1);
+ERROR: 整型绝对值溢出
+CREATE TABLE t_fc (i bigint);
+CREATE
+INSERT INTO t_fc VALUES (-9223372036854775807 - 1);
+INSERT 1
+SELECT abs(i) FROM t_fc;
+ERROR: 整型绝对值溢出
+DROP TABLE t_fc;
+DROP
+-- 溢出: int 域最小值绝对值超 int32 域, 执行期报错
+CREATE TABLE t_fd (i int);
+CREATE
+INSERT INTO t_fd VALUES (-2147483647 - 1);
+INSERT 1
+SELECT abs(i) FROM t_fd;
+ERROR: 整型绝对值溢出
+DROP TABLE t_fd;
+DROP
+DROP TABLE t_fa;
+DROP

@@ -76,7 +76,7 @@ SELECT 1 ORDER BY 'c';
 ERROR: ORDER BY 不允许非整数常量
 DROP TABLE t_so;
 DROP
--- 函数语义检查: 名字/个数/实参类型, 绑定通过后执行期报未实现
+-- 函数语义检查: 名字/个数/实参类型
 CREATE TABLE t_sf (i int, s char(4));
 CREATE
 INSERT INTO t_sf VALUES (1, 'a');
@@ -99,42 +99,5 @@ SELECT abs(NULL);
 ERROR: 函数实参类型未知, 无法推导结果域: abs
 SELECT i FROM t_sf WHERE abs(i);
 ERROR: WHERE 条件不是布尔表达式
-SELECT abs(i) FROM t_sf;
-ERROR: 函数求值暂不支持
-SELECT i FROM t_sf WHERE abs(i) > 0;
-ERROR: 函数求值暂不支持
-SELECT i FROM t_sf ORDER BY abs(i);
-ERROR: 函数求值暂不支持
-EXPLAIN SELECT abs(i) FROM t_sf;
-          QUERY PLAN
--------------------------------
- Project
-   Output: abs(i)
-   ->  Seq Scan on public.t_sf
-(3 行)
-EXPLAIN SELECT abs(i) AS a, i + abs(i) FROM t_sf WHERE abs(i) > 0;
-             QUERY PLAN
--------------------------------------
- Project
-   Output: a, (i + abs(i))
-   ->  Filter: (abs(i) > 0)
-         ->  Seq Scan on public.t_sf
-(4 行)
-EXPLAIN SELECT i FROM t_sf ORDER BY abs(i);
-             QUERY PLAN
--------------------------------------
- Project
-   Output: i
-   ->  Sort
-         Sort Key: abs(i)
-         ->  Seq Scan on public.t_sf
-(5 行)
-EXPLAIN SELECT abs(-1);
-     QUERY PLAN
----------------------
- Project
-   Output: abs((-1))
-   ->  Dummy Scan
-(3 行)
 DROP TABLE t_sf;
 DROP

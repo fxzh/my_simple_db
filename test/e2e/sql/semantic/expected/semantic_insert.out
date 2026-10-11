@@ -38,15 +38,13 @@ SELECT * FROM t_si ORDER BY a;
 (2 行)
 DROP TABLE t_si;
 DROP
--- 函数实参与列类型检查, 绑定通过后执行期报未实现
+-- 函数实参与列类型检查
 CREATE TABLE t_sif (i int, s char(3));
 CREATE
 INSERT INTO t_sif VALUES (abs('x'));
 ERROR: 函数实参类型不符: abs 须为数值
 INSERT INTO t_sif (s) VALUES (abs(1));
 ERROR: 值与列类型不匹配
-INSERT INTO t_sif (i) VALUES (abs(1));
-ERROR: 函数求值暂不支持
 DROP TABLE t_sif;
 DROP
 CREATE TABLE t_ic (a int, b double, s varchar);

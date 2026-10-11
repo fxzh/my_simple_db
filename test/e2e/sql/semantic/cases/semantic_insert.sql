@@ -16,11 +16,10 @@ INSERT INTO nosuch_si VALUES (1);
 INSERT INTO t_si VALUES (1, 2, 3.0, 4.0, 'ab', 'abcde');
 SELECT * FROM t_si ORDER BY a;
 DROP TABLE t_si;
--- 函数实参与列类型检查, 绑定通过后执行期报未实现
+-- 函数实参与列类型检查
 CREATE TABLE t_sif (i int, s char(3));
 INSERT INTO t_sif VALUES (abs('x'));
 INSERT INTO t_sif (s) VALUES (abs(1));
-INSERT INTO t_sif (i) VALUES (abs(1));
 DROP TABLE t_sif;
 CREATE TABLE t_ic (a int, b double, s varchar);
 INSERT INTO t_ic (nosuch) VALUES (1);

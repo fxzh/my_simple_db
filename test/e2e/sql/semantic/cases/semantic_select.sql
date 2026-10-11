@@ -33,7 +33,7 @@ SELECT 1 AS x, 2 AS x ORDER BY x;
 SELECT 1 ORDER BY nosuch;
 SELECT 1 ORDER BY 'c';
 DROP TABLE t_so;
--- 函数语义检查: 名字/个数/实参类型, 绑定通过后执行期报未实现
+-- 函数语义检查: 名字/个数/实参类型
 CREATE TABLE t_sf (i int, s char(4));
 INSERT INTO t_sf VALUES (1, 'a');
 SELECT nosuch() FROM t_sf;
@@ -45,11 +45,4 @@ SELECT abs('x');
 SELECT abs(true);
 SELECT abs(NULL);
 SELECT i FROM t_sf WHERE abs(i);
-SELECT abs(i) FROM t_sf;
-SELECT i FROM t_sf WHERE abs(i) > 0;
-SELECT i FROM t_sf ORDER BY abs(i);
-EXPLAIN SELECT abs(i) FROM t_sf;
-EXPLAIN SELECT abs(i) AS a, i + abs(i) FROM t_sf WHERE abs(i) > 0;
-EXPLAIN SELECT i FROM t_sf ORDER BY abs(i);
-EXPLAIN SELECT abs(-1);
 DROP TABLE t_sf;

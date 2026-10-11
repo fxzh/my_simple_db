@@ -142,8 +142,13 @@ void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
     }
     case ana::BoundExprKind::FuncCall: {
         auto& f = static_cast<ana::BoundFuncCall&>(*e);
+        bool all_const = true;
         for (std::unique_ptr<ana::BoundExpr>& a : f.args) {
-            fold_expr(a);  // 仅折叠实参, 调用节点不折叠
+            fold_expr(a);
+            all_const = all_const && is_const(*a);
+        }
+        if (all_const) {
+            e = to_fold_const(expr::eval_const(*e));
         }
         return;
     }

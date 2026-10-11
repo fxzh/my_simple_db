@@ -10,10 +10,9 @@ UPDATE t_sem SET name = 'abcdefghijk';
 UPDATE t_sem SET id = id > 1;
 UPDATE t_sem SET id = 1 WHERE id + 1;
 DROP TABLE t_sem;
--- 函数右值类型检查, 绑定通过后执行期报未实现
+-- 函数右值类型检查
 CREATE TABLE t_suf (i int, s char(4));
 INSERT INTO t_suf VALUES (1, 'a');
 UPDATE t_suf SET i = abs('x');
 UPDATE t_suf SET s = abs(1);
-UPDATE t_suf SET i = abs(1);
 DROP TABLE t_suf;

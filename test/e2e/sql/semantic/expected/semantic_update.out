@@ -22,7 +22,7 @@ UPDATE t_sem SET id = 1 WHERE id + 1;
 ERROR: WHERE 条件不是布尔表达式
 DROP TABLE t_sem;
 DROP
--- 函数右值类型检查, 绑定通过后执行期报未实现
+-- 函数右值类型检查
 CREATE TABLE t_suf (i int, s char(4));
 CREATE
 INSERT INTO t_suf VALUES (1, 'a');
@@ -31,7 +31,5 @@ UPDATE t_suf SET i = abs('x');
 ERROR: 函数实参类型不符: abs 须为数值
 UPDATE t_suf SET s = abs(1);
 ERROR: 值与列类型不匹配
-UPDATE t_suf SET i = abs(1);
-ERROR: 函数求值暂不支持
 DROP TABLE t_suf;
 DROP
