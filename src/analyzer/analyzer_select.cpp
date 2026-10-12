@@ -7,6 +7,7 @@
 
 #include "analyzer_expr.h"
 #include "ast.hh"
+#include "ast_print.hxx"
 #include "bound.h"
 #include "bound_expr.h"
 #include "catalog.h"

@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "ast.hh"
+#include "ast_print.hxx"
 #include "bound_expr.h"
 #include "catalog.h"
 #include "common/err.h"
@@ -37,7 +38,7 @@ struct RowsOp : Operator {
     void close() override {}
 };
 
-// 常量值转文本: 与 ast.hh 的 expr_to_string 常量形态对齐
+// 常量值转文本: 与 ast_print.hxx 的 expr_to_string 常量形态对齐
 std::string const_text(const st::Value& v)
 {
     if (const auto* i = std::get_if<int64_t>(&v.box)) {
@@ -58,7 +59,7 @@ std::string const_text(const st::Value& v)
     return "NULL";
 }
 
-// 语义分析表达式转文本: 格式与 ast.hh 的 expr_to_string 对齐, 列下标经 names 回填列名
+// 语义分析表达式转文本: 格式与 ast_print.hxx 的 expr_to_string 对齐, 列下标经 names 回填列名
 std::string bound_expr_to_string(const ana::BoundExpr& e, const std::vector<std::string>& names)
 {
     switch (e.kind()) {

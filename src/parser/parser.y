@@ -18,6 +18,7 @@
 
 %code {
     #include <sstream>
+    #include "ast_print.hxx"  // AST 节点全部在此构造, 需与 print 定义同编译单元
     #include "parser.tab.hh"  // 包含 bison 生成的头文件
     #include "sql_scanner.h"
 

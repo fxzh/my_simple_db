@@ -1,4 +1,5 @@
 // ast.hh: SQL 语句与表达式的 AST 节点定义(纯语法树, 不含存储/执行)
+// 渲染函数(print 的定义与 *_to_string)见 ast_print.hxx
 // 由 parser.y 的 %code requires 包含, 因此 parser.tab.hh(lexer.l/sql_parser.cpp
 // 均包含它)也能看到完整类型 —— variant 语义值中 unique_ptr<Expr>/<SQLStatement>
 // 的析构要求这些类型必须是完整类型
@@ -7,8 +8,7 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <format>
-#include <iostream>
+#include <iosfwd>
 #include <memory>
 #include <optional>
 #include <string>
@@ -32,12 +32,6 @@ struct QualifiedName {
     std::string name;
 };
 
-// 限定名转文本: 供打印与日志使用
-inline std::string qualified_to_string(const QualifiedName& q)
-{
-    return q.schema.empty() ? q.name : q.schema + "." + q.name;
-}
-
 // 列定义: 列名 + 类型说明 + NOT NULL 约束
 struct ColumnDef {
     std::string name;
@@ -45,25 +39,6 @@ struct ColumnDef {
     std::optional<long long> length;  // char/varchar 的声明长度, 未声明为 nullopt
     bool not_null = false;  // NOT NULL 约束, 未声明即可空
 };
-
-// 类型名转文本, 带 (长度) 后缀: 供打印与日志使用
-inline std::string type_to_string(DataType type, std::optional<long long> length)
-{
-    const char* name = nullptr;
-    switch (type) {
-    case DataType::Int: name = "int"; break;
-    case DataType::BigInt: name = "bigint"; break;
-    case DataType::Float: name = "float"; break;
-    case DataType::Double: name = "double"; break;
-    case DataType::Char: name = "char"; break;
-    case DataType::VarChar: name = "varchar"; break;
-    case DataType::Bool: name = "boolean"; break;
-    }
-    if (!length) {
-        return name;
-    }
-    return std::format("{}({})", name, *length);
-}
 
 // ==================== 表达式 AST ====================
 
@@ -85,10 +60,7 @@ struct Expr {
 struct IntExpr : Expr {
     long long value;
     explicit IntExpr(long long val) : value(val) {}
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "Int: " << value << std::endl;
-    }
+    void print(std::ostream& os, int indent) const override;
     ExprKind kind() const override { return ExprKind::Int; }
 };
 
@@ -96,10 +68,7 @@ struct IntExpr : Expr {
 struct FloatExpr : Expr {
     double value;
     explicit FloatExpr(double val) : value(val) {}
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "Float: " << value << std::endl;
-    }
+    void print(std::ostream& os, int indent) const override;
     ExprKind kind() const override { return ExprKind::Float; }
 };
 
@@ -107,19 +76,13 @@ struct FloatExpr : Expr {
 struct StringExpr : Expr {
     std::string value;
     explicit StringExpr(std::string val) : value(std::move(val)) {}
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "String: " << value << std::endl;
-    }
+    void print(std::ostream& os, int indent) const override;
     ExprKind kind() const override { return ExprKind::String; }
 };
 
 // NULL 字面量
 struct NullExpr : Expr {
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "Null" << std::endl;
-    }
+    void print(std::ostream& os, int indent) const override;
     ExprKind kind() const override { return ExprKind::Null; }
 };
 
@@ -127,11 +90,7 @@ struct NullExpr : Expr {
 struct BoolExpr : Expr {
     bool value;
     explicit BoolExpr(bool val) : value(val) {}
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "Bool: "
-           << (value ? "true" : "false") << std::endl;
-    }
+    void print(std::ostream& os, int indent) const override;
     ExprKind kind() const override { return ExprKind::Bool; }
 };
 
@@ -139,10 +98,7 @@ struct BoolExpr : Expr {
 struct IdentifierExpr : Expr {
     std::string name;
     explicit IdentifierExpr(std::string n) : name(std::move(n)) {}
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "Identifier: " << name << std::endl;
-    }
+    void print(std::ostream& os, int indent) const override;
     ExprKind kind() const override { return ExprKind::Identifier; }
 };
 
@@ -154,12 +110,7 @@ struct BinaryOpExpr : Expr {
     BinaryOpExpr(char op_, std::unique_ptr<Expr> left_, std::unique_ptr<Expr> right_)
         : op(op_), left(std::move(left_)), right(std::move(right_)) {}
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "BinaryOp: " << op << std::endl;
-        left->print(os, indent + 4);
-        right->print(os, indent + 4);
-    }
+    void print(std::ostream& os, int indent) const override;
     ExprKind kind() const override { return ExprKind::BinaryOp; }
 };
 
@@ -170,11 +121,7 @@ struct UnaryOpExpr : Expr {
     UnaryOpExpr(char op_, std::unique_ptr<Expr> operand_)
         : op(op_), operand(std::move(operand_)) {}
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "UnaryOp: " << op << std::endl;
-        operand->print(os, indent + 4);
-    }
+    void print(std::ostream& os, int indent) const override;
     ExprKind kind() const override { return ExprKind::UnaryOp; }
 };
 
@@ -184,20 +131,6 @@ enum class CmpOp : uint8_t { Eq, Ne, Lt, Le, Gt, Ge };
 // 逻辑运算种类
 enum class LogicOp : uint8_t { And, Or };
 
-// 比较运算符转文本: 供打印与反生成使用
-inline std::string cmp_to_string(CmpOp op)
-{
-    switch (op) {
-    case CmpOp::Eq: return "=";
-    case CmpOp::Ne: return "<>";
-    case CmpOp::Lt: return "<";
-    case CmpOp::Le: return "<=";
-    case CmpOp::Gt: return ">";
-    case CmpOp::Ge: return ">=";
-    }
-    return "";
-}
-
 // 比较运算节点: = <> < <= > >=
 struct CompareExpr : Expr {
     CmpOp op;
@@ -206,13 +139,7 @@ struct CompareExpr : Expr {
     CompareExpr(CmpOp op_, std::unique_ptr<Expr> left_, std::unique_ptr<Expr> right_)
         : op(op_), left(std::move(left_)), right(std::move(right_)) {}
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "Compare: "
-           << cmp_to_string(op) << std::endl;
-        left->print(os, indent + 4);
-        right->print(os, indent + 4);
-    }
+    void print(std::ostream& os, int indent) const override;
     ExprKind kind() const override { return ExprKind::Compare; }
 };
 
@@ -224,13 +151,7 @@ struct LogicExpr : Expr {
     LogicExpr(LogicOp op_, std::unique_ptr<Expr> left_, std::unique_ptr<Expr> right_)
         : op(op_), left(std::move(left_)), right(std::move(right_)) {}
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "Logic: "
-           << (op == LogicOp::And ? "AND" : "OR") << std::endl;
-        left->print(os, indent + 4);
-        right->print(os, indent + 4);
-    }
+    void print(std::ostream& os, int indent) const override;
     ExprKind kind() const override { return ExprKind::Logic; }
 };
 
@@ -239,11 +160,7 @@ struct NotExpr : Expr {
     std::unique_ptr<Expr> operand;
     explicit NotExpr(std::unique_ptr<Expr> operand_) : operand(std::move(operand_)) {}
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "Not" << std::endl;
-        operand->print(os, indent + 4);
-    }
+    void print(std::ostream& os, int indent) const override;
     ExprKind kind() const override { return ExprKind::Not; }
 };
 
@@ -254,12 +171,7 @@ struct IsNullExpr : Expr {
     IsNullExpr(std::unique_ptr<Expr> operand_, bool negate_)
         : operand(std::move(operand_)), negate(negate_) {}
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "IsNull" << (negate ? " not" : "")
-           << std::endl;
-        operand->print(os, indent + 4);
-    }
+    void print(std::ostream& os, int indent) const override;
     ExprKind kind() const override { return ExprKind::IsNull; }
 };
 
@@ -271,13 +183,7 @@ struct BetweenExpr : Expr {
     BetweenExpr(std::unique_ptr<Expr> e, std::unique_ptr<Expr> lo_, std::unique_ptr<Expr> hi_)
         : expr(std::move(e)), lo(std::move(lo_)), hi(std::move(hi_)) {}
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "Between" << std::endl;
-        expr->print(os, indent + 4);
-        lo->print(os, indent + 4);
-        hi->print(os, indent + 4);
-    }
+    void print(std::ostream& os, int indent) const override;
     ExprKind kind() const override { return ExprKind::Between; }
 };
 
@@ -288,76 +194,9 @@ struct FuncCallExpr : Expr {
     FuncCallExpr(std::string n, std::vector<std::unique_ptr<Expr>> a)
         : name(std::move(n)), args(std::move(a)) {}
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "FuncCall: " << name
-           << std::endl;
-        for (const auto& arg : args) {
-            arg->print(os, indent + 4);
-        }
-    }
+    void print(std::ostream& os, int indent) const override;
     ExprKind kind() const override { return ExprKind::FuncCall; }
 };
-
-// 表达式反生成 SQL 文本: 供输出列命名与日志使用
-inline std::string expr_to_string(const Expr& e)
-{
-    switch (e.kind()) {
-    case ExprKind::Int:
-        return std::format("{}", static_cast<const IntExpr&>(e).value);
-    case ExprKind::Float:
-        return std::format("{}", static_cast<const FloatExpr&>(e).value);
-    case ExprKind::String:
-        return "'" + static_cast<const StringExpr&>(e).value + "'";
-    case ExprKind::Null:
-        return "NULL";
-    case ExprKind::Bool:
-        return static_cast<const BoolExpr&>(e).value ? "true" : "false";
-    case ExprKind::Identifier:
-        return static_cast<const IdentifierExpr&>(e).name;
-    case ExprKind::BinaryOp: {
-        const auto& b = static_cast<const BinaryOpExpr&>(e);
-        return "(" + expr_to_string(*b.left) + " " + b.op + " " + expr_to_string(*b.right) + ")";
-    }
-    case ExprKind::UnaryOp: {
-        const auto& u = static_cast<const UnaryOpExpr&>(e);
-        return "(" + std::string(1, u.op) + expr_to_string(*u.operand) + ")";
-    }
-    case ExprKind::Compare: {
-        const auto& c = static_cast<const CompareExpr&>(e);
-        return "(" + expr_to_string(*c.left) + " " + cmp_to_string(c.op) + " "
-               + expr_to_string(*c.right) + ")";
-    }
-    case ExprKind::Logic: {
-        const auto& l = static_cast<const LogicExpr&>(e);
-        return "(" + expr_to_string(*l.left) + (l.op == LogicOp::And ? " AND " : " OR ")
-               + expr_to_string(*l.right) + ")";
-    }
-    case ExprKind::Not:
-        return "(NOT " + expr_to_string(*static_cast<const NotExpr&>(e).operand) + ")";
-    case ExprKind::IsNull: {
-        const auto& i = static_cast<const IsNullExpr&>(e);
-        return "(" + expr_to_string(*i.operand) + (i.negate ? " IS NOT NULL" : " IS NULL") + ")";
-    }
-    case ExprKind::Between: {
-        const auto& b = static_cast<const BetweenExpr&>(e);
-        return "(" + expr_to_string(*b.expr) + " BETWEEN " + expr_to_string(*b.lo) + " AND "
-               + expr_to_string(*b.hi) + ")";
-    }
-    case ExprKind::FuncCall: {
-        const auto& f = static_cast<const FuncCallExpr&>(e);
-        std::string s = f.name + "(";
-        for (size_t i = 0; i < f.args.size(); ++i) {
-            if (i > 0) {
-                s += ", ";
-            }
-            s += expr_to_string(*f.args[i]);
-        }
-        return s + ")";
-    }
-    }
-    return "";
-}
 
 // ==================== SQL 语句 AST ====================
 
@@ -401,19 +240,7 @@ public:
     const QualifiedName& table_name() const { return table; }
     const std::vector<ColumnDef>& column_defs() const { return columns; }
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "CreateTable: "
-           << qualified_to_string(table) << std::endl;
-        for (const auto& col : columns) {
-            os << std::string(static_cast<std::size_t>(indent + 4), ' ') << col.name << " "
-               << type_to_string(col.type, col.length);
-            if (col.not_null) {
-                os << " NOT NULL";
-            }
-            os << std::endl;
-        }
-    }
+    void print(std::ostream& os, int indent) const override;
 
     StmtKind kind() const override { return StmtKind::CreateTable; }
 };
@@ -426,11 +253,7 @@ public:
 
     const QualifiedName& table_name() const { return table; }
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "DropTable: "
-           << qualified_to_string(table) << std::endl;
-    }
+    void print(std::ostream& os, int indent) const override;
 
     StmtKind kind() const override { return StmtKind::DropTable; }
 };
@@ -443,10 +266,7 @@ public:
 
     const std::string& schema_name() const { return schema; }
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "CreateSchema: " << schema << std::endl;
-    }
+    void print(std::ostream& os, int indent) const override;
 
     StmtKind kind() const override { return StmtKind::CreateSchema; }
 };
@@ -459,10 +279,7 @@ public:
 
     const std::string& schema_name() const { return schema; }
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "DropSchema: " << schema << std::endl;
-    }
+    void print(std::ostream& os, int indent) const override;
 
     StmtKind kind() const override { return StmtKind::DropSchema; }
 };
@@ -480,11 +297,7 @@ public:
     const QualifiedName& table_name() const { return table; }
     const std::string& column_name() const { return column; }
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "CreateIndex: " << index
-           << " ON " << qualified_to_string(table) << " (" << column << ")" << std::endl;
-    }
+    void print(std::ostream& os, int indent) const override;
 
     StmtKind kind() const override { return StmtKind::CreateIndex; }
 };
@@ -500,11 +313,7 @@ public:
     const std::string& index_name() const { return index; }
     const QualifiedName& table_name() const { return table; }
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "DropIndex: " << index
-           << " ON " << qualified_to_string(table) << std::endl;
-    }
+    void print(std::ostream& os, int indent) const override;
 
     StmtKind kind() const override { return StmtKind::DropIndex; }
 };
@@ -523,19 +332,7 @@ public:
     const std::vector<std::string>& columns() const { return columns_; }
     const std::vector<std::vector<std::unique_ptr<Expr>>>& rows() const { return rows_; }
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "InsertInto: "
-           << qualified_to_string(table) << std::endl;
-        for (const std::string& col : columns_) {
-            os << std::string(static_cast<std::size_t>(indent + 4), ' ') << "Column: " << col << std::endl;
-        }
-        for (const auto& row : rows_) {
-            for (const auto& e : row) {
-                e->print(os, indent + 4);
-            }
-        }
-    }
+    void print(std::ostream& os, int indent) const override;
 
     StmtKind kind() const override { return StmtKind::Insert; }
 };
@@ -551,14 +348,7 @@ public:
     const QualifiedName& table_name() const { return table; }
     const Expr* where_expr() const { return where_.get(); }
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "DeleteFrom: "
-           << qualified_to_string(table) << std::endl;
-        if (where_) {
-            where_->print(os, indent + 4);
-        }
-    }
+    void print(std::ostream& os, int indent) const override;
 
     StmtKind kind() const override { return StmtKind::Delete; }
 };
@@ -582,19 +372,7 @@ public:
     const std::vector<UpdateItem>& assignments() const { return assignments_; }
     const Expr* where_expr() const { return where_.get(); }
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "Update: "
-           << qualified_to_string(table) << std::endl;
-        for (const UpdateItem& item : assignments_) {
-            os << std::string(static_cast<std::size_t>(indent + 4), ' ') << "Assign: "
-               << item.column << std::endl;
-            item.value->print(os, indent + 8);
-        }
-        if (where_) {
-            where_->print(os, indent + 4);
-        }
-    }
+    void print(std::ostream& os, int indent) const override;
 
     StmtKind kind() const override { return StmtKind::Update; }
 };
@@ -636,25 +414,7 @@ public:
     const std::optional<long long>& limit() const { return limit_; }
     const std::optional<long long>& offset() const { return offset_; }
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "Select: "
-           << qualified_to_string(table_) << std::endl;
-        for (const SelectItem& item : items_) {
-            if (item.star) {
-                os << std::string(static_cast<std::size_t>(indent + 4), ' ') << "*" << std::endl;
-            } else {
-                item.expr->print(os, indent + 4);
-            }
-        }
-        if (where_) {
-            where_->print(os, indent + 4);
-        }
-        for (const OrderItem& item : orders_) {
-            os << std::string(static_cast<std::size_t>(indent + 4), ' ') << "Order: "
-               << expr_to_string(*item.expr) << (item.desc ? " DESC" : " ASC") << std::endl;
-        }
-    }
+    void print(std::ostream& os, int indent) const override;
 
     StmtKind kind() const override { return StmtKind::Select; }
 };
@@ -673,24 +433,7 @@ public:
     const Expr* where_expr() const { return where_.get(); }
     const std::vector<OrderItem>& orders() const { return orders_; }
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "SelectNoFrom" << std::endl;
-        for (const SelectItem& item : items_) {
-            if (item.star) {
-                os << std::string(static_cast<std::size_t>(indent + 4), ' ') << "*" << std::endl;
-            } else {
-                item.expr->print(os, indent + 4);
-            }
-        }
-        if (where_) {
-            where_->print(os, indent + 4);
-        }
-        for (const OrderItem& item : orders_) {
-            os << std::string(static_cast<std::size_t>(indent + 4), ' ') << "Order: "
-               << expr_to_string(*item.expr) << (item.desc ? " DESC" : " ASC") << std::endl;
-        }
-    }
+    void print(std::ostream& os, int indent) const override;
 
     StmtKind kind() const override { return StmtKind::SelectNoFrom; }
 };
@@ -703,11 +446,7 @@ public:
 
     const SQLStatement& inner() const { return *inner_; }
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "Explain" << std::endl;
-        inner_->print(os, indent + 4);
-    }
+    void print(std::ostream& os, int indent) const override;
 
     StmtKind kind() const override { return StmtKind::Explain; }
 };
@@ -730,11 +469,7 @@ public:
     const std::string& value() const { return value_; }
     SetValueForm form() const { return form_; }
 
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "Set: " << var_ << " = "
-           << value_ << std::endl;
-    }
+    void print(std::ostream& os, int indent) const override;
 
     StmtKind kind() const override { return StmtKind::Set; }
 };
@@ -742,10 +477,7 @@ public:
 // BEGIN / START TRANSACTION(事务控制语句, 会话层短路处理, 不进执行层)
 class BeginStmt : public SQLStatement {
 public:
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "Begin" << std::endl;
-    }
+    void print(std::ostream& os, int indent) const override;
 
     StmtKind kind() const override { return StmtKind::Begin; }
 };
@@ -753,10 +485,7 @@ public:
 // COMMIT [WORK]
 class CommitStmt : public SQLStatement {
 public:
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "Commit" << std::endl;
-    }
+    void print(std::ostream& os, int indent) const override;
 
     StmtKind kind() const override { return StmtKind::Commit; }
 };
@@ -764,10 +493,7 @@ public:
 // ROLLBACK [WORK]
 class RollbackStmt : public SQLStatement {
 public:
-    void print(std::ostream& os, int indent) const override
-    {
-        os << std::string(static_cast<std::size_t>(indent), ' ') << "Rollback" << std::endl;
-    }
+    void print(std::ostream& os, int indent) const override;
 
     StmtKind kind() const override { return StmtKind::Rollback; }
 };
