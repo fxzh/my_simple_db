@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <iterator>
 #include <string_view>
 
 #include "common/err.h"
@@ -260,7 +261,34 @@ st::Value eval_is_null(const ana::BoundIsNull& e, const st::Row* row)
     return st::bool_val(e.negate ? !is_null(v) : is_null(v));
 }
 
-// 函数调用: 任一实参为 NULL 即原样传布, 其余按绑定期固化域计算装配,
+// 内建函数求值签名: args 已求值且无 NULL, ret 为绑定期固化的结果域
+using FuncEval = st::Value (*)(const std::vector<st::Value>& args, st::ColType ret);
+
+// abs 求值: 按绑定期固化域装配, 整型域下界取绝对值溢出报错
+st::Value eval_abs(const std::vector<st::Value>& args, st::ColType ret)
+{
+    const st::Value& v = args[0];
+    if (ret == st::ColType::Float) {
+        return st::float_val(std::fabs(to_float(v)));
+    }
+    if (ret == st::ColType::Double) {
+        return st::double_val(std::fabs(to_double(v)));
+    }
+    const int64_t i = get_int(v);
+    if (i == INT64_MIN || (ret == st::ColType::Int && i == INT32_MIN)) {
+        DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "整型绝对值溢出");
+    }
+    const int64_t out = i < 0 ? -i : i;
+    return ret == st::ColType::Int ? st::int_val(out) : st::bigint_val(out);
+}
+
+// 内建函数求值表: 下标即 FuncId 取值(从 1 起, 0 号槽占位), 增改函数须同步 analyzer 注册表
+constexpr FuncEval kFuncTable[] = {
+    nullptr,
+    eval_abs,
+};
+
+// 函数调用: 任一实参为 NULL 即原样传布, 其余经求值表按绑定期固化域计算装配,
 // 整型溢出当场报错; 实参个数与类型由语义层保证
 st::Value eval_func_call(const ana::BoundFuncCall& e, const st::Row* row)
 {
@@ -273,24 +301,11 @@ st::Value eval_func_call(const ana::BoundFuncCall& e, const st::Row* row)
         }
         argv.push_back(v);
     }
-    switch (e.func) {
-    case ana::FuncId::Abs: {
-        const st::Value& v = argv[0];
-        if (e.type == st::ColType::Float) {
-            return st::float_val(std::fabs(to_float(v)));
-        }
-        if (e.type == st::ColType::Double) {
-            return st::double_val(std::fabs(to_double(v)));
-        }
-        const int64_t i = get_int(v);
-        if (i == INT64_MIN || (e.type == st::ColType::Int && i == INT32_MIN)) {
-            DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "整型绝对值溢出");
-        }
-        const int64_t out = i < 0 ? -i : i;
-        return e.type == st::ColType::Int ? st::int_val(out) : st::bigint_val(out);
+    const size_t idx = static_cast<size_t>(e.func);
+    if (idx >= std::size(kFuncTable) || kFuncTable[idx] == nullptr) {
+        DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 未知内建函数");
     }
-    }
-    DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 未知内建函数");
+    return kFuncTable[idx](argv, e.type);
 }
 
 // 统一求值入口: row 为空表示常量上下文(绑定树不含列引用)

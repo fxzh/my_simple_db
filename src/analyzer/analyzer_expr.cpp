@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "ast.hh"
@@ -47,7 +48,41 @@ void check_comparable(st::ColType lt, st::ColType rt)
     }
 }
 
-// 函数调用绑定: db_func 按名解析为内建函数, 实参递归绑定后校验个数与类型并固化结果域
+// 内建函数绑定注册表项: id 与 FuncId 取值及 db_func.func_id 一致,
+// derive 校验实参形态并推导结果域(形态不符当场报错)
+struct FuncSpec {
+    uint64_t id;
+    size_t arity;
+    st::ColType (*derive)(const std::vector<st::ColType>& arg_types, std::string_view fname);
+};
+
+// abs 结果域推导: 实参须为数值, 结果域镜像实参域
+st::ColType derive_abs(const std::vector<st::ColType>& arg_types, std::string_view fname)
+{
+    if (!is_num_type(arg_types[0])) {
+        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
+                 "函数实参类型不符: {} 须为数值", fname);
+    }
+    return arg_types[0];
+}
+
+// 内建函数绑定注册表, 增改函数须同步 FuncId 枚举与 bootstrap.sql
+constexpr FuncSpec kFuncSpecs[] = {
+    {1, 1, derive_abs},  // abs
+};
+
+// 按 db_func 函数 id 查绑定注册表, 未命中返回空
+const FuncSpec* find_func_spec(uint64_t id)
+{
+    for (const FuncSpec& s : kFuncSpecs) {
+        if (s.id == id) {
+            return &s;
+        }
+    }
+    return nullptr;
+}
+
+// 函数调用绑定: db_func 按名解析为内建函数, 实参递归绑定后按注册表校验个数并推导结果域
 std::unique_ptr<BoundExpr> bind_func_call(const FuncCallExpr& f, const Schema* schema,
                                           ct::Catalog& db, st::ColType& type)
 {
@@ -56,37 +91,28 @@ std::unique_ptr<BoundExpr> bind_func_call(const FuncCallExpr& f, const Schema* s
         DB_RAISE(db::ErrCode::UnknownFunction, LogModule::ANALYZER, "函数不存在: {}", f.name);
     }
     // db_func 数据行与内建函数清单一致, id 未注册即内部错误
-    FuncId func;
-    switch (*fid) {
-    case static_cast<uint64_t>(FuncId::Abs):
-        func = FuncId::Abs;
-        break;
-    default:
+    const FuncSpec* spec = find_func_spec(*fid);
+    if (spec == nullptr) {
         DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "db_func 函数 id 未注册: {}", *fid);
     }
-    switch (func) {
-    case FuncId::Abs: {
-        if (f.args.size() != 1) {
-            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
-                     "函数参数个数不符: {} 须 1 个实参", f.name);
-        }
+    if (f.args.size() != spec->arity) {
+        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
+                 "函数参数个数不符: {} 须 {} 个实参", f.name, spec->arity);
+    }
+    std::vector<std::unique_ptr<BoundExpr>> args;
+    std::vector<st::ColType> arg_types;
+    args.reserve(f.args.size());
+    for (const std::unique_ptr<Expr>& a : f.args) {
         st::ColType at;
-        std::unique_ptr<BoundExpr> arg = bind_expr(*f.args[0], schema, db, at);
+        args.push_back(bind_expr(*a, schema, db, at));
         if (at == st::ColType::Null) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
                      "函数实参类型未知, 无法推导结果域: {}", f.name);
         }
-        if (!is_num_type(at)) {
-            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
-                     "函数实参类型不符: {} 须为数值", f.name);
-        }
-        type = at;  // 结果域镜像数值实参域
-        std::vector<std::unique_ptr<BoundExpr>> args;
-        args.push_back(std::move(arg));
-        return std::make_unique<BoundFuncCall>(func, std::move(args), at);
+        arg_types.push_back(at);
     }
-    }
-    DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知内建函数");
+    type = spec->derive(arg_types, f.name);
+    return std::make_unique<BoundFuncCall>(static_cast<FuncId>(spec->id), std::move(args), type);
 }
 
 }  // namespace
