@@ -1,0 +1,87 @@
+-- 数值/布尔转文本: 最短往返表示
+SELECT CAST(123 AS VARCHAR) AS a, CAST(-45 AS VARCHAR) AS b, CAST(0.1 AS VARCHAR) AS c;
+SELECT CAST(1e3 AS VARCHAR), CAST(true AS VARCHAR);
+-- 文本转数值: 全串解析, 可选 +/- 前缀, 不容忍空白与非数字
+SELECT CAST('456' AS INT), CAST('+78' AS INT), CAST('-9' AS BIGINT);
+SELECT CAST('1.5' AS DOUBLE), CAST('1e3' AS DOUBLE), CAST('+2.5' AS FLOAT);
+SELECT CAST(' 123' AS INT);
+SELECT CAST('123 ' AS INT);
+SELECT CAST('' AS INT);
+SELECT CAST('abc' AS INT);
+SELECT CAST('12x' AS INT);
+SELECT CAST('1.5' AS INT);
+SELECT CAST('inf' AS DOUBLE);
+-- 布尔转换: 文本 true/false 大小写不敏感, 数值仅 0/1
+SELECT CAST('TRUE' AS BOOLEAN), CAST('False' AS BOOLEAN);
+SELECT CAST(1 AS BOOLEAN), CAST(0 AS BOOLEAN);
+SELECT CAST(2 AS BOOLEAN);
+SELECT CAST('yes' AS BOOLEAN);
+SELECT CAST(true AS INT), CAST(false AS BIGINT), CAST(true AS DOUBLE);
+-- 浮点向零截断, 超目标域报错
+SELECT CAST(1.9 AS INT), CAST(-1.9 AS INT), CAST(2.5 AS BIGINT);
+SELECT CAST(5000000000 AS INT);
+SELECT CAST(1e300 AS BIGINT);
+SELECT CAST('99999999999999999999' AS BIGINT);
+SELECT CAST(1e300 AS FLOAT);
+-- NULL 传播与目标域定型
+SELECT CAST(NULL AS INT), CAST(NULL AS VARCHAR);
+SELECT CAST(NULL AS INT) IS NULL;
+SELECT CAST(NULL AS INT) = CAST(NULL AS INT);
+-- 文本目标: 产物不 pad, 超声明长度报错, char 缺省长度 1
+SELECT CAST('abc' AS CHAR(5));
+SELECT CAST(123 AS CHAR(3));
+SELECT CAST('ab' AS VARCHAR);
+SELECT CAST('abcdef' AS VARCHAR(3));
+SELECT CAST('ab' AS CHAR);
+-- 列上下文: 投影/WHERE/ORDER BY
+CREATE TABLE t_cast (id int, i bigint, f double, v varchar(8), c char(5), flag boolean);
+INSERT INTO t_cast VALUES (1, 100, 1.5, '12', 'ab', true);
+INSERT INTO t_cast VALUES (2, -7, -2.5, '9', 'hello', false);
+INSERT INTO t_cast VALUES (3, NULL, NULL, NULL, NULL, NULL);
+SELECT CAST(v AS INT) AS vi, CAST(f AS INT) AS fi FROM t_cast ORDER BY id;
+SELECT id FROM t_cast WHERE CAST(v AS INT) > 5 ORDER BY id;
+SELECT id FROM t_cast WHERE CAST(i AS DOUBLE) = -7.0;
+SELECT id, CAST(flag AS INT) AS fb FROM t_cast ORDER BY CAST(f AS INT) DESC, id;
+-- char 域跨出转换一律去尾随 pad, 左空格保留
+SELECT CAST(c AS VARCHAR) FROM t_cast WHERE id = 1;
+SELECT CAST(c AS INT) FROM t_cast WHERE id = 1;
+-- char pad 边界: 全 pad/左空格/varchar 尾空格严格
+CREATE TABLE t_cp (c char(8), b char(8), v varchar(8));
+INSERT INTO t_cp VALUES ('42', 'true', '12 ');
+SELECT CAST(c AS INT), CAST(c AS DOUBLE), CAST(b AS BOOLEAN), CAST(c AS VARCHAR) FROM t_cp;
+SELECT CAST(v AS INT) FROM t_cp;
+INSERT INTO t_cp VALUES (' 42', '', '');
+INSERT INTO t_cp VALUES ('', 'false', '');
+SELECT CAST(c AS VARCHAR) FROM t_cp WHERE c = ' 42';
+SELECT CAST(c AS INT) FROM t_cp WHERE c = ' 42';
+SELECT CAST(b AS BOOLEAN) FROM t_cp WHERE b = '';
+SELECT CAST(c AS VARCHAR) FROM t_cp WHERE c = '';
+DROP TABLE t_cp;
+-- 恒等转换折为操作数本身
+SELECT CAST(id AS INT) + 0 AS x, CAST(v AS VARCHAR) AS y FROM t_cast WHERE id = 1;
+-- 常量折叠与函数实参
+SELECT CAST('7' AS INT) + 1, abs(CAST(-2.5 AS DOUBLE));
+-- BETWEEN 边界中的 CAST
+SELECT 5 BETWEEN CAST(1 AS BIGINT) AND 10;
+-- 写路径: INSERT/UPDATE 右值经 CAST 转换与检查
+INSERT INTO t_cast VALUES (4, CAST('88' AS BIGINT), CAST('9.5' AS DOUBLE), CAST(3.25 AS VARCHAR), CAST(true AS VARCHAR), CAST(1 AS BOOLEAN));
+SELECT * FROM t_cast WHERE id = 4;
+INSERT INTO t_cast VALUES (5, 1, 1.0, CAST('toolongvalue' AS VARCHAR), 'x', true);
+INSERT INTO t_cast VALUES (5, 1, 1.0, CAST('ab' AS VARCHAR(1)), 'x', true);
+UPDATE t_cast SET i = CAST('66' AS BIGINT), v = CAST(i AS VARCHAR) WHERE id = 1;
+SELECT i, v FROM t_cast WHERE id = 1;
+UPDATE t_cast SET flag = CAST(0 AS BOOLEAN) WHERE id = 1;
+SELECT flag FROM t_cast WHERE id = 1;
+-- NOT NULL 列拒绝 CAST NULL
+CREATE TABLE t_nn (i int NOT NULL);
+INSERT INTO t_nn VALUES (CAST(NULL AS INT));
+INSERT INTO t_nn VALUES (CAST('5' AS INT));
+SELECT * FROM t_nn;
+DROP TABLE t_nn;
+-- EXPLAIN: 恒等 cast 不阻索引改写, 跨域 cast 保守走过滤
+CREATE INDEX idx_cast ON t_cast (id);
+EXPLAIN SELECT id FROM t_cast WHERE CAST(id AS INT) = 1;
+EXPLAIN SELECT id FROM t_cast WHERE CAST(v AS INT) = 12;
+EXPLAIN SELECT CAST(i AS BIGINT), CAST(v AS INT) FROM t_cast;
+DROP INDEX idx_cast ON t_cast;
+DROP TABLE t_cast;

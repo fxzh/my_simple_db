@@ -99,8 +99,11 @@ bool expr_equal(const ana::BoundExpr& a, const ana::BoundExpr& b)
         }
         return true;
     }
-    case ana::BoundExprKind::Cast:
-        DB_RAISE(db::ErrCode::NotImplemented, LogModule::PLANNER, "CAST 表达式暂不支持");
+    case ana::BoundExprKind::Cast: {
+        const auto& x = static_cast<const ana::BoundCast&>(a);
+        const auto& y = static_cast<const ana::BoundCast&>(b);
+        return x.type == y.type && x.length == y.length && expr_equal(*x.operand, *y.operand);
+    }
     }
     // 不可达: 全部绑定表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::PLANNER, "bool_simplify: 未知绑定表达式节点");

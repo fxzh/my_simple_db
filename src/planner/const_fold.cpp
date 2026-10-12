@@ -119,8 +119,14 @@ void fold_expr(std::unique_ptr<ana::BoundExpr>& e, bool weak)
         }
         return;
     }
-    case ana::BoundExprKind::Cast:
-        DB_RAISE(db::ErrCode::NotImplemented, LogModule::PLANNER, "CAST 表达式暂不支持");
+    case ana::BoundExprKind::Cast: {
+        auto& c = static_cast<ana::BoundCast&>(*e);
+        fold_expr(c.operand, false);
+        if (is_const(*c.operand)) {
+            e = to_fold_const(expr::eval_const(*e));
+        }
+        return;
+    }
     }
     // 不可达: 全部绑定表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::PLANNER, "const_fold: 未知绑定表达式节点");

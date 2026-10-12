@@ -67,6 +67,16 @@ std::string_view get_str_view(const Value& v)
     return *s;
 }
 
+// 取 Char 域文本视图并去尾随空格(pad 为存储补齐产物)
+std::string_view get_char_view(const Value& v)
+{
+    std::string_view s = get_str_view(v);
+    while (!s.empty() && s.back() == ' ') {
+        s.remove_suffix(1);
+    }
+    return s;
+}
+
 // 取 bool 盒值, 形态不符当场报错
 bool get_bool(const Value& v)
 {
@@ -130,17 +140,16 @@ Value varchar_to_char(const Value& v)
     return char_val(get_str(v));
 }
 
-// string 同盒换域: Char→VarChar
+// string 同盒换域: Char→VarChar, 去尾随 pad
 Value char_to_varchar(const Value& v)
 {
-    return str_val(get_str(v));
+    return str_val(std::string(get_char_view(v)));
 }
 
 // 文本解析为 int64: 可选 +/- 前缀(from_chars 不认 '+'), 全串参与解析,
 // 不容忍空白与非数字字符
-int64_t text_to_i64(const Value& v)
+int64_t parse_i64(std::string_view s)
 {
-    std::string_view s = get_str_view(v);
     if (!s.empty() && s.front() == '+') {
         s.remove_prefix(1);
     }
@@ -155,9 +164,8 @@ int64_t text_to_i64(const Value& v)
 }
 
 // 文本解析为 double: 前缀与全串规则同整型, inf/nan 文本与超界值拒绝
-double text_to_f64(const Value& v)
+double parse_f64(std::string_view s)
 {
-    std::string_view s = get_str_view(v);
     if (!s.empty() && s.front() == '+') {
         s.remove_prefix(1);
     }
@@ -264,10 +272,9 @@ Value double_to_bool(const Value& v)
     return bool_val(d != 0.0);
 }
 
-// 文本转 Bool: 仅 true/false, 大小写不敏感
-Value text_to_bool(const Value& v)
+// 文本转 Bool 解析: 仅 true/false, 大小写不敏感
+bool parse_bool(std::string_view s)
 {
-    std::string_view s = get_str_view(v);
     auto ieq = [&](std::string_view t) {
         if (s.size() != t.size()) {
             return false;
@@ -282,31 +289,60 @@ Value text_to_bool(const Value& v)
         return true;
     };
     if (ieq("true")) {
-        return bool_val(true);
+        return true;
     }
     if (ieq("false")) {
-        return bool_val(false);
+        return false;
     }
     DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "文本转布尔仅接受 true 或 false");
 }
 
-// 文本转数值: VarChar/Char 源共用(同为 string 盒), int32 域界由存储编码检查
+// 文本转 Bool: 仅 true/false, 大小写不敏感
+Value text_to_bool(const Value& v)
+{
+    return bool_val(parse_bool(get_str_view(v)));
+}
+
+// 文本转数值: VarChar 源, int32 域界由存储编码检查
 Value text_to_int(const Value& v)
 {
-    return int_val(text_to_i64(v));
+    return int_val(parse_i64(get_str_view(v)));
 }
 Value text_to_bigint(const Value& v)
 {
-    return bigint_val(text_to_i64(v));
+    return bigint_val(parse_i64(get_str_view(v)));
 }
 Value text_to_double(const Value& v)
 {
-    return double_val(text_to_f64(v));
+    return double_val(parse_f64(get_str_view(v)));
 }
 Value text_to_float(const Value& v)
 {
     // 先解析为 double 再收窄, 不可表示由收窄报错
-    return double_to_float(double_val(text_to_f64(v)));
+    return double_to_float(double_val(parse_f64(get_str_view(v))));
+}
+
+// Char 源文本转换: 去 pad 后按 VarChar 源同样规则解析
+Value char_to_int(const Value& v)
+{
+    return int_val(parse_i64(get_char_view(v)));
+}
+Value char_to_bigint(const Value& v)
+{
+    return bigint_val(parse_i64(get_char_view(v)));
+}
+Value char_to_double(const Value& v)
+{
+    return double_val(parse_f64(get_char_view(v)));
+}
+Value char_to_float(const Value& v)
+{
+    // 先解析为 double 再收窄, 不可表示由收窄报错
+    return double_to_float(double_val(parse_f64(get_char_view(v))));
+}
+Value char_to_bool(const Value& v)
+{
+    return bool_val(parse_bool(get_char_view(v)));
 }
 
 // 浮点向零截断为整型: Float 经 double 宽化无损中转
@@ -349,8 +385,8 @@ constexpr CastEntry kCastTable[8][8] = {
                    {cast_id, true}, {text_to_float}, {varchar_to_char, true}, {text_to_bool}},
     /* Float */   {{}, {float_to_int}, {float_to_bigint}, {float_to_double, true},
                    {float_to_varchar}, {cast_id, true}, {float_to_char}, {float_to_bool}},
-    /* Char */    {{}, {text_to_int}, {text_to_bigint}, {text_to_double},
-                   {char_to_varchar, true}, {text_to_float}, {cast_id, true}, {text_to_bool}},
+    /* Char */    {{}, {char_to_int}, {char_to_bigint}, {char_to_double},
+                   {char_to_varchar, true}, {char_to_float}, {cast_id, true}, {char_to_bool}},
     /* Bool */    {{}, {bool_to_int}, {bool_to_bigint}, {bool_to_double},
                    {bool_to_varchar}, {bool_to_float}, {bool_to_char}, {cast_id, true}},
 };

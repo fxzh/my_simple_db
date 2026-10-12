@@ -59,6 +59,26 @@ std::string const_text(const st::Value& v)
     return "NULL";
 }
 
+// 目标类型转文本: 命名与 ast_print.hxx 的 type_to_string 对齐, 长度 0 不带后缀
+std::string col_type_text(st::ColType t, uint16_t length)
+{
+    const char* name = nullptr;
+    switch (t) {
+    case st::ColType::Int: name = "int"; break;
+    case st::ColType::BigInt: name = "bigint"; break;
+    case st::ColType::Float: name = "float"; break;
+    case st::ColType::Double: name = "double"; break;
+    case st::ColType::Char: name = "char"; break;
+    case st::ColType::VarChar: name = "varchar"; break;
+    case st::ColType::Bool: name = "boolean"; break;
+    case st::ColType::Null: break;
+    }
+    if (name == nullptr) {
+        DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "explain: 目标类型无名");
+    }
+    return length > 0 ? std::format("{}({})", name, length) : name;
+}
+
 // 语义分析表达式转文本: 格式与 ast_print.hxx 的 expr_to_string 对齐, 列下标经 names 回填列名
 std::string bound_expr_to_string(const ana::BoundExpr& e, const std::vector<std::string>& names)
 {
@@ -106,8 +126,11 @@ std::string bound_expr_to_string(const ana::BoundExpr& e, const std::vector<std:
         }
         return s + ")";
     }
-    case ana::BoundExprKind::Cast:
-        DB_RAISE(db::ErrCode::NotImplemented, LogModule::EXECUTOR, "CAST 表达式暂不支持");
+    case ana::BoundExprKind::Cast: {
+        const auto& c = static_cast<const ana::BoundCast&>(e);
+        return "CAST(" + bound_expr_to_string(*c.operand, names) + " AS "
+               + col_type_text(c.type, c.length) + ")";
+    }
     }
     // 不可达: 全部绑定表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "explain: 未知绑定表达式节点");

@@ -290,6 +290,36 @@ st::Value eval_func_call(const ana::BoundFuncCall& e, const st::Row* row)
     return kFuncTable[idx](argv, e.type);
 }
 
+// CAST: NULL 传播; 转换经 cast 分派表显式模式执行, Int 目标超 int32 域与
+// 文本目标超声明长度(仅文本目标 length 非 0)当场报错
+st::Value eval_cast(const ana::BoundCast& e, const st::Row* row)
+{
+    const st::Value v = eval_bound(*e.operand, row);
+    if (is_null(v)) {
+        return v;  // NULL 传播
+    }
+    const st::Value out = st::cast_value(v, e.type, st::CastMode::Explicit);
+    if (e.type == st::ColType::Int) {
+        const int64_t* i = std::get_if<int64_t>(&out.box);
+        if (i == nullptr) {
+            DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: cast 产物形态与目标域不符");
+        }
+        if (*i < INT32_MIN || *i > INT32_MAX) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXPR, "整型值超出 int 可表示范围");
+        }
+    }
+    if (e.length > 0) {
+        const std::string* s = std::get_if<std::string>(&out.box);
+        if (s == nullptr) {
+            DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: cast 产物形态与目标域不符");
+        }
+        if (s->size() > e.length) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXPR, "字符串超出目标长度");
+        }
+    }
+    return out;
+}
+
 // 统一求值入口: row 为空表示常量上下文(绑定树不含列引用)
 st::Value eval_bound(const ana::BoundExpr& expr, const st::Row* row)
 {
@@ -323,7 +353,7 @@ st::Value eval_bound(const ana::BoundExpr& expr, const st::Row* row)
     case ana::BoundExprKind::FuncCall:
         return eval_func_call(static_cast<const ana::BoundFuncCall&>(expr), row);
     case ana::BoundExprKind::Cast:
-        DB_RAISE(db::ErrCode::NotImplemented, LogModule::EXPR, "CAST 表达式暂不支持");
+        return eval_cast(static_cast<const ana::BoundCast&>(expr), row);
     }
     // 不可达: 全部绑定表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 未知绑定表达式节点");

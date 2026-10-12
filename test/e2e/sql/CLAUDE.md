@@ -21,6 +21,9 @@ sql 用例按功能分目录
 # types
 列类型
 
+# cast
+显式类型转换
+
 # reserved
 保留表拦截
 
