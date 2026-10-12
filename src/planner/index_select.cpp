@@ -99,20 +99,23 @@ std::vector<IndexRange> cmp_ranges(CmpOp op, const st::IndexKey& k)
     DB_RAISE(db::ErrCode::Internal, LogModule::PLANNER, "index_select: 未知比较种类");
 }
 
-// 常量与列同族才可入键: int64↔Int/BigInt, double↔Double, float↔Float, bool↔Bool
+// 常量与列同族才可入键: int64↔Int/BigInt, double↔Double/Float, float↔Float, bool↔Bool;
+// double 常量对 Float 列为跨类型探测: 键按 double 域编码, float 条目键宽化后同域, 比较即 double 域精确比较
 bool key_of(const st::ColumnSpec& col, const st::Value& v, st::IndexKey& out)
 {
     if (st::value_is_null(v)) {
         return false;
     }
+    st::ColType key_type = col.type;  // 键编码域, Float 列收 double 常量时抬到 Double
     if (std::get_if<int64_t>(&v.box) != nullptr) {
         if (col.type != st::ColType::Int && col.type != st::ColType::BigInt) {
             return false;
         }
     } else if (std::get_if<double>(&v.box) != nullptr) {
-        if (col.type != st::ColType::Double) {
+        if (col.type != st::ColType::Double && col.type != st::ColType::Float) {
             return false;
         }
+        key_type = st::ColType::Double;
     } else if (std::get_if<float>(&v.box) != nullptr) {
         if (col.type != st::ColType::Float) {
             return false;
@@ -124,7 +127,7 @@ bool key_of(const st::ColumnSpec& col, const st::Value& v, st::IndexKey& out)
     } else {
         return false;
     }
-    out = st::encode_key(col.type, v);
+    out = st::encode_key(key_type, v);
     return true;
 }
 

@@ -2,7 +2,6 @@
 #include "planner.h"
 
 #include <memory>
-#include <variant>
 
 #include "bound_expr.h"
 #include "common/err.h"
@@ -32,43 +31,6 @@ bool is_null_const(const ana::BoundExpr& e)
         return false;
     }
     return st::value_is_null(static_cast<const ana::BoundConst&>(e).value);
-}
-
-// 节点静态类型: 常量取值语义类型, 列/算术取绑定期固化域, 逻辑类节点为布尔
-st::ColType static_type(const ana::BoundExpr& e)
-{
-    switch (e.kind()) {
-    case ana::BoundExprKind::Const:
-        return static_cast<const ana::BoundConst&>(e).value.type;
-    case ana::BoundExprKind::ColRef:
-        return static_cast<const ana::BoundColRef&>(e).type;
-    case ana::BoundExprKind::Arith:
-        return static_cast<const ana::BoundArith&>(e).type;
-    case ana::BoundExprKind::Neg:
-        return static_cast<const ana::BoundNeg&>(e).type;
-    case ana::BoundExprKind::FuncCall:
-        return static_cast<const ana::BoundFuncCall&>(e).type;
-    case ana::BoundExprKind::Cmp:
-    case ana::BoundExprKind::Logic:
-    case ana::BoundExprKind::Not:
-    case ana::BoundExprKind::IsNull:
-        return st::ColType::Bool;
-    }
-    DB_RAISE(db::ErrCode::Internal, LogModule::PLANNER, "const_fold: 未知绑定表达式节点");
-}
-
-// Float 语境常量收窄: ctx 为 Float 域且 cst 为 Double 常量时, cst 就地重建为单精度装箱;
-// 不可表示的有限值收窄为 ±inf, 关系语义不变
-void narrow_float_const(const ana::BoundExpr& ctx, std::unique_ptr<ana::BoundExpr>& cst)
-{
-    if (static_type(ctx) != st::ColType::Float || cst->kind() != ana::BoundExprKind::Const) {
-        return;
-    }
-    const double* d = std::get_if<double>(&static_cast<ana::BoundConst&>(*cst).value.box);
-    if (d == nullptr) {
-        return;
-    }
-    cst = std::make_unique<ana::BoundConst>(st::float_val(static_cast<float>(*d)));
 }
 
 // 表达式折叠: 自底向上, 子节点折叠后均为常量则整节点求值替换(该子树必无列引用),
@@ -104,8 +66,6 @@ void fold_expr(std::unique_ptr<ana::BoundExpr>& e, bool weak)
         auto& c = static_cast<ana::BoundCmp&>(*e);
         fold_expr(c.left, false);
         fold_expr(c.right, false);
-        narrow_float_const(*c.left, c.right);
-        narrow_float_const(*c.right, c.left);
         if (is_const(*c.left) && is_const(*c.right)) {
             e = to_fold_const(expr::eval_const(*e));
         } else if (is_null_const(*c.left) || is_null_const(*c.right)) {
