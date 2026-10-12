@@ -8,6 +8,7 @@
 
 #include "common/err.h"
 #include "log/log.h"
+#include "storage/cast.h"
 
 namespace expr {
 
@@ -15,41 +16,22 @@ namespace {
 
 st::Value eval_bound(const ana::BoundExpr& expr, const st::Row* row);
 
-// 数值转 double(整型/单精度提升, 单精度宽化无损), 非数值形态当场报错
+// 数值转 double: 经 cast 分派表提升到 Double 域, 非数值源域由表入口报错
 double to_double(const st::Value& v)
 {
-    if (const auto* d = std::get_if<double>(&v.box)) {
-        return *d;
-    }
-    if (const auto* f = std::get_if<float>(&v.box)) {
-        return static_cast<double>(*f);
-    }
-    if (const auto* i = std::get_if<int64_t>(&v.box)) {
-        return static_cast<double>(*i);
-    }
-    DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 数值操作数形态非法");
+    return std::get<double>(st::cast_value(v, st::ColType::Double).box);
 }
 
-// 数值转 float(整型单次舍入, 不经 double 中转), 非数值形态当场报错
+// 数值转 float: 经 cast 分派表转到 Float 域(整型单次舍入), 非数值源域由表入口报错
 float to_float(const st::Value& v)
 {
-    if (const auto* f = std::get_if<float>(&v.box)) {
-        return *f;
-    }
-    if (const auto* i = std::get_if<int64_t>(&v.box)) {
-        return static_cast<float>(*i);
-    }
-    DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 数值操作数形态非法");
+    return std::get<float>(st::cast_value(v, st::ColType::Float).box);
 }
 
-// 整型取值, 形态不符当场报错
-int64_t get_int(const st::Value& v)
+// 整型取值: 经 cast 分派表归一到目标整域(Int/BigInt 同盒)后取盒值
+int64_t get_int(const st::Value& v, st::ColType domain)
 {
-    const int64_t* i = std::get_if<int64_t>(&v.box);
-    if (i == nullptr) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 整型操作数形态非法");
-    }
-    return *i;
+    return std::get<int64_t>(st::cast_value(v, domain).box);
 }
 
 // 值是否 NULL(仅看 box)
@@ -110,7 +92,7 @@ st::Value eval_neg(const ana::BoundNeg& e, const st::Row* row)
     if (e.type == st::ColType::Double) {
         return st::double_val(-to_double(v));  // 有限值取反仍有限
     }
-    const int64_t i = get_int(v);
+    const int64_t i = get_int(v, e.type);
     if (i == INT64_MIN || (e.type == st::ColType::Int && i == INT32_MIN)) {
         DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "整型取反溢出");
     }
@@ -156,8 +138,8 @@ st::Value eval_binary(const ana::BoundArith& e, const st::Row* row)
         }
         return st::double_val(out);
     }
-    const int64_t l = get_int(lv);
-    const int64_t r = get_int(rv);
+    const int64_t l = get_int(lv, e.type);
+    const int64_t r = get_int(rv, e.type);
     int64_t out = 0;
     switch (e.op) {
     case '+':
@@ -274,7 +256,7 @@ st::Value eval_abs(const std::vector<st::Value>& args, st::ColType ret)
     if (ret == st::ColType::Double) {
         return st::double_val(std::fabs(to_double(v)));
     }
-    const int64_t i = get_int(v);
+    const int64_t i = get_int(v, ret);
     if (i == INT64_MIN || (ret == st::ColType::Int && i == INT32_MIN)) {
         DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "整型绝对值溢出");
     }

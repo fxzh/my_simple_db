@@ -5,6 +5,7 @@ add_library(storage STATIC
     engine.cpp
     file_manager.cpp
     buffer_pool.cpp
+    cast.cpp
     codec.cpp
     page.cpp
     btree.cpp

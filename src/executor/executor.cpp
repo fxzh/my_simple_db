@@ -1,13 +1,12 @@
 // executor.cpp: 执行层实现: 计划节点树转 catalog 调用
 #include "executor.h"
 
-#include <cmath>
 #include <cstdint>
 #include <string>
-#include <variant>
 #include <vector>
 
 #include "ast.hh"
+#include "cast.h"
 #include "common/err.h"
 #include "log/log.h"
 #include "catalog.h"
@@ -30,21 +29,14 @@ ExecResult tag_result(proto::CommandTag tag, uint64_t count)
     return r;
 }
 
-// 写入列的值按列类型收窄: Float 列的 Double 值收为单精度, 不可表示当场报错, 其余原样
+// 写入列的值经 cast 分派表按列域归一: 恒等/同盒换域/Float 列收窄, NULL 原样;
+// 收窄不可表示由表项报错, 无转换项即 Internal(值域合法性由语义层保证)
 st::Value coerce_col_value(const st::ColumnSpec& col, st::Value v)
 {
-    if (col.type != st::ColType::Float) {
+    if (st::value_is_null(v)) {
         return v;
     }
-    const double* d = std::get_if<double>(&v.box);
-    if (d == nullptr) {
-        return v;
-    }
-    const float f = static_cast<float>(*d);
-    if (std::isfinite(*d) && !std::isfinite(f)) {
-        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXECUTOR, "浮点值超出 float 可表示范围");
-    }
-    return st::float_val(f);
+    return st::cast_value(v, col.type);
 }
 
 // ==================== SELECT 执行 ====================
