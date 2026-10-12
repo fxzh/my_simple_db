@@ -72,8 +72,10 @@ void narrow_float_const(const ana::BoundExpr& ctx, std::unique_ptr<ana::BoundExp
 }
 
 // 表达式折叠: 自底向上, 子节点折叠后均为常量则整节点求值替换(该子树必无列引用),
-// 算术/比较任一侧为 NULL 常量即折为 NULL 常量, 逻辑与非节点随后做布尔化简
-void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
+// 算术/比较任一侧为 NULL 常量即折为 NULL 常量, 逻辑与非节点随后做布尔化简;
+// weak 标记弱布尔语境(值仅按真/非真消费, NULL 与 false 等价), 该语境下比较节点
+// 另做自比较消除, 且仅 AND/OR 操作数延续该语境
+void fold_expr(std::unique_ptr<ana::BoundExpr>& e, bool weak)
 {
     switch (e->kind()) {
     case ana::BoundExprKind::Const:
@@ -81,8 +83,8 @@ void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
         return;  // 叶子节点
     case ana::BoundExprKind::Arith: {
         auto& a = static_cast<ana::BoundArith&>(*e);
-        fold_expr(a.left);
-        fold_expr(a.right);
+        fold_expr(a.left, false);
+        fold_expr(a.right, false);
         if (is_const(*a.left) && is_const(*a.right)) {
             e = to_fold_const(expr::eval_const(*e));
         } else if (is_null_const(*a.left) || is_null_const(*a.right)) {
@@ -92,7 +94,7 @@ void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
     }
     case ana::BoundExprKind::Neg: {
         auto& n = static_cast<ana::BoundNeg&>(*e);
-        fold_expr(n.operand);
+        fold_expr(n.operand, false);
         if (is_const(*n.operand)) {
             e = to_fold_const(expr::eval_const(*e));
         }
@@ -100,21 +102,23 @@ void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
     }
     case ana::BoundExprKind::Cmp: {
         auto& c = static_cast<ana::BoundCmp&>(*e);
-        fold_expr(c.left);
-        fold_expr(c.right);
+        fold_expr(c.left, false);
+        fold_expr(c.right, false);
         narrow_float_const(*c.left, c.right);
         narrow_float_const(*c.right, c.left);
         if (is_const(*c.left) && is_const(*c.right)) {
             e = to_fold_const(expr::eval_const(*e));
         } else if (is_null_const(*c.left) || is_null_const(*c.right)) {
             e = to_fold_const(st::null_val());  // 任一侧 NULL 常量, 结果恒 UNKNOWN
+        } else if (weak) {
+            simplify_cmp(e);  // 弱布尔语境自比较消除, 未命中保持原树
         }
         return;
     }
     case ana::BoundExprKind::Logic: {
         auto& l = static_cast<ana::BoundLogic&>(*e);
-        fold_expr(l.left);
-        fold_expr(l.right);
+        fold_expr(l.left, weak);  // AND/OR 操作数延续弱布尔语境
+        fold_expr(l.right, weak);
         if (is_const(*l.left) && is_const(*l.right)) {
             e = to_fold_const(expr::eval_const(*e));
         } else {
@@ -124,17 +128,20 @@ void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
     }
     case ana::BoundExprKind::Not: {
         auto& n = static_cast<ana::BoundNot&>(*e);
-        fold_expr(n.operand);
+        fold_expr(n.operand, false);
         if (is_const(*n.operand)) {
             e = to_fold_const(expr::eval_const(*e));
         } else {
             simplify_not(e);  // 非常量操作数 NOT 消除, 未命中保持原树
+            if (weak && e->kind() == ana::BoundExprKind::Cmp) {
+                simplify_cmp(e);  // NOT 吸收把子树提升到弱语境位置, 补一次自比较消除
+            }
         }
         return;
     }
     case ana::BoundExprKind::IsNull: {
         auto& i = static_cast<ana::BoundIsNull&>(*e);
-        fold_expr(i.operand);
+        fold_expr(i.operand, false);
         if (is_const(*i.operand)) {
             e = to_fold_const(expr::eval_const(*e));
         }
@@ -144,7 +151,7 @@ void fold_expr(std::unique_ptr<ana::BoundExpr>& e)
         auto& f = static_cast<ana::BoundFuncCall&>(*e);
         bool all_const = true;
         for (std::unique_ptr<ana::BoundExpr>& a : f.args) {
-            fold_expr(a);
+            fold_expr(a, false);
             all_const = all_const && is_const(*a);
         }
         if (all_const) {
@@ -174,7 +181,7 @@ void fold_const(pl::PlanNode& plan)
         return;  // 不持有绑定表达式
     case pl::PlanKind::Filter: {
         auto& f = static_cast<pl::FilterPlan&>(plan);
-        fold_expr(f.pred);
+        fold_expr(f.pred, true);  // WHERE 谓词根为弱布尔语境
         fold_const(*f.child);
         return;
     }
@@ -185,7 +192,7 @@ void fold_const(pl::PlanNode& plan)
         auto& p = static_cast<pl::ProjectPlan&>(plan);
         for (ana::ProjCol& c : p.projs) {
             if (c.expr != nullptr) {  // star 展开列无表达式
-                fold_expr(c.expr);
+                fold_expr(c.expr, false);
             }
         }
         fold_const(*p.child);
@@ -195,7 +202,7 @@ void fold_const(pl::PlanNode& plan)
         auto& s = static_cast<pl::SortPlan&>(plan);
         if (!s.sort_on_output) {  // 输出列下标键无表达式
             for (ana::BoundOrderItem& o : s.orders) {
-                fold_expr(o.expr);
+                fold_expr(o.expr, false);
             }
         }
         fold_const(*s.child);
@@ -205,7 +212,7 @@ void fold_const(pl::PlanNode& plan)
         auto& ip = static_cast<pl::InsertPlan&>(plan);
         for (std::vector<std::unique_ptr<ana::BoundExpr>>& row : ip.rows) {
             for (std::unique_ptr<ana::BoundExpr>& v : row) {
-                fold_expr(v);
+                fold_expr(v, false);
             }
         }
         return;
@@ -220,7 +227,7 @@ void fold_const(pl::PlanNode& plan)
     case pl::PlanKind::Update: {
         auto& u = static_cast<pl::UpdatePlan&>(plan);
         for (ana::BoundUpdateItem& a : u.assigns) {
-            fold_expr(a.value);
+            fold_expr(a.value, false);
         }
         fold_const(*u.child);
         return;
@@ -235,8 +242,8 @@ void fold_const(pl::PlanNode& plan)
 
 }  // namespace
 
-// 计划优化入口: 在 build 产物上就地串接各优化 pass, 当前为常量折叠(含布尔化简)、
-// 常量过滤器剪除与索引选择
+// 计划优化入口: 在 build 产物上就地串接各优化 pass, 当前为常量折叠(含布尔化简与
+// 自比较消除)、常量过滤器剪除与索引选择
 void optimize(ct::Catalog& db, std::unique_ptr<PlanNode>& plan)
 {
     fold_const(*plan);

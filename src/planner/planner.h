@@ -26,6 +26,12 @@ void simplify_logic(std::unique_ptr<ana::BoundExpr>& e);
 // 由常量折叠在同一遍历中调用, 调用方保证 e 为 Not 且操作数已折叠且非常量
 void simplify_not(std::unique_ptr<ana::BoundExpr>& e);
 
+// 自比较消除: 弱布尔语境(Filter 谓词根至 AND/OR 操作数, NULL 与 false 不可区分)下
+// 比较两侧结构相等时, =/<=/>= 改写为 IS NOT NULL, <>/</> 折为 false 常量,
+// 未命中保持原树; 由常量折叠在同一遍历中调用,
+// 调用方保证 e 为 Cmp 且两子树已折叠且处于弱布尔语境
+void simplify_cmp(std::unique_ptr<ana::BoundExpr>& e);
+
 // 常量过滤器剪除: 恒真 Filter 以子节点替换, 恒不满足(含 NULL 常量谓词)的 Filter
 // 整棵子树剪成空结果节点; 在常量折叠之后运行
 void prune_filter(std::unique_ptr<PlanNode>& plan);

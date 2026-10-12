@@ -1,0 +1,70 @@
+CREATE TABLE es_t (a int, b int);
+CREATE
+CREATE INDEX es_a ON es_t (a);
+CREATE
+-- eq 自比较改写为 IS NOT NULL 并命中索引
+EXPLAIN SELECT * FROM es_t WHERE a = a;
+                    QUERY PLAN
+--------------------------------------------------
+ Project
+   Output: a, b
+   ->  Fetch on public.es_t
+         ->  Index Scan using es_a on public.es_t
+               Index Cond: (a IS NOT NULL)
+(5 行)
+-- 无索引列保持 Filter
+EXPLAIN SELECT * FROM es_t WHERE b = b;
+             QUERY PLAN
+-------------------------------------
+ Project
+   Output: a, b
+   ->  Filter: (b IS NOT NULL)
+         ->  Seq Scan on public.es_t
+(4 行)
+-- lt 自比较折 false, 剪成空结果
+EXPLAIN SELECT * FROM es_t WHERE a < a;
+            QUERY PLAN
+-----------------------------------
+ Project
+   Output: a, b
+   ->  Empty Result on public.es_t
+(3 行)
+-- NOT(eq) 经 NOT 消除折 false, 剪成空结果
+EXPLAIN SELECT * FROM es_t WHERE NOT (a = a);
+            QUERY PLAN
+-----------------------------------
+ Project
+   Output: a, b
+   ->  Empty Result on public.es_t
+(3 行)
+-- 子树自比较改写, 算术操作数不入索引
+EXPLAIN SELECT * FROM es_t WHERE a + 1 = a + 1;
+             QUERY PLAN
+-------------------------------------
+ Project
+   Output: a, b
+   ->  Filter: ((a + 1) IS NOT NULL)
+         ->  Seq Scan on public.es_t
+(4 行)
+-- 与其他谓词组合, 判空入索引残余谓词分离
+EXPLAIN SELECT * FROM es_t WHERE a = a AND b > 1;
+                       QUERY PLAN
+--------------------------------------------------------
+ Project
+   Output: a, b
+   ->  Filter: (b > 1)
+         ->  Fetch on public.es_t
+               ->  Index Scan using es_a on public.es_t
+                     Index Cond: (a IS NOT NULL)
+(6 行)
+-- DML 过滤改写
+EXPLAIN DELETE FROM es_t WHERE a = a;
+                    QUERY PLAN
+--------------------------------------------------
+ Delete on public.es_t
+   ->  Fetch on public.es_t
+         ->  Index Scan using es_a on public.es_t
+               Index Cond: (a IS NOT NULL)
+(4 行)
+DROP TABLE es_t;
+DROP
