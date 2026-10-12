@@ -47,6 +47,7 @@
 DIGIT    [0-9]
 ID       [a-zA-Z_][a-zA-Z0-9_]*
 WS       [ \t\r]
+EXPONENT [eE][+-]?{DIGIT}+
 
 %%
 
@@ -95,7 +96,7 @@ WS       [ \t\r]
 "rollback" { return yy::parser::token::ROLLBACK; }
 "work"     { return yy::parser::token::WORK; }
 
-{DIGIT}+"."{DIGIT}*|"."{DIGIT}+ {
+{DIGIT}+"."{DIGIT}*{EXPONENT}?|"."{DIGIT}+{EXPONENT}?|{DIGIT}+{EXPONENT} {
     // 超出 double 可表示范围(上溢/下溢)走词法错误通道报错
     double val = 0;
     const auto conv = std::from_chars(yytext, yytext + yyleng, val);
