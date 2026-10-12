@@ -58,7 +58,7 @@
 %token TOK_ERROR
 %token CREATE TABLE DROP SCHEMA INSERT INTO VALUES DELETE FROM UPDATE INDEX ON
 %token INT BIGINT FLOAT CHAR VARCHAR DOUBLE BOOLEAN BOOL
-%token EXPLAIN SELECT AS NULL_T TRUE_T FALSE_T WHERE AND OR NOT IS SET BETWEEN
+%token EXPLAIN SELECT AS NULL_T TRUE_T FALSE_T WHERE AND OR NOT IS SET BETWEEN CAST
 %token ORDER BY ASC DESC
 %token BEGIN_TXN START TRANSACTION COMMIT WORK ROLLBACK
 %token EQ NE LE GE
@@ -489,6 +489,10 @@ expression:
         {
             $$ = std::make_unique<FuncCallExpr>(std::move($1), std::move($3));
         }
+    |   CAST '(' expression AS type_specifier ')'
+        {
+            $$ = std::make_unique<CastExpr>(std::move($3), $5);
+        }
     |   expression '+' expression   { $$ = std::make_unique<BinaryOpExpr>('+', std::move($1), std::move($3)); }
     |   expression '-' expression   { $$ = std::make_unique<BinaryOpExpr>('-', std::move($1), std::move($3)); }
     |   expression '*' expression   { $$ = std::make_unique<BinaryOpExpr>('*', std::move($1), std::move($3)); }
@@ -556,6 +560,7 @@ between_operand:
     |   FALSE_T     { $$ = std::make_unique<BoolExpr>(false); }
     |   IDENTIFIER  { $$ = std::make_unique<IdentifierExpr>(std::move($1)); }
     |   '(' expression ')' { $$ = std::move($2); }
+    |   CAST '(' expression AS type_specifier ')' { $$ = std::make_unique<CastExpr>(std::move($3), $5); }
     |   '+' between_operand %prec UMINUS { $$ = std::make_unique<UnaryOpExpr>('+', std::move($2)); }
     |   '-' between_operand %prec UMINUS { $$ = std::make_unique<UnaryOpExpr>('-', std::move($2)); }
     |   between_operand '+' between_operand

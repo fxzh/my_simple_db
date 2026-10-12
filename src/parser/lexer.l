@@ -62,6 +62,7 @@ WS       [ \t\r]
 "into"     { return yy::parser::token::INTO; }
 "values"   { return yy::parser::token::VALUES; }
 "update"   { return yy::parser::token::UPDATE; }
+"cast"     { return yy::parser::token::CAST; }
 "int"      { return yy::parser::token::INT; }
 "bigint"   { return yy::parser::token::BIGINT; }
 "float"    { return yy::parser::token::FLOAT; }

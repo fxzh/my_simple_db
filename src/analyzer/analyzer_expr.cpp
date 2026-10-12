@@ -264,6 +264,8 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, ct:
     }
     case ExprKind::FuncCall:
         return bind_func_call(static_cast<const FuncCallExpr&>(expr), schema, db, type);
+    case ExprKind::Cast:
+        DB_RAISE(db::ErrCode::NotImplemented, LogModule::ANALYZER, "CAST 暂不支持");
     }
     // 不可达: 全部表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知表达式节点");
@@ -322,6 +324,8 @@ bool may_be_null(const Expr& expr)
         }
         return false;
     }
+    case ExprKind::Cast:
+        return may_be_null(*static_cast<const CastExpr&>(expr).operand);
     }
     // 不可达: 全部表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知表达式节点");
@@ -369,6 +373,8 @@ bool has_col_ref(const Expr& expr)
         }
         return false;
     }
+    case ExprKind::Cast:
+        return has_col_ref(*static_cast<const CastExpr&>(expr).operand);
     }
     // 不可达: 全部表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知表达式节点");

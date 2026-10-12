@@ -7,3 +7,4 @@
 - `a IS NULL IS NULL` 当前可解析为嵌套判空(IsNull(IsNull)): 标准 SQL 中 null predicate 的操作数是 row value predicand(值表达式), 不允许谓词或布尔表达式, 链式写法应报语法错误(Postgres/MySQL 均拒绝, 括号形式 `(a IS NULL) IS NULL` 才合法); 当前 IS 规则的归约状态为纯归约态, 仅靠 %nonassoc IS 无法触发报错; 处理方向: 将 IS 判空拆为独立谓词层非终结符, 操作数限定为算术/值表达式, 链式写法自然成为语法错误, 随 M-S2 求值接入一并处理
 - not消除暂时缺德摩根: NOT 仅消除双重否定/比较符取反/判空取反, NOT(AND/OR) 不改写为取反后的 OR/AND, 保持原树
 - show 语句，依赖于SRF函数基建，暂缓
+- between_operand 暂不扩张，后续统一处理

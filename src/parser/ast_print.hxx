@@ -143,6 +143,13 @@ inline void FuncCallExpr::print(std::ostream& os, int indent) const
     }
 }
 
+inline void CastExpr::print(std::ostream& os, int indent) const
+{
+    os << std::string(static_cast<std::size_t>(indent), ' ') << "Cast: "
+       << type_to_string(target.type, target.length) << std::endl;
+    operand->print(os, indent + 4);
+}
+
 // 表达式反生成 SQL 文本: 供输出列命名与日志使用
 inline std::string expr_to_string(const Expr& e)
 {
@@ -198,6 +205,11 @@ inline std::string expr_to_string(const Expr& e)
             s += expr_to_string(*f.args[i]);
         }
         return s + ")";
+    }
+    case ExprKind::Cast: {
+        const auto& c = static_cast<const CastExpr&>(e);
+        return "CAST(" + expr_to_string(*c.operand) + " AS "
+               + type_to_string(c.target.type, c.target.length) + ")";
     }
     }
     return "";

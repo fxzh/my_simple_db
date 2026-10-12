@@ -45,7 +45,7 @@ struct ColumnDef {
 // 表达式种类, 供执行层等上层按类型分派
 enum class ExprKind {
     Int, Float, String, Identifier, BinaryOp, UnaryOp, Null, Bool,
-    Compare, Logic, Not, IsNull, Between, FuncCall,
+    Compare, Logic, Not, IsNull, Between, FuncCall, Cast,
 };
 
 // 表达式基类
@@ -196,6 +196,17 @@ struct FuncCallExpr : Expr {
 
     void print(std::ostream& os, int indent) const override;
     ExprKind kind() const override { return ExprKind::FuncCall; }
+};
+
+// CAST 显式转换节点: 操作数 + 目标类型(含可选长度)
+struct CastExpr : Expr {
+    std::unique_ptr<Expr> operand;
+    TypeInfo target;
+    CastExpr(std::unique_ptr<Expr> operand_, TypeInfo target_)
+        : operand(std::move(operand_)), target(target_) {}
+
+    void print(std::ostream& os, int indent) const override;
+    ExprKind kind() const override { return ExprKind::Cast; }
 };
 
 // ==================== SQL 语句 AST ====================
