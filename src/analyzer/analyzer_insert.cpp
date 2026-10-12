@@ -20,7 +20,7 @@ namespace ana {
 void check_value_type(const Expr& expr, st::ColType t, const st::ColumnSpec& col)
 {
     if (may_be_null(expr)) {
-        return;
+        return;  // 恒 NULL 常量树免检(NOT NULL 已在前置检查拦截)
     }
     bool ok = false;
     switch (col.type) {
@@ -42,14 +42,13 @@ void check_value_type(const Expr& expr, st::ColType t, const st::ColumnSpec& col
         break;
     }
     case st::ColType::Char:
-        // 常量上下文的字符串必为字面量, 须不超声明长度
-        ok = t == st::ColType::VarChar
-             && static_cast<const StringExpr&>(expr).value.size() <= col.length;
-        break;
     case st::ColType::VarChar:
-        ok = t == st::ColType::VarChar
-             && (col.length == 0
-                 || static_cast<const StringExpr&>(expr).value.size() <= col.length);
+        ok = t == st::ColType::VarChar;
+        // 字面量长度当场校验, 非字面量文本常量(如 CAST 产物)长度由存储编码检查
+        if (ok && expr.kind() == ExprKind::String) {
+            const std::string& s = static_cast<const StringExpr&>(expr).value;
+            ok = col.length == 0 || s.size() <= col.length;
+        }
         break;
     case st::ColType::Bool:
         ok = t == st::ColType::Bool;

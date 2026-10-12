@@ -33,6 +33,8 @@ bool is_int_type(st::ColType t);
 bool is_float_type(st::ColType t);
 // 文本类(Char/VarChar)判定
 bool is_text_type(st::ColType t);
+// 语法层类型定则映射存储层: 域 + 长度(显式长度须 1..65535; 未声明时 char 缺省 1, 其余缺省 0)
+st::ColType map_type_spec(DataType type, std::optional<long long> length, uint16_t& len);
 
 // ==================== 表达式绑定 ====================
 

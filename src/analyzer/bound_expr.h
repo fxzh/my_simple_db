@@ -15,7 +15,7 @@ namespace ana {
 
 // 语义分析表达式种类, 供执行层按类型分派
 enum class BoundExprKind {
-    Const, ColRef, Arith, Neg, Cmp, Logic, Not, IsNull, FuncCall,
+    Const, ColRef, Arith, Neg, Cmp, Logic, Not, IsNull, FuncCall, Cast,
 };
 
 // 语义分析表达式基类: 常量上下文绑定的树不含 ColRef
@@ -116,6 +116,16 @@ struct BoundFuncCall : BoundExpr {
     BoundFuncCall(FuncId f, std::vector<std::unique_ptr<BoundExpr>> a, st::ColType t)
         : func(f), type(t), args(std::move(a)) {}
     BoundExprKind kind() const override { return BoundExprKind::FuncCall; }
+};
+
+// CAST 显式转换: type/length 为目标域与目标长度(0 为不限), 实参已绑定; 长度检查在求值期
+struct BoundCast : BoundExpr {
+    st::ColType type = st::ColType::Null;
+    uint16_t length = 0;
+    std::unique_ptr<BoundExpr> operand;
+    BoundCast(std::unique_ptr<BoundExpr> operand_, st::ColType type_, uint16_t length_)
+        : type(type_), length(length_), operand(std::move(operand_)) {}
+    BoundExprKind kind() const override { return BoundExprKind::Cast; }
 };
 
 }  // namespace ana

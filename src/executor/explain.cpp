@@ -106,6 +106,8 @@ std::string bound_expr_to_string(const ana::BoundExpr& e, const std::vector<std:
         }
         return s + ")";
     }
+    case ana::BoundExprKind::Cast:
+        DB_RAISE(db::ErrCode::NotImplemented, LogModule::EXECUTOR, "CAST 表达式暂不支持");
     }
     // 不可达: 全部绑定表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "explain: 未知绑定表达式节点");

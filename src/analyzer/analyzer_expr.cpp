@@ -134,6 +134,26 @@ bool is_text_type(st::ColType t)
     return t == st::ColType::Char || t == st::ColType::VarChar;
 }
 
+st::ColType map_type_spec(DataType type, std::optional<long long> length, uint16_t& len)
+{
+    st::ColType t = st::ColType::Null;
+    switch (type) {
+    case DataType::Int: t = st::ColType::Int; break;
+    case DataType::BigInt: t = st::ColType::BigInt; break;
+    case DataType::Float: t = st::ColType::Float; break;
+    case DataType::Double: t = st::ColType::Double; break;
+    case DataType::Char: t = st::ColType::Char; break;
+    case DataType::VarChar: t = st::ColType::VarChar; break;
+    case DataType::Bool: t = st::ColType::Bool; break;
+    }
+    const long long n = length.value_or(type == DataType::Char ? 1 : 0);
+    if (length.has_value() && (n <= 0 || n > UINT16_MAX)) {
+        DB_RAISE(db::ErrCode::InvalidType, LogModule::ANALYZER, "长度非法: {}", n);
+    }
+    len = static_cast<uint16_t>(n);
+    return t;
+}
+
 // ==================== 表达式绑定 ====================
 
 std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, ct::Catalog& db,
@@ -264,8 +284,18 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, ct:
     }
     case ExprKind::FuncCall:
         return bind_func_call(static_cast<const FuncCallExpr&>(expr), schema, db, type);
-    case ExprKind::Cast:
-        DB_RAISE(db::ErrCode::NotImplemented, LogModule::ANALYZER, "CAST 暂不支持");
+    case ExprKind::Cast: {
+        const auto& c = static_cast<const CastExpr&>(expr);
+        st::ColType ot;
+        std::unique_ptr<BoundExpr> operand = bind_expr(*c.operand, schema, db, ot);
+        uint16_t len = 0;
+        type = map_type_spec(c.target.type, c.target.length, len);
+        // 恒等转换且无长度语义(非文本或文本不限长)时折为操作数本身
+        if (ot == type && (!is_text_type(type) || (type == st::ColType::VarChar && len == 0))) {
+            return operand;
+        }
+        return std::make_unique<BoundCast>(std::move(operand), type, len);
+    }
     }
     // 不可达: 全部表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知表达式节点");

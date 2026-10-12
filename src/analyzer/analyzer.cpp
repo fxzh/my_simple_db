@@ -19,37 +19,14 @@ namespace ana {
 
 namespace {
 
-// 语法层类型枚举映射到存储层列类型
-st::ColType map_col_type(DataType type)
-{
-    switch (type) {
-    case DataType::Int: return st::ColType::Int;
-    case DataType::BigInt: return st::ColType::BigInt;
-    case DataType::Float: return st::ColType::Float;
-    case DataType::Double: return st::ColType::Double;
-    case DataType::Char: return st::ColType::Char;
-    case DataType::VarChar: return st::ColType::VarChar;
-    case DataType::Bool: return st::ColType::Bool;
-    }
-    DB_RAISE(db::ErrCode::InvalidType, LogModule::ANALYZER, "未映射的列类型: {}", static_cast<int>(type));
-}
-
 // AST 列定义转存储层列规格; 显式长度非法时当场记录并抛出
 void convert_columns(const std::vector<ColumnDef>& defs, std::vector<st::ColumnSpec>& cols)
 {
     cols.reserve(defs.size());
     for (const ColumnDef& def : defs) {
-        // 显式长度取值 1..65535; 未声明时 char 缺省 1, varchar 缺省 0(动态), 其余为 0
         uint16_t len = 0;
-        if (def.length) {
-            if (*def.length <= 0 || *def.length > UINT16_MAX) {
-                DB_RAISE(db::ErrCode::InvalidType, LogModule::ANALYZER, "长度非法: {}", *def.length);
-            }
-            len = static_cast<uint16_t>(*def.length);
-        } else if (def.type == DataType::Char) {
-            len = 1;
-        }
-        cols.emplace_back(st::ColumnSpec{def.name, map_col_type(def.type), len, def.not_null});
+        const st::ColType t = map_type_spec(def.type, def.length, len);
+        cols.emplace_back(st::ColumnSpec{def.name, t, len, def.not_null});
     }
 }
 

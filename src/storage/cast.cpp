@@ -1,7 +1,9 @@
-// cast.cpp: 值级隐式转换分派表实现
+// cast.cpp: 值级转换分派表实现: 隐式仅同族提升/收窄, 显式含跨族转换
 #include "cast.h"
 
+#include <charconv>
 #include <cmath>
+#include <format>
 #include <string>
 #include <variant>
 
@@ -53,6 +55,26 @@ std::string get_str(const Value& v)
         DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 值形态与源域不符");
     }
     return *s;
+}
+
+// 取 string 盒值只读视图, 形态不符当场报错
+std::string_view get_str_view(const Value& v)
+{
+    const std::string* s = std::get_if<std::string>(&v.box);
+    if (s == nullptr) {
+        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 值形态与源域不符");
+    }
+    return *s;
+}
+
+// 取 bool 盒值, 形态不符当场报错
+bool get_bool(const Value& v)
+{
+    const bool* b = std::get_if<bool>(&v.box);
+    if (b == nullptr) {
+        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 值形态与源域不符");
+    }
+    return *b;
 }
 
 // 恒等转换
@@ -114,38 +136,238 @@ Value char_to_varchar(const Value& v)
     return str_val(get_str(v));
 }
 
+// 文本解析为 int64: 可选 +/- 前缀(from_chars 不认 '+'), 全串参与解析,
+// 不容忍空白与非数字字符
+int64_t text_to_i64(const Value& v)
+{
+    std::string_view s = get_str_view(v);
+    if (!s.empty() && s.front() == '+') {
+        s.remove_prefix(1);
+    }
+    int64_t out = 0;
+    const char* b = s.data();
+    const char* e = b + s.size();
+    const auto conv = std::from_chars(b, e, out);
+    if (s.empty() || conv.ec != std::errc{} || conv.ptr != e) {
+        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "字符串转数值失败");
+    }
+    return out;
+}
+
+// 文本解析为 double: 前缀与全串规则同整型, inf/nan 文本与超界值拒绝
+double text_to_f64(const Value& v)
+{
+    std::string_view s = get_str_view(v);
+    if (!s.empty() && s.front() == '+') {
+        s.remove_prefix(1);
+    }
+    double out = 0;
+    const char* b = s.data();
+    const char* e = b + s.size();
+    const auto conv = std::from_chars(b, e, out);
+    if (s.empty() || conv.ec != std::errc{} || conv.ptr != e || !std::isfinite(out)) {
+        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "字符串转数值失败");
+    }
+    return out;
+}
+
+// double 向零截断为 int64: 非有限或超 int64 域当场报错
+int64_t trunc_to_i64(double d)
+{
+    if (!(d >= -9223372036854775808.0 && d < 9223372036854775808.0)) {
+        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "浮点值超出整型可表示范围");
+    }
+    return static_cast<int64_t>(d);
+}
+
+// int64(int/BigInt 源共用盒形态)转文本: 最短十进制
+Value int_to_varchar(const Value& v)
+{
+    return str_val(std::format("{}", get_i64(v)));
+}
+Value int_to_char(const Value& v)
+{
+    return char_val(std::format("{}", get_i64(v)));
+}
+
+// float 转文本: 最短往返表示
+Value float_to_varchar(const Value& v)
+{
+    return str_val(std::format("{}", get_f32(v)));
+}
+Value float_to_char(const Value& v)
+{
+    return char_val(std::format("{}", get_f32(v)));
+}
+
+// double 转文本: 最短往返表示
+Value double_to_varchar(const Value& v)
+{
+    return str_val(std::format("{}", get_f64(v)));
+}
+Value double_to_char(const Value& v)
+{
+    return char_val(std::format("{}", get_f64(v)));
+}
+
+// bool 转文本
+Value bool_to_varchar(const Value& v)
+{
+    return str_val(get_bool(v) ? "true" : "false");
+}
+Value bool_to_char(const Value& v)
+{
+    return char_val(get_bool(v) ? "true" : "false");
+}
+
+// bool 转数值
+Value bool_to_int(const Value& v)
+{
+    return int_val(get_bool(v) ? 1 : 0);
+}
+Value bool_to_bigint(const Value& v)
+{
+    return bigint_val(get_bool(v) ? 1 : 0);
+}
+Value bool_to_float(const Value& v)
+{
+    return float_val(get_bool(v) ? 1.0f : 0.0f);
+}
+Value bool_to_double(const Value& v)
+{
+    return double_val(get_bool(v) ? 1.0 : 0.0);
+}
+
+// 数值转 Bool: 仅精确 0/1
+Value int_to_bool(const Value& v)
+{
+    const int64_t i = get_i64(v);
+    if (i != 0 && i != 1) {
+        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "数值转布尔仅接受 0 或 1");
+    }
+    return bool_val(i != 0);
+}
+Value float_to_bool(const Value& v)
+{
+    const float f = get_f32(v);
+    if (f != 0.0f && f != 1.0f) {
+        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "数值转布尔仅接受 0 或 1");
+    }
+    return bool_val(f != 0.0f);
+}
+Value double_to_bool(const Value& v)
+{
+    const double d = get_f64(v);
+    if (d != 0.0 && d != 1.0) {
+        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "数值转布尔仅接受 0 或 1");
+    }
+    return bool_val(d != 0.0);
+}
+
+// 文本转 Bool: 仅 true/false, 大小写不敏感
+Value text_to_bool(const Value& v)
+{
+    std::string_view s = get_str_view(v);
+    auto ieq = [&](std::string_view t) {
+        if (s.size() != t.size()) {
+            return false;
+        }
+        for (size_t i = 0; i < s.size(); ++i) {
+            char c = s[i];
+            c = c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c;
+            if (c != t[i]) {
+                return false;
+            }
+        }
+        return true;
+    };
+    if (ieq("true")) {
+        return bool_val(true);
+    }
+    if (ieq("false")) {
+        return bool_val(false);
+    }
+    DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "文本转布尔仅接受 true 或 false");
+}
+
+// 文本转数值: VarChar/Char 源共用(同为 string 盒), int32 域界由存储编码检查
+Value text_to_int(const Value& v)
+{
+    return int_val(text_to_i64(v));
+}
+Value text_to_bigint(const Value& v)
+{
+    return bigint_val(text_to_i64(v));
+}
+Value text_to_double(const Value& v)
+{
+    return double_val(text_to_f64(v));
+}
+Value text_to_float(const Value& v)
+{
+    // 先解析为 double 再收窄, 不可表示由收窄报错
+    return double_to_float(double_val(text_to_f64(v)));
+}
+
+// 浮点向零截断为整型: Float 经 double 宽化无损中转
+Value double_to_int(const Value& v)
+{
+    return int_val(trunc_to_i64(get_f64(v)));
+}
+Value double_to_bigint(const Value& v)
+{
+    return bigint_val(trunc_to_i64(get_f64(v)));
+}
+Value float_to_int(const Value& v)
+{
+    return int_val(trunc_to_i64(static_cast<double>(get_f32(v))));
+}
+Value float_to_bigint(const Value& v)
+{
+    return bigint_val(trunc_to_i64(static_cast<double>(get_f32(v))));
+}
+
+// 转换分派表项: fn 为空表示无转换, implicit 为真时隐式模式可用
+struct CastEntry {
+    CastFn fn = nullptr;
+    bool implicit = false;
+};
+
 // 内置转换分派表: 行源域列目标域, 下标即 ColType 枚举值
-// (Null, Int, BigInt, Double, VarChar, Float, Char, Bool); 空槽无转换, 查到即 Internal
-constexpr CastFn kCastTable[8][8] = {
-    /* Null */    {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr},
-    /* Int */     {nullptr, cast_id, int_to_bigint, int_to_double, nullptr, int_to_float,
-                   nullptr, nullptr},
-    /* BigInt */  {nullptr, bigint_to_int, cast_id, int_to_double, nullptr, int_to_float,
-                   nullptr, nullptr},
-    /* Double */  {nullptr, nullptr, nullptr, cast_id, nullptr, double_to_float, nullptr,
-                   nullptr},
-    /* VarChar */ {nullptr, nullptr, nullptr, nullptr, cast_id, nullptr, varchar_to_char,
-                   nullptr},
-    /* Float */   {nullptr, nullptr, nullptr, float_to_double, nullptr, cast_id, nullptr,
-                   nullptr},
-    /* Char */    {nullptr, nullptr, nullptr, nullptr, char_to_varchar, nullptr, cast_id,
-                   nullptr},
-    /* Bool */    {nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, cast_id},
+// (Null, Int, BigInt, Double, VarChar, Float, Char, Bool); 非 Null 槽位全填,
+// 空槽与隐式查到仅显式表项均为调用方违约
+constexpr CastEntry kCastTable[8][8] = {
+    /* Null */    {{}, {}, {}, {}, {}, {}, {}, {}},
+    /* Int */     {{}, {cast_id, true}, {int_to_bigint, true}, {int_to_double, true},
+                   {int_to_varchar}, {int_to_float, true}, {int_to_char}, {int_to_bool}},
+    /* BigInt */  {{}, {bigint_to_int, true}, {cast_id, true}, {int_to_double, true},
+                   {int_to_varchar}, {int_to_float, true}, {int_to_char}, {int_to_bool}},
+    /* Double */  {{}, {double_to_int}, {double_to_bigint}, {cast_id, true},
+                   {double_to_varchar}, {double_to_float, true}, {double_to_char},
+                   {double_to_bool}},
+    /* VarChar */ {{}, {text_to_int}, {text_to_bigint}, {text_to_double},
+                   {cast_id, true}, {text_to_float}, {varchar_to_char, true}, {text_to_bool}},
+    /* Float */   {{}, {float_to_int}, {float_to_bigint}, {float_to_double, true},
+                   {float_to_varchar}, {cast_id, true}, {float_to_char}, {float_to_bool}},
+    /* Char */    {{}, {text_to_int}, {text_to_bigint}, {text_to_double},
+                   {char_to_varchar, true}, {text_to_float}, {cast_id, true}, {text_to_bool}},
+    /* Bool */    {{}, {bool_to_int}, {bool_to_bigint}, {bool_to_double},
+                   {bool_to_varchar}, {bool_to_float}, {bool_to_char}, {cast_id, true}},
 };
 
 }  // namespace
 
-Value cast_value(const Value& v, ColType to)
+Value cast_value(const Value& v, ColType to, CastMode mode)
 {
     if (value_is_null(v)) {
         DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 不接受 NULL");
     }
-    const CastFn fn = kCastTable[static_cast<size_t>(v.type)][static_cast<size_t>(to)];
-    if (fn == nullptr) {
+    const CastEntry& e = kCastTable[static_cast<size_t>(v.type)][static_cast<size_t>(to)];
+    if (e.fn == nullptr || (mode == CastMode::Implicit && !e.implicit)) {
         DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 无 {}→{} 转换",
                  static_cast<int>(v.type), static_cast<int>(to));
     }
-    return fn(v);
+    return e.fn(v);
 }
 
 }  // namespace st
