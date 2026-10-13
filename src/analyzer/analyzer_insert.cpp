@@ -1,6 +1,7 @@
 // analyzer_insert.cpp: INSERT 绑定: 值与列类型校验, 列清单解析, 行值绑定
 #include "analyzer_insert.h"
 
+#include <charconv>
 #include <cmath>
 #include <memory>
 #include <string>
@@ -35,8 +36,16 @@ void check_value_type(const Expr& expr, st::ColType t, const st::ColumnSpec& col
     case st::ColType::Float: {
         ok = t == st::ColType::Double;
         // float 列字面量须可被 float 表示
-        if (ok && col.type == st::ColType::Float && expr.kind() == ExprKind::Float) {
-            const double d = static_cast<const FloatExpr&>(expr).value;
+        if (ok && col.type == st::ColType::Float
+            && (expr.kind() == ExprKind::Float || expr.kind() == ExprKind::Decimal)) {
+            const std::string& s = expr.kind() == ExprKind::Float
+                                       ? static_cast<const FloatExpr&>(expr).text
+                                       : static_cast<const DecimalExpr&>(expr).text;
+            double d = 0;
+            const auto conv = std::from_chars(s.data(), s.data() + s.size(), d);
+            if (conv.ec != std::errc{} || conv.ptr != s.data() + s.size()) {
+                DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "字面量文本解析失败");
+            }
             ok = !std::isfinite(d) || std::isfinite(static_cast<float>(d));
         }
         break;

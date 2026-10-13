@@ -61,12 +61,17 @@ inline std::string cmp_to_string(CmpOp op)
 
 inline void IntExpr::print(std::ostream& os, int indent) const
 {
-    os << std::string(static_cast<std::size_t>(indent), ' ') << "Int: " << value << std::endl;
+    os << std::string(static_cast<std::size_t>(indent), ' ') << "Int: " << text << std::endl;
 }
 
 inline void FloatExpr::print(std::ostream& os, int indent) const
 {
-    os << std::string(static_cast<std::size_t>(indent), ' ') << "Float: " << value << std::endl;
+    os << std::string(static_cast<std::size_t>(indent), ' ') << "Float: " << text << std::endl;
+}
+
+inline void DecimalExpr::print(std::ostream& os, int indent) const
+{
+    os << std::string(static_cast<std::size_t>(indent), ' ') << "Decimal: " << text << std::endl;
 }
 
 inline void StringExpr::print(std::ostream& os, int indent) const
@@ -160,9 +165,11 @@ inline std::string expr_to_string(const Expr& e)
 {
     switch (e.kind()) {
     case ExprKind::Int:
-        return std::format("{}", static_cast<const IntExpr&>(e).value);
+        return static_cast<const IntExpr&>(e).text;
     case ExprKind::Float:
-        return std::format("{}", static_cast<const FloatExpr&>(e).value);
+        return static_cast<const FloatExpr&>(e).text;
+    case ExprKind::Decimal:
+        return static_cast<const DecimalExpr&>(e).text;
     case ExprKind::String:
         return "'" + static_cast<const StringExpr&>(e).value + "'";
     case ExprKind::Null:

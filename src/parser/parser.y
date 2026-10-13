@@ -17,10 +17,22 @@
 }
 
 %code {
+    #include <charconv>
     #include <sstream>
     #include "ast_print.hxx"  // AST 节点全部在此构造, 需与 print 定义同编译单元
     #include "parser.tab.hh"  // 包含 bison 生成的头文件
     #include "sql_scanner.h"
+
+    // 整数 token 文本转数值: 词法保证全数字, 超出 int64 范围返回空
+    static std::optional<long long> int_token(const std::string& s)
+    {
+        long long out = 0;
+        const auto conv = std::from_chars(s.data(), s.data() + s.size(), out);
+        if (conv.ec != std::errc{} || conv.ptr != s.data() + s.size()) {
+            return std::nullopt;
+        }
+        return out;
+    }
 
     // 词法接口: 扫描器实例经 %lex-param 传入, 无需任何全局状态
     static int yylex(yy::parser::semantic_type* lval, yy::parser::location_type* lloc,
@@ -63,8 +75,9 @@
 %token BEGIN_TXN START TRANSACTION COMMIT WORK ROLLBACK
 %token EQ NE LE GE
 
-%token <long long> INTEGER
-%token <double> FLOAT_NUM
+%token <std::string> INTEGER
+%token <std::string> FLOAT_NUM
+%token <std::string> DECIMAL_NUM
 %token <std::string> IDENTIFIER
 %token <std::string> STRING
 
@@ -86,6 +99,7 @@
 %type <std::vector<ColumnDef>> column_definitions
 %type <ColumnDef> column_definition
 %type <TypeInfo> type_specifier
+%type <long long> int_length
 %type <QualifiedName> qualified_name
 %type <std::vector<std::unique_ptr<Expr>>> value_list func_args
 %type <std::vector<std::vector<std::unique_ptr<Expr>>>> values_rows
@@ -301,9 +315,33 @@ set_statement:
 
 // set 值: 整数(可带符号)、标识符或字符串字面量, 值域不在语法层校验
 set_value:
-        INTEGER      { $$ = std::make_pair(std::to_string($1), SetValueForm::Int); }
-    |   '-' INTEGER  { $$ = std::make_pair(std::to_string(-$2), SetValueForm::Int); }
-    |   '+' INTEGER  { $$ = std::make_pair(std::to_string($2), SetValueForm::Int); }
+        INTEGER
+        {
+            const std::optional<long long> n = int_token($1);
+            if (!n.has_value()) {
+                error(@1, "integer literal out of range: " + $1);
+                YYERROR;
+            }
+            $$ = std::make_pair(std::to_string(*n), SetValueForm::Int);
+        }
+    |   '-' INTEGER
+        {
+            const std::optional<long long> n = int_token($2);
+            if (!n.has_value()) {
+                error(@2, "integer literal out of range: " + $2);
+                YYERROR;
+            }
+            $$ = std::make_pair(std::to_string(-*n), SetValueForm::Int);
+        }
+    |   '+' INTEGER
+        {
+            const std::optional<long long> n = int_token($2);
+            if (!n.has_value()) {
+                error(@2, "integer literal out of range: " + $2);
+                YYERROR;
+            }
+            $$ = std::make_pair(std::to_string(*n), SetValueForm::Int);
+        }
     |   IDENTIFIER   { $$ = std::make_pair(std::move($1), SetValueForm::Ident); }
     |   STRING       { $$ = std::make_pair(std::move($1), SetValueForm::Str); }
     ;
@@ -464,6 +502,19 @@ value:
       expression { $$ = std::move($1); }
     ;
 
+// 类型长度: 整数 token 文本转数值, 超界按语法错误报出
+int_length:
+        INTEGER
+        {
+            const std::optional<long long> n = int_token($1);
+            if (!n.has_value()) {
+                error(@1, "integer literal out of range: " + $1);
+                YYERROR;
+            }
+            $$ = *n;
+        }
+    ;
+
 type_specifier:
         INT    { $$ = TypeInfo{ DataType::Int, std::nullopt, std::nullopt }; }
     |   BIGINT { $$ = TypeInfo{ DataType::BigInt, std::nullopt, std::nullopt }; }
@@ -475,17 +526,18 @@ type_specifier:
     |   BOOL    { $$ = TypeInfo{ DataType::Bool, std::nullopt, std::nullopt }; }
     |   NUMERIC { $$ = TypeInfo{ DataType::Numeric, std::nullopt, std::nullopt }; }
     |   DECIMAL { $$ = TypeInfo{ DataType::Numeric, std::nullopt, std::nullopt }; }
-    |   CHAR '(' INTEGER ')'    { $$ = TypeInfo{ DataType::Char, $3, std::nullopt }; }
-    |   VARCHAR '(' INTEGER ')' { $$ = TypeInfo{ DataType::VarChar, $3, std::nullopt }; }
-    |   NUMERIC '(' INTEGER ')' { $$ = TypeInfo{ DataType::Numeric, $3, std::nullopt }; }
-    |   DECIMAL '(' INTEGER ')' { $$ = TypeInfo{ DataType::Numeric, $3, std::nullopt }; }
-    |   NUMERIC '(' INTEGER ',' INTEGER ')' { $$ = TypeInfo{ DataType::Numeric, $3, $5 }; }
-    |   DECIMAL '(' INTEGER ',' INTEGER ')' { $$ = TypeInfo{ DataType::Numeric, $3, $5 }; }
+    |   CHAR '(' int_length ')'    { $$ = TypeInfo{ DataType::Char, $3, std::nullopt }; }
+    |   VARCHAR '(' int_length ')' { $$ = TypeInfo{ DataType::VarChar, $3, std::nullopt }; }
+    |   NUMERIC '(' int_length ')' { $$ = TypeInfo{ DataType::Numeric, $3, std::nullopt }; }
+    |   DECIMAL '(' int_length ')' { $$ = TypeInfo{ DataType::Numeric, $3, std::nullopt }; }
+    |   NUMERIC '(' int_length ',' int_length ')' { $$ = TypeInfo{ DataType::Numeric, $3, $5 }; }
+    |   DECIMAL '(' int_length ',' int_length ')' { $$ = TypeInfo{ DataType::Numeric, $3, $5 }; }
     ;
 
 expression:
-        INTEGER                     { $$ = std::make_unique<IntExpr>($1); }
-    |   FLOAT_NUM                   { $$ = std::make_unique<FloatExpr>($1); }
+        INTEGER                     { $$ = std::make_unique<IntExpr>(std::move($1)); }
+    |   FLOAT_NUM                   { $$ = std::make_unique<FloatExpr>(std::move($1)); }
+    |   DECIMAL_NUM                 { $$ = std::make_unique<DecimalExpr>(std::move($1)); }
     |   STRING                      { $$ = std::make_unique<StringExpr>(std::move($1)); }
     |   NULL_T                      { $$ = std::make_unique<NullExpr>(); }
     |   TRUE_T                      { $$ = std::make_unique<BoolExpr>(true); }
@@ -558,8 +610,9 @@ null_not_opt:
 
 // BETWEEN 边界: 不含顶层 AND/OR(否则与边界分隔 AND 产生归约二义), 复杂边界用括号
 between_operand:
-        INTEGER     { $$ = std::make_unique<IntExpr>($1); }
-    |   FLOAT_NUM   { $$ = std::make_unique<FloatExpr>($1); }
+        INTEGER     { $$ = std::make_unique<IntExpr>(std::move($1)); }
+    |   FLOAT_NUM   { $$ = std::make_unique<FloatExpr>(std::move($1)); }
+    |   DECIMAL_NUM { $$ = std::make_unique<DecimalExpr>(std::move($1)); }
     |   STRING      { $$ = std::make_unique<StringExpr>(std::move($1)); }
     |   NULL_T      { $$ = std::make_unique<NullExpr>(); }
     |   TRUE_T      { $$ = std::make_unique<BoolExpr>(true); }

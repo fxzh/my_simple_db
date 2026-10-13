@@ -1,6 +1,7 @@
 // analyzer_select.cpp: SELECT 绑定: 投影展开与排序键绑定
 #include "analyzer_select.h"
 
+#include <charconv>
 #include <memory>
 #include <string>
 #include <vector>
@@ -49,10 +50,13 @@ OrderKey resolve_order_key(const OrderItem& item, const ProjBind& pb, const Sche
     const Expr& e = *item.expr;
     OrderKey k;
     if (e.kind() == ExprKind::Int) {
-        const int64_t pos = static_cast<const IntExpr&>(e).value;
-        if (pos < 1 || pos > static_cast<int64_t>(pb.projs.size())) {
+        const std::string& s = static_cast<const IntExpr&>(e).text;
+        long long pos = 0;
+        const auto conv = std::from_chars(s.data(), s.data() + s.size(), pos);
+        if (conv.ec != std::errc{} || conv.ptr != s.data() + s.size() || pos < 1
+            || pos > static_cast<int64_t>(pb.projs.size())) {
             DB_RAISE(db::ErrCode::UnknownColumn, LogModule::ANALYZER,
-                     "ORDER BY 序号不在输出列范围: {}", pos);
+                     "ORDER BY 序号不在输出列范围: {}", s);
         }
         k.is_out = true;
         k.out_idx = static_cast<size_t>(pos - 1);
@@ -76,7 +80,8 @@ OrderKey resolve_order_key(const OrderItem& item, const ProjBind& pb, const Sche
             return k;
         }
         // 未命中输出列名: 落到下方行上下文按列名解析
-    } else if (e.kind() == ExprKind::Float || e.kind() == ExprKind::String
+    } else if (e.kind() == ExprKind::Float || e.kind() == ExprKind::Decimal
+               || e.kind() == ExprKind::String
                || e.kind() == ExprKind::Null || e.kind() == ExprKind::Bool) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "ORDER BY 不允许非整数常量");
     }

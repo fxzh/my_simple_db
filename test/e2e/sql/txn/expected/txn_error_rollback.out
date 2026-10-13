@@ -39,7 +39,7 @@ BEGIN
 INSERT INTO t_err VALUES (9, 'i');
 INSERT 1
 INSERT INTO t_err VALUES (99999999999999999999, 'x');
-ERROR: 1.27-46: integer literal out of range: 99999999999999999999, 事务已回滚
+ERROR: 整数字面量超出可表示范围, 事务已回滚
 SELECT * FROM t_err;
  id | v
 (0 行)

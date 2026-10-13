@@ -46,7 +46,7 @@ struct ColumnDef {
 
 // 表达式种类, 供执行层等上层按类型分派
 enum class ExprKind {
-    Int, Float, String, Identifier, BinaryOp, UnaryOp, Null, Bool,
+    Int, Float, Decimal, String, Identifier, BinaryOp, UnaryOp, Null, Bool,
     Compare, Logic, Not, IsNull, Between, FuncCall, Cast,
 };
 
@@ -58,20 +58,28 @@ struct Expr {
     virtual ExprKind kind() const = 0;
 };
 
-// 整数字面量
+// 整数字面量: 保存源文本, 值域定型在绑定层
 struct IntExpr : Expr {
-    long long value;
-    explicit IntExpr(long long val) : value(val) {}
+    std::string text;
+    explicit IntExpr(std::string t) : text(std::move(t)) {}
     void print(std::ostream& os, int indent) const override;
     ExprKind kind() const override { return ExprKind::Int; }
 };
 
-// 浮点字面量
+// 浮点字面量(带指数): 保存源文本, 值域定型在绑定层
 struct FloatExpr : Expr {
-    double value;
-    explicit FloatExpr(double val) : value(val) {}
+    std::string text;
+    explicit FloatExpr(std::string t) : text(std::move(t)) {}
     void print(std::ostream& os, int indent) const override;
     ExprKind kind() const override { return ExprKind::Float; }
+};
+
+// 精确小数字面量(无指数): 保存源文本, 值域定型在绑定层
+struct DecimalExpr : Expr {
+    std::string text;
+    explicit DecimalExpr(std::string t) : text(std::move(t)) {}
+    void print(std::ostream& os, int indent) const override;
+    ExprKind kind() const override { return ExprKind::Decimal; }
 };
 
 // 字符串字面量

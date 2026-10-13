@@ -1,6 +1,7 @@
 // analyzer_expr.cpp: 表达式绑定: AST 表达式 → 绑定表达式树, 含类型工具与行结构构建
 #include "analyzer_expr.h"
 
+#include <charconv>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -163,7 +164,12 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, ct:
 {
     switch (expr.kind()) {
     case ExprKind::Int: {
-        const int64_t v = static_cast<const IntExpr&>(expr).value;
+        const std::string& s = static_cast<const IntExpr&>(expr).text;
+        long long v = 0;
+        const auto conv = std::from_chars(s.data(), s.data() + s.size(), v);
+        if (conv.ec != std::errc{} || conv.ptr != s.data() + s.size()) {
+            DB_RAISE(db::ErrCode::ArithError, LogModule::ANALYZER, "整数字面量超出可表示范围");
+        }
         // int32 范围内定型 Int, 超界定型 BigInt
         if (v >= INT32_MIN && v <= INT32_MAX) {
             type = st::ColType::Int;
@@ -172,11 +178,28 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, ct:
         type = st::ColType::BigInt;
         return std::make_unique<BoundConst>(st::bigint_val(v));
     }
-    case ExprKind::Float:
-        // 词法浮点值即 double, 字面量定型 Double
+    case ExprKind::Float: {
+        // 带指数字面量解析为 double, 定型 Double
+        const std::string& s = static_cast<const FloatExpr&>(expr).text;
+        double v = 0;
+        const auto conv = std::from_chars(s.data(), s.data() + s.size(), v);
+        if (conv.ec != std::errc{} || conv.ptr != s.data() + s.size()) {
+            DB_RAISE(db::ErrCode::ArithError, LogModule::ANALYZER, "浮点字面量超出可表示范围");
+        }
         type = st::ColType::Double;
-        return std::make_unique<BoundConst>(
-            st::double_val(static_cast<const FloatExpr&>(expr).value));
+        return std::make_unique<BoundConst>(st::double_val(v));
+    }
+    case ExprKind::Decimal: {
+        // 无指数小数字面量解析为 double, 定型 Double
+        const std::string& s = static_cast<const DecimalExpr&>(expr).text;
+        double v = 0;
+        const auto conv = std::from_chars(s.data(), s.data() + s.size(), v);
+        if (conv.ec != std::errc{} || conv.ptr != s.data() + s.size()) {
+            DB_RAISE(db::ErrCode::ArithError, LogModule::ANALYZER, "浮点字面量超出可表示范围");
+        }
+        type = st::ColType::Double;
+        return std::make_unique<BoundConst>(st::double_val(v));
+    }
     case ExprKind::String:
         type = st::ColType::VarChar;
         return std::make_unique<BoundConst>(
@@ -321,6 +344,7 @@ bool may_be_null(const Expr& expr)
     case ExprKind::Null: return true;
     case ExprKind::Int:
     case ExprKind::Float:
+    case ExprKind::Decimal:
     case ExprKind::String:
     case ExprKind::Bool:
     case ExprKind::Identifier:
@@ -368,6 +392,7 @@ bool has_col_ref(const Expr& expr)
     switch (expr.kind()) {
     case ExprKind::Int:
     case ExprKind::Float:
+    case ExprKind::Decimal:
     case ExprKind::String:
     case ExprKind::Bool:
     case ExprKind::Null:

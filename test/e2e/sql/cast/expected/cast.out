@@ -5,9 +5,9 @@ SELECT CAST(123 AS VARCHAR) AS a, CAST(-45 AS VARCHAR) AS b, CAST(0.1 AS VARCHAR
  123 | -45 | 0.1
 (1 行)
 SELECT CAST(1e3 AS VARCHAR), CAST(true AS VARCHAR);
- CAST(1000 AS varchar) | CAST(true AS varchar)
------------------------+-----------------------
- 1000                  | true
+ CAST(1e3 AS varchar) | CAST(true AS varchar)
+----------------------+-----------------------
+ 1000                 | true
 (1 行)
 -- 文本转数值: 全串解析, 可选 +/- 前缀, 不容忍空白与非数字
 SELECT CAST('456' AS INT), CAST('+78' AS INT), CAST('-9' AS BIGINT);
