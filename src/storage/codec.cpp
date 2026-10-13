@@ -14,6 +14,8 @@ namespace st {
 
 namespace {
 
+namespace mp = boost::multiprecision;
+
 inline void put_u16(std::vector<uint8_t>& out, uint16_t v)
 {
     out.push_back(static_cast<uint8_t>(v & 0xff));
@@ -178,6 +180,32 @@ bool encode_row(const std::vector<ColumnSpec>& cols, const std::vector<Value>& v
                 out.push_back(static_cast<uint8_t>(v ? 1 : 0));
                 break;
             }
+            case ColType::Numeric: {
+                const DecimalVal* d = std::get_if<DecimalVal>(&values[i].box);
+                if (d == nullptr || mp::abs(d->unscaled) >= kNumericUnscaledMax) {
+                    return false;
+                }
+                // 16B 小端补码 unscaled + 1B scale
+                const mp::uint256_t mag = static_cast<mp::uint256_t>(mp::abs(d->unscaled));
+                uint8_t b[16] = {};
+                for (int k = 0; k < 16; ++k) {
+                    b[k] = static_cast<uint8_t>((mag >> (k * 8)).convert_to<unsigned>());
+                }
+                if (d->unscaled < 0) {
+                    // 负数整体取反加一得补码
+                    for (int k = 0; k < 16; ++k) {
+                        b[k] = static_cast<uint8_t>(~b[k]);
+                    }
+                    for (int k = 0; k < 16; ++k) {
+                        if (++b[k] != 0) {
+                            break;
+                        }
+                    }
+                }
+                out.insert(out.end(), b, b + 16);
+                out.push_back(d->scale);
+                break;
+            }
             case ColType::Null:
                 DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
                          "encode: 列类型域不含 Null");
@@ -290,6 +318,29 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
                 }
                 out.push_back(bool_val(b != 0));
                 pos += 1;
+                break;
+            }
+            case ColType::Numeric: {
+                if (pos + 17 > len) {
+                    return false;
+                }
+                mp::uint256_t mag = 0;
+                for (size_t k = 16; k-- > 0;) {
+                    mag = (mag << 8) | static_cast<unsigned>(data[pos + k]);
+                }
+                // 最高位为符号位, 取反加一(模 2^256)得幅值
+                mp::int256_t u = 0;
+                if ((mag >> 255).convert_to<unsigned>() != 0) {
+                    mag = mp::uint256_t(0) - mag;
+                    u = -static_cast<mp::int256_t>(mag);
+                } else {
+                    u = static_cast<mp::int256_t>(mag);
+                }
+                if (mp::abs(u) >= kNumericUnscaledMax) {
+                    return false;  // 幅值超 38 位十进制视为损坏
+                }
+                out.push_back(numeric_val(u, data[pos + 16]));
+                pos += 17;
                 break;
             }
             case ColType::Null:

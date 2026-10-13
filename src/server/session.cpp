@@ -134,6 +134,8 @@ proto::CellVal to_cell(const st::Value& v)
     case st::ColType::Char:
     case st::ColType::VarChar:
         return std::get<std::string>(v.box);
+    case st::ColType::Numeric:
+        DB_RAISE(db::ErrCode::NotImplemented, EXECUTOR, "numeric 结果显示未支持");
     case st::ColType::Null:
         break;
     }

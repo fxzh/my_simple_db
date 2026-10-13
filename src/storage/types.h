@@ -2,6 +2,7 @@
 #ifndef STORAGE_TYPES_H
 #define STORAGE_TYPES_H
 
+#include <boost/multiprecision/cpp_int.hpp>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -33,6 +34,7 @@ enum class ColType : uint8_t {
     Float = 5,  // 单精度 4B
     Char = 6,   // 定长文本
     Bool = 7,   // 布尔 1B
+    Numeric = 8,  // 定点十进制: 值 = unscaled × 10^-scale
 };
 
 // 列定义
@@ -51,12 +53,23 @@ struct TableMeta {
     std::vector<ColumnSpec> cols;
 };
 
+// numeric 幅值上界: unscaled 幅值须 < 10^38(38 位十进制)
+inline const boost::multiprecision::int256_t kNumericUnscaledMax =
+    boost::multiprecision::pow(boost::multiprecision::int256_t(10), 38);
+
+// numeric 值形态: unscaled 为按 scale 放大的整数值, scale 随值走(0..255, 尾零不剥)
+struct DecimalVal {
+    boost::multiprecision::int256_t unscaled;
+    uint8_t scale = 0;
+    bool operator==(const DecimalVal&) const = default;
+};
+
 // 行值: 语义类型 + 存储形态; type 与 box 形态对应: Int/BigInt→int64_t,
-// Float→float, Double→double, Char/VarChar→string, Bool→bool; 构造一律走下方工厂, 禁止聚合直造,
-// 缺省即 (Null, monostate)
+// Float→float, Double→double, Char/VarChar→string, Bool→bool, Numeric→DecimalVal;
+// 构造一律走下方工厂, 禁止聚合直造, 缺省即 (Null, monostate)
 struct Value {
     ColType type = ColType::Null;
-    std::variant<std::monostate, bool, int64_t, double, float, std::string> box;
+    std::variant<std::monostate, bool, int64_t, double, float, std::string, DecimalVal> box;
 };
 
 // 值工厂: 类型与存储形态绑定, 防裸构造陷阱(字符串字面量会静默选中 bool 备选)
@@ -67,6 +80,10 @@ inline Value double_val(double v) { return Value{ColType::Double, v}; }
 inline Value char_val(std::string v) { return Value{ColType::Char, std::move(v)}; }
 inline Value str_val(std::string v) { return Value{ColType::VarChar, std::move(v)}; }
 inline Value bool_val(bool v) { return Value{ColType::Bool, v}; }
+inline Value numeric_val(boost::multiprecision::int256_t unscaled, uint8_t scale)
+{
+    return Value{ColType::Numeric, DecimalVal{std::move(unscaled), scale}};
+}
 inline Value null_val() { return Value{}; }  // 无类型 NULL(字面量/缺省列)
 inline Value typed_null(ColType t) { return Value{t, std::monostate{}}; }  // 携带列类型的 NULL(解码)
 

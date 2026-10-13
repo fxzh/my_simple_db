@@ -62,6 +62,9 @@ void check_value_type(const Expr& expr, st::ColType t, const st::ColumnSpec& col
     case st::ColType::Bool:
         ok = t == st::ColType::Bool;
         break;
+    case st::ColType::Numeric:
+        ok = false;
+        break;
     case st::ColType::Null:
         DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "列类型域不含 Null");
     }
@@ -88,6 +91,9 @@ void check_update_type(st::ColType t, const st::ColumnSpec& col)
         break;
     case st::ColType::Bool:
         ok = t == st::ColType::Bool || t == st::ColType::Null;
+        break;
+    case st::ColType::Numeric:
+        ok = false;
         break;
     case st::ColType::Null:
         DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "列类型域不含 Null");

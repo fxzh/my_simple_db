@@ -70,7 +70,8 @@ ValueFamily value_family(const st::Value& v)
     case st::ColType::Int:
     case st::ColType::BigInt:
     case st::ColType::Float:
-    case st::ColType::Double: return ValueFamily::Num;
+    case st::ColType::Double:
+    case st::ColType::Numeric: return ValueFamily::Num;
     case st::ColType::Char:
     case st::ColType::VarChar: return ValueFamily::Text;
     case st::ColType::Bool: return ValueFamily::Bool;

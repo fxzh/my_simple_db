@@ -56,6 +56,9 @@ std::string const_text(const st::Value& v)
     if (const auto* b = std::get_if<bool>(&v.box)) {
         return *b ? "true" : "false";
     }
+    if (std::get_if<st::DecimalVal>(&v.box) != nullptr) {
+        DB_RAISE(db::ErrCode::NotImplemented, LogModule::EXECUTOR, "numeric 显示未支持");
+    }
     return "NULL";
 }
 
@@ -71,6 +74,7 @@ std::string col_type_text(st::ColType t, uint16_t length)
     case st::ColType::Char: name = "char"; break;
     case st::ColType::VarChar: name = "varchar"; break;
     case st::ColType::Bool: name = "boolean"; break;
+    case st::ColType::Numeric: name = "numeric"; break;
     case st::ColType::Null: break;
     }
     if (name == nullptr) {

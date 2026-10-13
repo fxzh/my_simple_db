@@ -89,6 +89,7 @@ bool col_type_known(st::ColType type)
     case st::ColType::Float:
     case st::ColType::Char:
     case st::ColType::Bool:
+    case st::ColType::Numeric:
         return true;
     case st::ColType::Null:
         return false;

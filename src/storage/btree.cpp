@@ -254,6 +254,9 @@ IndexKey encode_key(ColType type, const Value& v)
         // NULL 入索引且排最大, 键值部分无意义置 0
         return IndexKey{0, true};
     }
+    if (type == ColType::Numeric) {
+        DB_RAISE(db::ErrCode::NotImplemented, LogModule::STORAGE, "numeric 列暂不支持索引");
+    }
     if (const bool* b = std::get_if<bool>(&v.box)) {
         if (type != ColType::Bool) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "索引键值与列类型不匹配");
