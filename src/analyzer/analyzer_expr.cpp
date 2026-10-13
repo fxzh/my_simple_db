@@ -145,6 +145,8 @@ st::ColType map_type_spec(DataType type, std::optional<long long> length, uint16
     case DataType::Char: t = st::ColType::Char; break;
     case DataType::VarChar: t = st::ColType::VarChar; break;
     case DataType::Bool: t = st::ColType::Bool; break;
+    case DataType::Numeric:
+        DB_RAISE(db::ErrCode::NotImplemented, LogModule::ANALYZER, "numeric 类型暂未支持");
     }
     const long long n = length.value_or(type == DataType::Char ? 1 : 0);
     if (length.has_value() && (n <= 0 || n > UINT16_MAX)) {

@@ -17,13 +17,14 @@
 
 // 列类型名(语法层枚举, 由执行层映射到存储层 st::ColType)
 enum class DataType : uint8_t {
-    Int, BigInt, Float, Double, Char, VarChar, Bool,
+    Int, BigInt, Float, Double, Char, VarChar, Bool, Numeric,
 };
 
-// 类型说明: 类型名 + 声明长度(未声明为 nullopt)
+// 类型说明: 类型名 + 声明长度与标度(未声明为 nullopt); numeric 的 length 为精度
 struct TypeInfo {
     DataType type;
     std::optional<long long> length;
+    std::optional<long long> scale;  // numeric 的小数位数
 };
 
 // 限定名: schema 为空表示未限定
@@ -36,7 +37,8 @@ struct QualifiedName {
 struct ColumnDef {
     std::string name;
     DataType type;
-    std::optional<long long> length;  // char/varchar 的声明长度, 未声明为 nullopt
+    std::optional<long long> length;  // char/varchar 的声明长度或 numeric 的精度, 未声明为 nullopt
+    std::optional<long long> scale;   // numeric 的小数位数, 未声明为 nullopt
     bool not_null = false;  // NOT NULL 约束, 未声明即可空
 };
 

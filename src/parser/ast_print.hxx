@@ -19,8 +19,9 @@ inline std::string qualified_to_string(const QualifiedName& q)
     return q.schema.empty() ? q.name : q.schema + "." + q.name;
 }
 
-// 类型名转文本, 带 (长度) 后缀: 供打印与日志使用
-inline std::string type_to_string(DataType type, std::optional<long long> length)
+// 类型名转文本, 带 (长度) 或 (精度,标度) 后缀: 供打印与日志使用
+inline std::string type_to_string(DataType type, std::optional<long long> length,
+                                  std::optional<long long> scale)
 {
     const char* name = nullptr;
     switch (type) {
@@ -31,9 +32,13 @@ inline std::string type_to_string(DataType type, std::optional<long long> length
     case DataType::Char: name = "char"; break;
     case DataType::VarChar: name = "varchar"; break;
     case DataType::Bool: name = "boolean"; break;
+    case DataType::Numeric: name = "numeric"; break;
     }
     if (!length) {
         return name;
+    }
+    if (type == DataType::Numeric && scale) {
+        return std::format("{}({},{})", name, *length, *scale);
     }
     return std::format("{}({})", name, *length);
 }
@@ -146,7 +151,7 @@ inline void FuncCallExpr::print(std::ostream& os, int indent) const
 inline void CastExpr::print(std::ostream& os, int indent) const
 {
     os << std::string(static_cast<std::size_t>(indent), ' ') << "Cast: "
-       << type_to_string(target.type, target.length) << std::endl;
+       << type_to_string(target.type, target.length, target.scale) << std::endl;
     operand->print(os, indent + 4);
 }
 
@@ -209,7 +214,7 @@ inline std::string expr_to_string(const Expr& e)
     case ExprKind::Cast: {
         const auto& c = static_cast<const CastExpr&>(e);
         return "CAST(" + expr_to_string(*c.operand) + " AS "
-               + type_to_string(c.target.type, c.target.length) + ")";
+               + type_to_string(c.target.type, c.target.length, c.target.scale) + ")";
     }
     }
     return "";
@@ -223,7 +228,7 @@ inline void CreateTableStmt::print(std::ostream& os, int indent) const
        << qualified_to_string(table) << std::endl;
     for (const auto& col : columns) {
         os << std::string(static_cast<std::size_t>(indent + 4), ' ') << col.name << " "
-           << type_to_string(col.type, col.length);
+           << type_to_string(col.type, col.length, col.scale);
         if (col.not_null) {
             os << " NOT NULL";
         }

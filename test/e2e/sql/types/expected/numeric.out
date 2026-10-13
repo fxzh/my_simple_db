@@ -1,0 +1,25 @@
+-- numeric/decimal 各声明形态: 语法层收下, 语义层拒绝
+CREATE TABLE t_numeric (a numeric);
+ERROR: numeric 类型暂未支持
+CREATE TABLE t_numeric (a numeric(5));
+ERROR: numeric 类型暂未支持
+CREATE TABLE t_numeric (a numeric(5, 2));
+ERROR: numeric 类型暂未支持
+CREATE TABLE t_numeric (a decimal);
+ERROR: numeric 类型暂未支持
+CREATE TABLE t_numeric (a DECIMAL(10, 4));
+ERROR: numeric 类型暂未支持
+CREATE TABLE t_numeric (a numeric(3), b decimal(4, 1));
+ERROR: numeric 类型暂未支持
+-- cast 目标为 numeric/decimal 同样在语义层拒绝
+SELECT CAST(1 AS numeric(5, 2));
+ERROR: numeric 类型暂未支持
+SELECT CAST('1.5' AS decimal);
+ERROR: numeric 类型暂未支持
+-- 非法参数形态为语法错误: 空参数/三参数/负数
+CREATE TABLE t_numeric (a numeric());
+ERROR: 2.35: syntax error, unexpected ')', expecting INTEGER
+CREATE TABLE t_numeric (a numeric(5, 2, 3));
+ERROR: 1.39: syntax error, unexpected ',', expecting ')'
+CREATE TABLE t_numeric (a numeric(-5));
+ERROR: 1.35: syntax error, unexpected '-', expecting INTEGER

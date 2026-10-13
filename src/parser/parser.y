@@ -57,7 +57,7 @@
 %token END 0 "end of file"
 %token TOK_ERROR
 %token CREATE TABLE DROP SCHEMA INSERT INTO VALUES DELETE FROM UPDATE INDEX ON
-%token INT BIGINT FLOAT CHAR VARCHAR DOUBLE BOOLEAN BOOL
+%token INT BIGINT FLOAT CHAR VARCHAR DOUBLE BOOLEAN BOOL NUMERIC DECIMAL
 %token EXPLAIN SELECT AS NULL_T TRUE_T FALSE_T WHERE AND OR NOT IS SET BETWEEN CAST
 %token ORDER BY ASC DESC
 %token BEGIN_TXN START TRANSACTION COMMIT WORK ROLLBACK
@@ -181,7 +181,7 @@ column_definitions:
 column_definition:
         IDENTIFIER type_specifier not_null_opt
         {
-            $$ = ColumnDef{ std::move($1), $2.type, $2.length, $3 };
+            $$ = ColumnDef{ std::move($1), $2.type, $2.length, $2.scale, $3 };
         }
     ;
 
@@ -465,16 +465,22 @@ value:
     ;
 
 type_specifier:
-        INT    { $$ = TypeInfo{ DataType::Int, std::nullopt }; }
-    |   BIGINT { $$ = TypeInfo{ DataType::BigInt, std::nullopt }; }
-    |   FLOAT  { $$ = TypeInfo{ DataType::Float, std::nullopt }; }
-    |   CHAR   { $$ = TypeInfo{ DataType::Char, std::nullopt }; }
-    |   DOUBLE { $$ = TypeInfo{ DataType::Double, std::nullopt }; }
-    |   VARCHAR { $$ = TypeInfo{ DataType::VarChar, std::nullopt }; }
-    |   BOOLEAN { $$ = TypeInfo{ DataType::Bool, std::nullopt }; }
-    |   BOOL    { $$ = TypeInfo{ DataType::Bool, std::nullopt }; }
-    |   CHAR '(' INTEGER ')'    { $$ = TypeInfo{ DataType::Char, $3 }; }
-    |   VARCHAR '(' INTEGER ')' { $$ = TypeInfo{ DataType::VarChar, $3 }; }
+        INT    { $$ = TypeInfo{ DataType::Int, std::nullopt, std::nullopt }; }
+    |   BIGINT { $$ = TypeInfo{ DataType::BigInt, std::nullopt, std::nullopt }; }
+    |   FLOAT  { $$ = TypeInfo{ DataType::Float, std::nullopt, std::nullopt }; }
+    |   CHAR   { $$ = TypeInfo{ DataType::Char, std::nullopt, std::nullopt }; }
+    |   DOUBLE { $$ = TypeInfo{ DataType::Double, std::nullopt, std::nullopt }; }
+    |   VARCHAR { $$ = TypeInfo{ DataType::VarChar, std::nullopt, std::nullopt }; }
+    |   BOOLEAN { $$ = TypeInfo{ DataType::Bool, std::nullopt, std::nullopt }; }
+    |   BOOL    { $$ = TypeInfo{ DataType::Bool, std::nullopt, std::nullopt }; }
+    |   NUMERIC { $$ = TypeInfo{ DataType::Numeric, std::nullopt, std::nullopt }; }
+    |   DECIMAL { $$ = TypeInfo{ DataType::Numeric, std::nullopt, std::nullopt }; }
+    |   CHAR '(' INTEGER ')'    { $$ = TypeInfo{ DataType::Char, $3, std::nullopt }; }
+    |   VARCHAR '(' INTEGER ')' { $$ = TypeInfo{ DataType::VarChar, $3, std::nullopt }; }
+    |   NUMERIC '(' INTEGER ')' { $$ = TypeInfo{ DataType::Numeric, $3, std::nullopt }; }
+    |   DECIMAL '(' INTEGER ')' { $$ = TypeInfo{ DataType::Numeric, $3, std::nullopt }; }
+    |   NUMERIC '(' INTEGER ',' INTEGER ')' { $$ = TypeInfo{ DataType::Numeric, $3, $5 }; }
+    |   DECIMAL '(' INTEGER ',' INTEGER ')' { $$ = TypeInfo{ DataType::Numeric, $3, $5 }; }
     ;
 
 expression:

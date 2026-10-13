@@ -70,6 +70,8 @@ EXPONENT [eE][+-]?{DIGIT}+
 "char"     { return yy::parser::token::CHAR; }
 "varchar"  { return yy::parser::token::VARCHAR; }
 "double"   { return yy::parser::token::DOUBLE; }
+"decimal"  { return yy::parser::token::DECIMAL; }
+"numeric"  { return yy::parser::token::NUMERIC; }
 "boolean"  { return yy::parser::token::BOOLEAN; }
 "bool"     { return yy::parser::token::BOOL; }
 "explain"  { return yy::parser::token::EXPLAIN; }
