@@ -19,14 +19,14 @@ struct ProjBind {
     std::vector<const Expr*> src;
 };
 // SELECT 投影: star 按表列展开
-ProjBind build_projs(const SelectStmt& ss, const st::TableMeta& meta, const Schema& schema,
+ProjBind build_projs(const SelectStmt& ss, const st::TableMeta& meta, const RowDesc& row_desc,
                      ct::Catalog& db);
 // 绑定无 FROM 的 SELECT 投影: 无列可解析, star 无表可展开
-ProjBind build_projs_no_from(const SelectNoFromStmt& ss, const Schema& schema, ct::Catalog& db);
+ProjBind build_projs_no_from(const SelectNoFromStmt& ss, const RowDesc& row_desc, ct::Catalog& db);
 // SELECT 排序键: 全部键命中输出列时以输出列下标承载(排序在投影后), 否则全部键转
 // 行上下文表达式(排序在投影前), 命中输出列的键重绑其源表达式或取 star 列引用
 std::vector<BoundOrderItem> bind_orders(const std::vector<OrderItem>& items, const ProjBind& pb,
-                                        const Schema& schema, bool& sort_on_output,
+                                        const RowDesc& row_desc, bool& sort_on_output,
                                         ct::Catalog& db);
 
 }  // namespace ana

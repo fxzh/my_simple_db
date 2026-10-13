@@ -148,7 +148,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
         auto b = std::make_unique<BoundDelete>();
         b->table = ct::TableHandle{db.table_meta(table), table_ref_to_string(table)};
         if (ds.where_expr() != nullptr) {
-            b->where = bind_where(*ds.where_expr(), build_schema(b->table.meta), db);
+            b->where = bind_where(*ds.where_expr(), build_row_desc(b->table.meta), db);
         }
         return b;
     }
@@ -158,11 +158,11 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
         check_reserved_table(table);
         auto b = std::make_unique<BoundUpdate>();
         b->table = ct::TableHandle{db.table_meta(table), table_ref_to_string(table)};
-        const Schema schema = build_schema(b->table.meta);
+        const RowDesc row_desc = build_row_desc(b->table.meta);
         b->assigns.reserve(us.assignments().size());
         for (const UpdateItem& item : us.assignments()) {
-            const auto it = schema.cols.find(item.column);
-            if (it == schema.cols.end()) {
+            const auto it = row_desc.cols.find(item.column);
+            if (it == row_desc.cols.end()) {
                 DB_RAISE(db::ErrCode::UnknownColumn, LogModule::ANALYZER, "列不存在: {}",
                          item.column);
             }
@@ -176,7 +176,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
             a.col_idx = it->second;
             st::ColType t;
             // 行上下文: 右值基于旧行求值, 赋值间互不可见
-            a.value = bind_expr(*item.value, &schema, db, t);
+            a.value = bind_expr(*item.value, &row_desc, db, t);
             const st::ColumnSpec& col = b->table.meta.cols[it->second];
             if (has_col_ref(*item.value)) {
                 check_update_type(t, col);
@@ -191,7 +191,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
             b->assigns.push_back(std::move(a));
         }
         if (us.where_expr() != nullptr) {
-            b->where = bind_where(*us.where_expr(), schema, db);
+            b->where = bind_where(*us.where_expr(), row_desc, db);
         }
         return b;
     }
@@ -200,13 +200,13 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
         const ct::TableRef table = to_table_ref(ss.table_name(), current_schema);
         auto b = std::make_unique<BoundSelect>();
         b->table = ct::TableHandle{db.table_meta(table), table_ref_to_string(table)};
-        const Schema schema = build_schema(b->table.meta);
+        const RowDesc row_desc = build_row_desc(b->table.meta);
         if (ss.where_expr() != nullptr) {
-            b->where = bind_where(*ss.where_expr(), schema, db);
+            b->where = bind_where(*ss.where_expr(), row_desc, db);
         }
-        ProjBind pb = build_projs(ss, b->table.meta, schema, db);
+        ProjBind pb = build_projs(ss, b->table.meta, row_desc, db);
         if (!ss.orders().empty()) {
-            b->orders = bind_orders(ss.orders(), pb, schema, b->sort_on_output, db);
+            b->orders = bind_orders(ss.orders(), pb, row_desc, b->sort_on_output, db);
         }
         b->projs = std::move(pb.projs);
         return b;
@@ -214,13 +214,13 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
     case StmtKind::SelectNoFrom: {
         const auto& ss = static_cast<const SelectNoFromStmt&>(stmt);
         auto b = std::make_unique<BoundSelectNoFrom>();
-        const Schema schema;  // 空行结构: 无列可解析, 列引用按列不存在报
+        const RowDesc row_desc;  // 空行结构: 无列可解析, 列引用按列不存在报
         if (ss.where_expr() != nullptr) {
-            b->where = bind_where(*ss.where_expr(), schema, db);
+            b->where = bind_where(*ss.where_expr(), row_desc, db);
         }
-        ProjBind pb = build_projs_no_from(ss, schema, db);
+        ProjBind pb = build_projs_no_from(ss, row_desc, db);
         if (!ss.orders().empty()) {
-            b->orders = bind_orders(ss.orders(), pb, schema, b->sort_on_output, db);
+            b->orders = bind_orders(ss.orders(), pb, row_desc, b->sort_on_output, db);
         }
         b->projs = std::move(pb.projs);
         return b;
