@@ -62,8 +62,9 @@ std::string const_text(const st::Value& v)
     return "NULL";
 }
 
-// 目标类型转文本: 命名与 ast_print.hxx 的 type_to_string 对齐, 长度 0 不带后缀
-std::string col_type_text(st::ColType t, uint16_t length)
+// 目标类型转文本: 命名与 ast_print.hxx 的 type_to_string 对齐, 长度 0 不带后缀,
+// numeric 声明标度时带 (精度,标度) 后缀
+std::string col_type_text(st::ColType t, uint16_t length, uint8_t scale)
 {
     const char* name = nullptr;
     switch (t) {
@@ -79,6 +80,9 @@ std::string col_type_text(st::ColType t, uint16_t length)
     }
     if (name == nullptr) {
         DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "explain: 目标类型无名");
+    }
+    if (t == st::ColType::Numeric && length > 0 && scale > 0) {
+        return std::format("{}({},{})", name, length, scale);
     }
     return length > 0 ? std::format("{}({})", name, length) : name;
 }
@@ -133,7 +137,7 @@ std::string bound_expr_to_string(const ana::BoundExpr& e, const std::vector<std:
     case ana::BoundExprKind::Cast: {
         const auto& c = static_cast<const ana::BoundCast&>(e);
         return "CAST(" + bound_expr_to_string(*c.operand, names) + " AS "
-               + col_type_text(c.type, c.length) + ")";
+               + col_type_text(c.type, c.length, c.scale) + ")";
     }
     }
     // 不可达: 全部绑定表达式种类已在上方穷尽

@@ -309,7 +309,7 @@ st::Value eval_cast(const ana::BoundCast& e, const st::Row* row)
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXPR, "整型值超出 int 可表示范围");
         }
     }
-    if (e.length > 0) {
+    if ((e.type == st::ColType::Char || e.type == st::ColType::VarChar) && e.length > 0) {
         const std::string* s = std::get_if<std::string>(&out.box);
         if (s == nullptr) {
             DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: cast 产物形态与目标域不符");

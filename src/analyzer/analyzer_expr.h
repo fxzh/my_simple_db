@@ -20,6 +20,7 @@ using ColMap = std::unordered_map<std::string, size_t>;
 struct Schema {
     ColMap cols;                         // 列名 → 行内下标
     std::vector<st::ColType> col_types;  // 列静态类型, 与行内下标对应
+    std::vector<uint8_t> col_scales;     // 列声明标度, 与行内下标对应
 };
 
 // 绑定行结构: 列名定位表 + 列静态类型
@@ -33,8 +34,11 @@ bool is_int_type(st::ColType t);
 bool is_float_type(st::ColType t);
 // 文本类(Char/VarChar)判定
 bool is_text_type(st::ColType t);
-// 语法层类型定则映射存储层: 域 + 长度(显式长度须 1..65535; 未声明时 char 缺省 1, 其余缺省 0)
-st::ColType map_type_spec(DataType type, std::optional<long long> length, uint16_t& len);
+// 语法层类型定则映射存储层: 域 + 长度 + 标度
+// (char 显式长度须 1..65535, 未声明缺省 1; numeric 显式精度须 1..38 且标度不超精度,
+// 未声明精度为 0 即无约束; 其余类型长度/标度恒 0)
+st::ColType map_type_spec(DataType type, std::optional<long long> length,
+                          std::optional<long long> scale, uint16_t& len, uint8_t& scl);
 
 // ==================== 表达式绑定 ====================
 

@@ -41,8 +41,9 @@ enum class ColType : uint8_t {
 struct ColumnSpec {
     std::string name;
     ColType type;
-    uint16_t length = 0;  // Char/VarChar 的声明长度
+    uint16_t length = 0;  // Char/VarChar 的声明长度, Numeric 的声明精度(0 为无约束)
     bool not_null = false;  // NOT NULL 约束
+    uint8_t scale = 0;  // Numeric 的声明标度, 须不超 length, 其余类型恒 0
 };
 
 // 表元数据(目录条目)
@@ -56,6 +57,9 @@ struct TableMeta {
 // numeric 幅值上界: unscaled 幅值须 < 10^38(38 位十进制)
 inline const boost::multiprecision::int256_t kNumericUnscaledMax =
     boost::multiprecision::pow(boost::multiprecision::int256_t(10), 38);
+
+// numeric 声明精度与标度上限: 38 位十进制
+constexpr uint8_t kNumericPrecisionMax = 38;
 
 // numeric 值形态: unscaled 为按 scale 放大的整数值, scale 随值走(0..255, 尾零不剥)
 struct DecimalVal {

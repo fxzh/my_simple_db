@@ -63,7 +63,8 @@ void check_value_type(const Expr& expr, st::ColType t, const st::ColumnSpec& col
         ok = t == st::ColType::Bool;
         break;
     case st::ColType::Numeric:
-        ok = false;
+        // numeric 列收整型与 numeric 值(家族宽化), 浮点字面量拒绝
+        ok = is_int_type(t) || t == st::ColType::Numeric;
         break;
     case st::ColType::Null:
         DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "列类型域不含 Null");
@@ -93,7 +94,7 @@ void check_update_type(st::ColType t, const st::ColumnSpec& col)
         ok = t == st::ColType::Bool || t == st::ColType::Null;
         break;
     case st::ColType::Numeric:
-        ok = false;
+        ok = is_int_type(t) || t == st::ColType::Numeric || t == st::ColType::Null;
         break;
     case st::ColType::Null:
         DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "列类型域不含 Null");

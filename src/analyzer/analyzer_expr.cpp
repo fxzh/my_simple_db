@@ -135,7 +135,8 @@ bool is_text_type(st::ColType t)
     return t == st::ColType::Char || t == st::ColType::VarChar;
 }
 
-st::ColType map_type_spec(DataType type, std::optional<long long> length, uint16_t& len)
+st::ColType map_type_spec(DataType type, std::optional<long long> length,
+                          std::optional<long long> scale, uint16_t& len, uint8_t& scl)
 {
     st::ColType t = st::ColType::Null;
     switch (type) {
@@ -146,14 +147,27 @@ st::ColType map_type_spec(DataType type, std::optional<long long> length, uint16
     case DataType::Char: t = st::ColType::Char; break;
     case DataType::VarChar: t = st::ColType::VarChar; break;
     case DataType::Bool: t = st::ColType::Bool; break;
-    case DataType::Numeric:
-        DB_RAISE(db::ErrCode::NotImplemented, LogModule::ANALYZER, "numeric 类型暂未支持");
+    case DataType::Numeric: t = st::ColType::Numeric; break;
+    }
+    if (type == DataType::Numeric) {
+        const long long p = length.value_or(0);
+        const long long s = scale.value_or(0);
+        if (length.has_value() && (p < 1 || p > st::kNumericPrecisionMax)) {
+            DB_RAISE(db::ErrCode::InvalidType, LogModule::ANALYZER, "numeric 精度非法: {}", p);
+        }
+        if (s < 0 || s > p) {
+            DB_RAISE(db::ErrCode::InvalidType, LogModule::ANALYZER, "numeric 标度非法: {}", s);
+        }
+        len = static_cast<uint16_t>(p);
+        scl = static_cast<uint8_t>(s);
+        return t;
     }
     const long long n = length.value_or(type == DataType::Char ? 1 : 0);
     if (length.has_value() && (n <= 0 || n > UINT16_MAX)) {
         DB_RAISE(db::ErrCode::InvalidType, LogModule::ANALYZER, "长度非法: {}", n);
     }
     len = static_cast<uint16_t>(n);
+    scl = 0;
     return t;
 }
 
@@ -314,12 +328,17 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const Schema* schema, ct:
         st::ColType ot;
         std::unique_ptr<BoundExpr> operand = bind_expr(*c.operand, schema, db, ot);
         uint16_t len = 0;
-        type = map_type_spec(c.target.type, c.target.length, len);
-        // 恒等转换且无长度语义(非文本或文本不限长)时折为操作数本身
-        if (ot == type && (!is_text_type(type) || (type == st::ColType::VarChar && len == 0))) {
+        uint8_t scl = 0;
+        type = map_type_spec(c.target.type, c.target.length, c.target.scale, len, scl);
+        // 恒等转换且目标无参数语义(非文本与 numeric 域, 文本不限长, 裸 numeric)时折为操作数本身
+        bool plain = !is_text_type(type) || (type == st::ColType::VarChar && len == 0);
+        if (type == st::ColType::Numeric) {
+            plain = len == 0;
+        }
+        if (ot == type && plain) {
             return operand;
         }
-        return std::make_unique<BoundCast>(std::move(operand), type, len);
+        return std::make_unique<BoundCast>(std::move(operand), type, len, scl);
     }
     }
     // 不可达: 全部表达式种类已在上方穷尽
@@ -443,9 +462,11 @@ Schema build_schema(const st::TableMeta& meta)
 {
     Schema schema;
     schema.col_types.reserve(meta.cols.size());
+    schema.col_scales.reserve(meta.cols.size());
     for (size_t i = 0; i < meta.cols.size(); ++i) {
         schema.cols.emplace(meta.cols[i].name, i);
         schema.col_types.push_back(meta.cols[i].type);
+        schema.col_scales.push_back(meta.cols[i].scale);
     }
     return schema;
 }

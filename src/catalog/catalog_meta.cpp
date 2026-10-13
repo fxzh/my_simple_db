@@ -28,6 +28,7 @@ std::vector<st::ColumnSpec> column_meta_cols()
             {"ordinal", st::ColType::Int, 0, true},
             {"type", st::ColType::Int, 0, true},
             {"length", st::ColType::Int, 0, true},
+            {"scale", st::ColType::Int, 0, true},
             {"not_null", st::ColType::Int, 0, true}};
 }
 
@@ -38,7 +39,8 @@ std::vector<st::ColumnSpec> schema_meta_cols()
             {"schema_name", st::ColType::VarChar, kMetaNameLen, true}};
 }
 
-// 生成某表的 db_column 自描述行(ordinal 从 0 起, type/not_null 存枚举值与 0/1)
+// 生成某表的 db_column 自描述行(ordinal 从 0 起, type/not_null 存枚举值与 0/1,
+// length/scale 存声明长度/标度)
 std::vector<std::vector<st::Value>> column_meta_rows(uint64_t tid,
                                                      const std::vector<st::ColumnSpec>& cols)
 {
@@ -49,6 +51,7 @@ std::vector<std::vector<st::Value>> column_meta_rows(uint64_t tid,
                         st::int_val(static_cast<int64_t>(i)),
                         st::int_val(static_cast<int64_t>(cols[i].type)),
                         st::int_val(static_cast<int64_t>(cols[i].length)),
+                        st::int_val(static_cast<int64_t>(cols[i].scale)),
                         st::int_val(static_cast<int64_t>(cols[i].not_null ? 1 : 0))});
     }
     return rows;
@@ -102,18 +105,27 @@ std::pair<int64_t, st::ColumnSpec> parse_column_row(const std::vector<st::Value>
 {
     const int64_t type = row_int(row, 3);
     const int64_t length = row_int(row, 4);
-    const int64_t not_null = row_int(row, 5);
-    if (!col_type_known(static_cast<st::ColType>(type))) {
+    const int64_t scale = row_int(row, 5);
+    const int64_t not_null = row_int(row, 6);
+    const auto col_type = static_cast<st::ColType>(type);
+    if (!col_type_known(col_type)) {
         DB_CRITICAL(LogModule::CATALOG, "列类型值非法: {}", type);
     }
-    if (length < 0 || length > UINT16_MAX) {
+    if (length < 0 || length > UINT16_MAX
+        || (col_type == st::ColType::Numeric && length > st::kNumericPrecisionMax)) {
         DB_CRITICAL(LogModule::CATALOG, "列长度值非法: {}", length);
+    }
+    if (scale < 0 || scale > st::kNumericPrecisionMax
+        || (col_type != st::ColType::Numeric && scale != 0)
+        || (col_type == st::ColType::Numeric && length > 0 && scale > length)) {
+        DB_CRITICAL(LogModule::CATALOG, "列标度值非法: {}", scale);
     }
     if (not_null != 0 && not_null != 1) {
         DB_CRITICAL(LogModule::CATALOG, "非空标记值非法: {}", not_null);
     }
-    return {row_int(row, 2), st::ColumnSpec{row_str(row, 1), static_cast<st::ColType>(type),
-                                            static_cast<uint16_t>(length), not_null == 1}};
+    return {row_int(row, 2), st::ColumnSpec{row_str(row, 1), col_type,
+                                            static_cast<uint16_t>(length), not_null == 1,
+                                            static_cast<uint8_t>(scale)}};
 }
 
 }  // namespace

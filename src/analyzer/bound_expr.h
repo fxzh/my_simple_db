@@ -118,13 +118,16 @@ struct BoundFuncCall : BoundExpr {
     BoundExprKind kind() const override { return BoundExprKind::FuncCall; }
 };
 
-// CAST 显式转换: type/length 为目标域与目标长度(0 为不限), 实参已绑定; 长度检查在求值期
+// CAST 显式转换: type/length/scale 为目标域与目标长度与目标标度(0 为不限), 实参已绑定;
+// 长度检查在求值期
 struct BoundCast : BoundExpr {
     st::ColType type = st::ColType::Null;
     uint16_t length = 0;
+    uint8_t scale = 0;
     std::unique_ptr<BoundExpr> operand;
-    BoundCast(std::unique_ptr<BoundExpr> operand_, st::ColType type_, uint16_t length_)
-        : type(type_), length(length_), operand(std::move(operand_)) {}
+    BoundCast(std::unique_ptr<BoundExpr> operand_, st::ColType type_, uint16_t length_,
+              uint8_t scale_)
+        : type(type_), length(length_), scale(scale_), operand(std::move(operand_)) {}
     BoundExprKind kind() const override { return BoundExprKind::Cast; }
 };
 

@@ -19,14 +19,15 @@ namespace ana {
 
 namespace {
 
-// AST 列定义转存储层列规格; 显式长度非法时当场记录并抛出
+// AST 列定义转存储层列规格; 显式长度/精度/标度非法时当场记录并抛出
 void convert_columns(const std::vector<ColumnDef>& defs, std::vector<st::ColumnSpec>& cols)
 {
     cols.reserve(defs.size());
     for (const ColumnDef& def : defs) {
         uint16_t len = 0;
-        const st::ColType t = map_type_spec(def.type, def.length, len);
-        cols.emplace_back(st::ColumnSpec{def.name, t, len, def.not_null});
+        uint8_t scl = 0;
+        const st::ColType t = map_type_spec(def.type, def.length, def.scale, len, scl);
+        cols.emplace_back(st::ColumnSpec{def.name, t, len, def.not_null, scl});
     }
 }
 

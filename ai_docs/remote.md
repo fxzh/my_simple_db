@@ -10,8 +10,9 @@
 /home/hz/win 为windows挂载的共享目录，实际指向当前代码仓库
 远端没有 .git 文件夹
 
-# 远程编译要求
-debug版本与release版本均无error, 如果某种必要的写法触发了某项编译warning, 停止工作并报告
+# 远程测试要求
+编译debug版本与release版本均无error, 如果某种必要的写法触发了某项编译warning, 停止工作并报告
+ctest自动测试可任选debug/release版本测试
 
 # 远程启停
 当前已支持服务端控制程序(二进制) serverctl
