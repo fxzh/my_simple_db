@@ -106,13 +106,13 @@ bool parse_args(int argc, char* argv[], Options& opts)
 {
     bool seen[sizeof(kOptions) / sizeof(kOptions[0])] = {false};
 
-    // 按选项表逐项解析, 取值参数支持 -p 8123 与 -p8123 两种写法, 无值参数仅支持独立形式
+    // 按选项表逐项解析, 取值参数支持 -p 8123 与 -p8123 两种写法, 无值参数仅支持分离形式
     for (int i = 1; i < argc; ++i) {
         std::string_view arg(argv[i]);
         const OptionSpec* spec = nullptr;
         std::string_view value;
 
-        // 匹配选项: 独立形式 "-p" 值取下一参数, 黏连形式 "-p8123" 取前缀之后的字段
+        // 匹配选项: 分离形式 "-p" 值取下一参数, 连写形式 "-p8123" 取前缀之后的字段
         for (const auto& candidate : kOptions) {
             std::string_view flag(candidate.flag);
             if (arg == flag) {

@@ -31,7 +31,7 @@ struct BoundConst : BoundExpr {
     BoundExprKind kind() const override { return BoundExprKind::Const; }
 };
 
-// 列引用: 行内下标在绑定期固化, type 为列静态类型属性(供计划期语境判定)
+// 列引用: 行内下标在绑定期固定, type 为列静态类型属性(供计划期语境判定)
 struct BoundColRef : BoundExpr {
     size_t col_idx = 0;
     st::TypeAttr type;
@@ -39,7 +39,7 @@ struct BoundColRef : BoundExpr {
     BoundExprKind kind() const override { return BoundExprKind::ColRef; }
 };
 
-// 算术运算: + - * /; type 为绑定期推导的结果域属性, 求值按域装配与检查;
+// 算术运算: + - * /; type 为绑定期推导的结果域属性, 求值按域构造与检查;
 // numeric 结果标度在求值期按操作数值标度推导(裸 numeric 列值标度不可静态知)
 struct BoundArith : BoundExpr {
     char op;

@@ -111,7 +111,7 @@ private:
     friend class Scanner;
     // 取指定索引的树: 未跟踪时打开已有索引文件
     BTree& tree_for(uint64_t fid);
-    // 落盘性原语调用前提校验: 活动事务存在; fid 非零时还要求该文件不在本事务
+    // 持久化原语调用前提校验: 活动事务存在; fid 非零时还要求该文件不在本事务
     // 待删列表(同事务内先删后建同 fid 会触发 ftruncate 截断, 回滚不可撤销)
     void check_txn(uint64_t fid = 0) const;
     // 建首个数据页(页号 1)并链到文件头页, 返回新页号

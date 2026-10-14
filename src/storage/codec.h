@@ -8,8 +8,8 @@
 namespace st {
 
 // 行值转记录字节: [记录长度 uint16][NULL 位图][固定类型 inline][varchar: 长度 u16 + 字节]
-// char: 定长 n 字节无前缀; 按列规格驱动 + box 存储形态校验, 值的语义类型可与列类型不同
-// (家族宽化合法: Int 值入 BigInt 列), 形态不匹配/越界/NOT NULL 列为
+// char: 定长 n 字节无前缀; 按列规格驱动 + box 存储形式校验, 值的语义类型可与列类型不同
+// (同族类型拓宽合法: Int 值入 BigInt 列), 表示不匹配/越界/NOT NULL 列为
 // NULL 返回 false
 bool encode_row(const std::vector<ColumnSpec>& cols,
                                 const std::vector<Value>& values,

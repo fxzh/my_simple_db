@@ -65,11 +65,11 @@ uint64_t Engine::wal_bytes_since_reset() const
     return wal_.bytes_since_reset_.load();
 }
 
-// 落盘性原语调用前提校验(须持锁): 无活动事务即报错
+// 持久化原语调用前提校验(须持锁): 无活动事务即报错
 void Engine::check_txn(uint64_t fid) const
 {
     if (!txn_) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "落盘性原语须在活动事务内调用");
+        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "持久化原语须在活动事务内调用");
     }
     for (uint64_t pending : txn_->pending_drops) {
         if (pending == fid) {

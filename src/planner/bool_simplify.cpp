@@ -36,7 +36,7 @@ CmpOp negate_cmp(CmpOp op)
     DB_RAISE(db::ErrCode::Internal, LogModule::PLANNER, "bool_simplify: 未知比较运算符");
 }
 
-// 常量值严格相等: 类型与形态一致且值相等
+// 常量值严格相等: 类型与盒形式一致且值相等
 bool value_equal(const st::Value& a, const st::Value& b)
 {
     return a.type == b.type && a.box == b.box;

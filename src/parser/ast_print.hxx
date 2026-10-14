@@ -1,4 +1,4 @@
-// ast_print.hxx: AST 渲染函数: 各节点 print 的类外定义与 SQL 文本反生成(*_to_string)
+// ast_print.hxx: AST 渲染函数: 各节点 print 的类外定义与 SQL 文本反解析(*_to_string)
 // AST 节点只在 parser.y 中构造, 其编译单元必须包含本文件,
 // 否则虚表引用的 print 定义无法解析
 #ifndef PARSER_AST_PRINT_HXX
@@ -32,7 +32,7 @@ inline std::string type_to_string(const std::string& type, std::optional<long lo
     return std::format("{}({})", type, *length);
 }
 
-// 比较运算符转文本: 供打印与反生成使用
+// 比较运算符转文本: 供打印与反解析使用
 inline std::string cmp_to_string(CmpOp op)
 {
     switch (op) {
@@ -149,7 +149,7 @@ inline void CastExpr::print(std::ostream& os, int indent) const
     operand->print(os, indent + 4);
 }
 
-// 表达式反生成 SQL 文本: 供输出列命名与日志使用
+// 表达式反解析 SQL 文本: 供输出列命名与日志使用
 inline std::string expr_to_string(const Expr& e)
 {
     switch (e.kind()) {

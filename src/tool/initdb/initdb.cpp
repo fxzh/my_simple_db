@@ -209,7 +209,7 @@ bool run_client_file(const std::string& client_bin, int port, const std::string&
     return true;
 }
 
-// 失败路径收尾: 尽力经控制通道关闭, 仍不退出则 SIGKILL, 保证收尸
+// 失败路径收尾: 尽力经控制通道关闭, 仍不退出则 SIGKILL, 保证回收子进程
 void best_effort_stop(pid_t pid, const std::string& sock_path)
 {
     std::string ignore;

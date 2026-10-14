@@ -487,7 +487,7 @@ TEST_F(StorageDb, CorruptDataPageReadExitsChild)
     FAIL() << "损坏数据页读取应使进程退出";
 }
 
-// 落盘性原语在事务外调用报错
+// 持久化原语在事务外调用报错
 TEST_F(StorageDb, EnginePrimitiveWithoutTxnFails)
 {
     Engine engine(dir.path);

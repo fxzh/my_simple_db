@@ -139,7 +139,7 @@ struct ResultSet {
     std::vector<std::vector<CellVal>> rows;
 };
 
-// 单批最大行数: 发送侧攒批上限, 接收侧不感知
+// 单批最大行数: 发送侧批量上限, 接收侧不感知
 constexpr uint32_t RS_BATCH_MAX_ROWS = 256;
 
 // 单元格编码 tag

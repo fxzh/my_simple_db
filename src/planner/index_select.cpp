@@ -1,4 +1,4 @@
-// index_select.cpp: 索引选择实现: Filter(SeqScan) 改写为 残Filter(Fetch(IndexScan))
+// index_select.cpp: 索引选择实现: Filter(SeqScan) 改写为 残余 Filter(Fetch(IndexScan))
 #include "planner.h"
 
 #include <algorithm>
@@ -100,7 +100,7 @@ std::vector<IndexRange> cmp_ranges(CmpOp op, const st::IndexKey& k)
     DB_RAISE(db::ErrCode::Internal, LogModule::PLANNER, "index_select: 未知比较种类");
 }
 
-// 常量与列同族才可入键: int64↔int/bigint, double↔double/float, float↔float, bool↔boolean,
+// 常量与列同族才可进入索引键推导: int64↔int/bigint, double↔double/float, float↔float, bool↔boolean,
 // numeric↔double/float; double 常量对 float 列为跨类型探测: 键按 double 域编码,
 // float 条目键宽化后同域, 比较即 double 域精确比较; numeric 常量经求值同款转换
 // (提 double)后同 double 常量处理; double_attr 为 double 类型的 db_type 属性
@@ -227,7 +227,7 @@ bool match_hit(const ana::BoundExpr& e, const st::ColumnSpec& col, uint16_t ordi
     return false;
 }
 
-// 摊平 AND 树为合取项(只读)
+// 展平 AND 树为合取项(只读)
 void flatten_view(const ana::BoundExpr* e, std::vector<const ana::BoundExpr*>& out)
 {
     if (e->kind() == ana::BoundExprKind::Logic
@@ -240,7 +240,7 @@ void flatten_view(const ana::BoundExpr* e, std::vector<const ana::BoundExpr*>& o
     out.push_back(e);
 }
 
-// 摊平 AND 树为合取项(移出): 原树不可再用
+// 展平 AND 树为合取项(移出): 原树不可再用
 void flatten_take(std::unique_ptr<ana::BoundExpr>& e, std::vector<std::unique_ptr<ana::BoundExpr>>& out)
 {
     if (e->kind() == ana::BoundExprKind::Logic

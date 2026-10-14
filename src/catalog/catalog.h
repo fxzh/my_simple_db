@@ -30,7 +30,7 @@ constexpr const char* kColumnMetaName = "db_column";
 constexpr const char* kSchemaMetaName = "db_schema";
 constexpr const char* kTypeMetaName = "db_type";
 
-// bootstrap.sql 创建的系统表(文档性 id 与文件内 set table_id 值一致), 列定义唯一事实来源在 bootstrap.sql
+// bootstrap.sql 创建的系统表(仅为文档说明的 id 与文件内 set table_id 值一致), 列定义唯一事实来源在 bootstrap.sql
 constexpr uint64_t kIndexMetaId = 5;
 constexpr const char* kIndexMetaName = "db_index";
 constexpr uint64_t kFuncMetaId = 6;
@@ -81,7 +81,7 @@ struct IndexEntry {
     st::RowRef row_ref;
 };
 
-// db_type 行解析产物: 热属性 + 名称与声明长度/标度校验规则, 供语法定型与元数据校验
+// db_type 行解析产物: 常用属性(高频使用、随值内联携带) + 名称与声明长度/标度校验规则, 供语法定型与元数据校验
 struct TypeRow {
     st::TypeAttr attr;
     std::string name;
@@ -108,7 +108,7 @@ public:
     void open();
     // 刷盘并关闭
     void close();
-    // 开启事务: 全局锁由本事务长持至 commit_txn/rollback_txn, 事务内门面方法
+    // 开启事务: 全局锁由本事务长期持有至 commit_txn/rollback_txn, 事务内门面方法
     // 同线程递归重入, 其他会话的语句阻塞在锁上
     void begin_txn();
     // 提交事务: 有记录则追加 Commit 并 fsync(持久化边界), WAL 自上次清空累计
@@ -147,7 +147,7 @@ public:
     // 按名查内建函数 id: 扫 db_func, 未命中返回空
     std::optional<uint64_t> func_id(const std::string& name);
     // 按索引文件 id 开范围扫描, 边界缺省为最左/无上界; 游标不持锁(仅持页 pin),
-    // 须在语句事务锁内调用(首开索引文件会写引擎树表)
+    // 须在语句事务锁内调用(首开索引文件会写索引树登记表)
     std::unique_ptr<st::BTreeScanner> index_scan(uint64_t index_fid, std::optional<st::ScanBound> lo,
                                                  std::optional<st::ScanBound> hi);
     // 回表: 按行物理位置直读堆页取行, 已删/槽位越界返回 false, 无效引用当场报错
@@ -208,7 +208,7 @@ private:
 
     std::string dir_;
     st::Engine engine_;   // 文件引擎, 原语经本类持锁调用
-    std::recursive_mutex mutex_;   // 序列化所有复合操作, 事务期间长持(并发演化见存储设计文档 §10)
+    std::recursive_mutex mutex_;   // 序列化所有复合操作, 事务期间长期持有(并发演化见存储设计文档 §10)
     std::atomic<uint64_t> next_file_id_{0};   // 下一个 file_id, open() 扫 db_table 取最大值+1 初始化
     std::atomic<uint64_t> next_table_id_{0};   // 下一个 table_id, open() 扫 db_table 取最大值+1 初始化, 不低于 kFirstUserTableId
     std::atomic<uint64_t> next_schema_id_{0};  // 下一个 schema_id, open() 扫 db_schema 取最大值+1 初始化

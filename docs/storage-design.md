@@ -30,7 +30,7 @@ src/catalog(静态库 catalog)
    ▼
 src/storage(静态库 storage)
    ├── engine.h/.cpp   文件引擎入口(Engine, 原语须持锁), 只依赖 types.h
-   ├── types.h         类型词表(TypeAttr/Family/Rep/Store/自举内核 kTypeSeeds)/ColumnSpec/Value/TableMeta/RowId/Row/RowRef
+   ├── types.h         类型体系(TypeAttr/Family/Rep/Store/内置类型种子数据 kTypeSeeds)/ColumnSpec/Value/TableMeta/RowId/Row/RowRef
    ├── codec.h/.cpp    行序列化/反序列化
    ├── page.h          页头与槽(Slot)内存布局
    ├── file_manager    每表/每索引文件的读写原语(pread/pwrite)
@@ -97,9 +97,9 @@ public:
 
 ## 5. 行格式与类型
 
-类型体系已元数据化（types.h）：类型身份为 db_type.type_id（§6），热属性内联为 st::TypeAttr（family 值族、rank 数值提升等级、rep 值形态、store 存储形态、width 定宽字节数）随 ColumnSpec/Value 携带，各层按属性分派，无 ColType 枚举；属性词表（Family/Rep/Store）与自举内核 kTypeSeeds（int/bigint/double/varchar/float/char/boolean/numeric 八类，含别名与声明长度/标度规则）见 types.h，新增类型在内核加行、引导写入 db_type，语法关键字与各层行为分派另行同步。
+类型体系已元数据化（types.h）：类型身份为 db_type.type_id（§6），常用属性内联为 st::TypeAttr（family 值族、rank 数值提升等级、rep 值表示、store 存储形式、width 定宽字节数）随 ColumnSpec/Value 携带，各层按属性分派，无 ColType 枚举；属性枚举取值集合（Family/Rep/Store）与内置类型种子数据 kTypeSeeds（int/bigint/double/varchar/float/char/boolean/numeric 八类，含别名与声明长度/标度规则）见 types.h，新增类型在种子数据加行、引导写入 db_type，语法关键字与各层行为分派另行同步。
 
-记录编解码已实现（src/storage/codec.h）：记录 = [长度 u16][NULL 位图][列数据区]（NULL 不占字节），编解码按列属性分派，rep 定值形态、store/width 定字节形态：Int64 按 width 定宽 4B（int）/8B（bigint）小端补码，Float/Double 定宽 4B/8B IEEE754 位模式（非有限值拒绝），Str 按 store 取变长（varchar：长度前缀 u16 + 字节）或定长补空格（char，读回保留填充空格），Bool 1B，Dec（numeric）16B 小端补码 unscaled + 1B scale；值的属性可与列属性不同（同族宽化合法，如 int 值入 bigint 列），形态不匹配/越界/NOT NULL 列为 NULL 返回 false，属性组合不在词表内视为内部错误；解码产物携带列属性。单行约 4KB 上限不跨页；其他类型（date/datetime）后续在自举内核加行即可。
+记录编解码已实现（src/storage/codec.h）：记录 = [长度 u16][NULL 位图][列数据区]（NULL 不占字节），编解码按列属性分派，rep 定值表示、store/width 定字节形态：Int64 按 width 定宽 4B（int）/8B（bigint）小端补码，Float/Double 定宽 4B/8B IEEE754 位模式（非有限值拒绝），Str 按 store 取变长（varchar：长度前缀 u16 + 字节）或定长补空格（char，读回保留填充空格），Bool 1B，Dec（numeric）16B 小端补码 unscaled + 1B scale；值的属性可与列属性不同（同族类型拓宽合法，如 int 值入 bigint 列），表示不匹配/越界/NOT NULL 列为 NULL 返回 false，属性组合不在枚举取值集合内视为内部错误；解码产物携带列属性。单行约 4KB 上限不跨页；其他类型（date/datetime）后续在内置类型种子数据加行即可。
 
 - 页内定位用 `(page_id, slot_index)`，即 `RowRef`；二级索引条目以 `(列值编码, RowRef)` 定位行，回表按 RowRef 直读堆页（见 §8）
 
@@ -107,7 +107,7 @@ rowid：表内自增 int64，由表文件头页计数器分配并随 insert 返�
 
 ## 6. 目录（元数据表）
 
-目录不是独立文件, 而是保留段元数据表, 引导期 schema 硬编码, 不存于自身; 目录逻辑位于 src/catalog(ct::Catalog), 存储引擎只提供须持锁的按 file_id 原语。db_table(table_id, table_name, file_id, schema_id)、db_column(table_id, col_name, ordinal, type, length, scale, not_null) 与 db_type(type_id, type_name, alias, family, rank, len_allowed, len_default, len_max, scale_allowed, rep, store, width) 已实现: 元数据行为唯一事实来源, 无内存缓存, 查找实时全扫; create_table 先建数据文件再写元数据行, drop_table 反向; 引导与 open 校验见 catalog。类型已元数据化: db_type 每类型一行, 种子行由自举内核 kTypeSeeds(types.h) 在 Catalog::create 引导写入; db_column.type 存 type_id, 读回列定义时逐行匹配 db_type 取属性内联为 st::TypeAttr(行值非法或属性不在词表内当场报错); 按名查类型(规范名或别名, 供 DDL 定型与 CAST 目标)走 find_type, 按 id 查类型(名称渲染)走 find_type_by_id, 按内部名取属性走 require_type。db_schema(schema_id, schema_name) 引导写入 system 行(id=1), public schema 由 bootstrap.sql 经正常路径创建。schema 功能已完整接入: create/drop schema(非空拒绝删除), 未限定名解析到会话变量 current_schema(缺省 public), 限定名 schema.table 全链路支持。open 校验: 正常模式扫 db_table 按名检查 db_version 完成标记表(bootstrap.sql 末尾创建, 行存在即初始化全程成功), bootstrap 模式检查四张自举表文件存在。
+目录不是独立文件, 而是保留段元数据表, 引导期 schema 硬编码, 不存于自身; 目录逻辑位于 src/catalog(ct::Catalog), 存储引擎只提供须持锁的按 file_id 原语。db_table(table_id, table_name, file_id, schema_id)、db_column(table_id, col_name, ordinal, type, length, scale, not_null) 与 db_type(type_id, type_name, alias, family, rank, len_allowed, len_default, len_max, scale_allowed, rep, store, width) 已实现: 元数据行为唯一事实来源, 无内存缓存, 查找实时全扫; create_table 先建数据文件再写元数据行, drop_table 反向; 引导与 open 校验见 catalog。类型已元数据化: db_type 每类型一行, 种子行由内置类型种子数据 kTypeSeeds(types.h) 在 Catalog::create 引导写入; db_column.type 存 type_id, 读回列定义时逐行匹配 db_type 取属性内联为 st::TypeAttr(行值非法或属性不在枚举取值集合内当场报错); 按名查类型(规范名或别名, 供 DDL 定型与 CAST 目标)走 find_type, 按 id 查类型(名称渲染)走 find_type_by_id, 按内部名取属性走 require_type。db_schema(schema_id, schema_name) 引导写入 system 行(id=1), public schema 由 bootstrap.sql 经正常路径创建。schema 功能已完整接入: create/drop schema(非空拒绝删除), 未限定名解析到会话变量 current_schema(缺省 public), 限定名 schema.table 全链路支持。open 校验: 正常模式扫 db_table 按名检查 db_version 完成标记表(bootstrap.sql 末尾创建, 行存在即初始化全程成功), bootstrap 模式检查四张自举表文件存在。
 
 M3 新增 db_index(table_id, index_name, col_ordinal, file_id): 每索引一行, 单列索引, col_ordinal 指向 db_column, 索引名表内唯一(跨表可同名)。DDL 规则(已实现): create_index 先建索引文件并全表回填再写元数据行, drop_index 与 drop_table(连带删该表全部索引)反向; insert 对该表全部索引双写条目; open 扫 db_table 与 db_index 取 file_id 分配起点(bootstrap 模式 db_index 由 bootstrap.sql 在 open 后创建, 缺失跳过; 正常模式缺失即元数据损坏)。
 
@@ -203,14 +203,14 @@ Commit(提交) / Abort(中止): 空 payload
 
 当前 server 每客户端一线程，多线程并发会同时打 storage。正确性优先，按此顺序演化：
 
-- **现状（事务层 v1，已实现）**：catalog 一把 `std::recursive_mutex`，事务粒度长持——自动提交语句为单语句事务，显式事务首条语句取锁长持至 COMMIT/ROLLBACK，全库同一时刻至多一个活动事务；WAL 记录携带事务号与 Commit/Abort。扫描游标不持锁（仅持页 pin），并发 DDL 期间扫描是未定义行为；自动提交 SELECT 在算子 open 后即提交释放锁，结果集锁外流式拉取。
+- **现状（事务层 v1，已实现）**：catalog 一把 `std::recursive_mutex`，事务粒度长期持有——自动提交语句为单语句事务，显式事务首条语句取锁长期持有至 COMMIT/ROLLBACK，全库同一时刻至多一个活动事务；WAL 记录携带事务号与 Commit/Abort。扫描游标不持锁（仅持页 pin），并发 DDL 期间扫描是未定义行为；自动提交 SELECT 在算子 open 后即提交释放锁，结果集锁外流式拉取。
 - **M7（后续）**：表级 `std::shared_mutex`（scan 共享、insert 独占）→ 缓冲池页帧闩锁 + B+树锁耦合（latch coupling）→ MVCC（行头加版本字段，读快照）。行格式届时按需扩展，不做兼容。
 
 ## 11. SQL 链路接入（M5，已实现除 UNIQUE）
 
 - 文法（parser）：已接入 `CREATE INDEX name ON table (col);` 与 `DROP INDEX name ON table;`，单列，索引名表内唯一，UNIQUE 不做
 - 语义分析（analyzer）：已接入绑定：表/列存在性、索引列类型限 int/bigint/float/double/bool、保留表拦截；索引名表内查重与索引存在性校验在 catalog 持锁完成（executor 经 catalog 门面 create_index/drop_index）
-- 计划（planner，src/planner/index_select.cpp）：Filter(SeqScan) 中命中索引列的合取项改写为 残Filter(Fetch(IndexScan))。命中形态：`col θ const` 及镜像 `const θ col`（θ ∈ =, <>, <, ≤, >, ≥）、IS [NOT] NULL（NULL 键排最大，区间精确等于谓词）；BETWEEN 经语义层展开为两个比较后按合取项命中。常量与列同族才可入键（int64↔Int/BigInt、double↔Double、float↔Float、bool↔Bool）。被摘除合取项的精确区间交集为键序升序的不相交区间集，交空剪成空结果节点；无适用索引维持 SeqScan（访问路径选择，非降级）
+- 计划（planner，src/planner/index_select.cpp）：Filter(SeqScan) 中命中索引列的合取项改写为 残余 Filter(Fetch(IndexScan))。命中形态：`col θ const` 及镜像 `const θ col`（θ ∈ =, <>, <, ≤, >, ≥）、IS [NOT] NULL（NULL 键排最大，区间精确等于谓词）；BETWEEN 经语义层展开为两个比较后按合取项命中。常量与列同族才可进入索引键推导（int64↔Int/BigInt、double↔Double、float↔Float、bool↔Bool）。被摘除合取项的精确区间交集为键序升序的不相交区间集，交空剪成空结果节点；无适用索引维持 SeqScan（访问路径选择，非降级）
 - 执行（executor）：IndexScan 迭代 = 树范围扫描 → 回表取整行（堆槽墓碑跳过）→ 残余 Filter 过滤 → 上抛 Project；SELECT/UPDATE/DELETE 的过滤子树同走此路径；EXPLAIN 渲染 Index Cond（命中条件）。UNIQUE 索引在 insert 前对键做等值预查，命中非墓碑行即拒绝（未实现）
 - 依赖方向不变：executor 经 catalog 门面（create_index/drop_index/indexes/index_scan）访问存储层
 

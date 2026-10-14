@@ -21,7 +21,7 @@ void Catalog::create()
     if (engine_.table_file_exists(kTableMetaId)) {
         DB_RAISE(db::ErrCode::CatalogExists, LogModule::CATALOG, "数据目录已初始化: {}", dir_);
     }
-    // 自举全程一个事务: 引擎落盘性原语须在活动事务内调用
+    // 自举全程一个事务: 引擎持久化原语须在活动事务内调用
     begin_txn();
     bootstrap_meta_tables();
     commit_txn();
@@ -116,7 +116,7 @@ void Catalog::close()
 
 // ==================== 事务 ====================
 
-// 开启事务: 全局锁长持至事务结束, 事务内门面方法同线程递归重入
+// 开启事务: 全局锁长期持有至事务结束, 事务内门面方法同线程递归重入
 void Catalog::begin_txn()
 {
     mutex_.lock();

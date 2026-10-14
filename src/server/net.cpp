@@ -23,7 +23,7 @@ namespace {
 int status_port = 0;
 std::chrono::steady_clock::time_point status_start;
 
-// uptime 人读格式: 高位为 0 的单位跳过, 全 0 时显示 0s
+// uptime 人可读格式: 高位为 0 的单位跳过, 全 0 时显示 0s
 std::string format_uptime(long long secs)
 {
     const long long units[] = {secs / 86400, secs / 3600 % 24, secs / 60 % 60, secs % 60};
@@ -54,7 +54,7 @@ bool handle_control_command(int cfd)
     if (cmd == "ping") {
         reply = "PONG";
     } else if (cmd == "status") {
-        // 只读启动快照/短锁/进程量, 不碰随事务长持的 catalog 锁(会卡死主循环)
+        // 只读启动快照/短锁/进程量, 不碰随事务长期持有的 catalog 锁(会卡死主循环)
         size_t conns;
         {
             std::lock_guard<std::mutex> lock(clients_mutex);

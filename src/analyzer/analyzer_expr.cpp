@@ -35,7 +35,7 @@ void check_comparable(st::TypeAttr lt, st::TypeAttr rt)
 }
 
 // 内建函数绑定注册表项: id 与 FuncId 取值及 db_func.func_id 一致,
-// derive 校验实参形态并推导结果域(形态不符当场报错)
+// derive 校验实参表示并推导结果域(表示不符当场报错)
 struct FuncSpec {
     uint64_t id;
     size_t arity;
@@ -265,7 +265,7 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const RowDesc* row_desc, 
     }
     case ExprKind::Between: {
         const auto& e = static_cast<const BetweenExpr&>(expr);
-        // 被测式绑定两份, 分别作两个比较的左操作数
+        // 被测表达式绑定两份, 分别作两个比较的左操作数
         st::TypeAttr xt;
         st::TypeAttr lot;
         st::TypeAttr hit;

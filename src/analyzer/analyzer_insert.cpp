@@ -61,7 +61,7 @@ void check_value_type(const Expr& expr, st::TypeAttr t, const st::ColumnSpec& co
             ok = t.rep == st::Rep::Bool;
             break;
         case st::Rep::Dec:
-            // numeric 列收整型与 numeric 值(家族宽化), 浮点字面量拒绝
+            // numeric 列收整型与 numeric 值(同族类型拓宽), 浮点字面量拒绝
             ok = is_int_type(t) || t.rep == st::Rep::Dec;
             break;
         case st::Rep::None:

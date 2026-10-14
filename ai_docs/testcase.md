@@ -29,7 +29,7 @@ sql用例文件，如果结果存在不稳定的可能，需要添加order by保
 
 启停一律使用 serverctl, 如果存在某种理由确需手动起库，使用`setsid 进程 >/log 2>&1 </dev/null &`（或 server --daemon）, 并在总结时说明手动起库的理由
 
-长时间的前台进程优先使用 Desktop Command
+长时间的前台进程优先使用 Desktop Commander
 
 允许在linux端临时修改代码、修改cmakelists、编译debug版本等行为来进行更有效的手动测试，每项测试控制在3分钟内，如果预计某项测试时间远超时间限制，则暂缓该测试，并在总结时进行说明
 

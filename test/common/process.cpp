@@ -125,7 +125,7 @@ bool run_process(const std::vector<std::string>& argv, int timeout_ms, ProcessRe
     close(out_pipe[0]);
     close(err_pipe[0]);
 
-    // 收尸: SIGKILL 已发出时进程必然终止
+    // 回收子进程: SIGKILL 已发出时进程必然终止
     int status = 0;
     for (;;) {
         pid_t r = waitpid(pid, &status, WNOHANG);

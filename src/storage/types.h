@@ -24,16 +24,16 @@ constexpr PageId INVALID_PAGE{};
 // 页类型
 enum class PageType : uint8_t { FileHeader = 1, Heap = 2, BTreeLeaf = 3, BTreeInternal = 4 };
 
-// 值族: db_type 行 family 列取值, 代码侧词表
+// 值族: db_type 行 family 列取值, 代码侧枚举取值集合
 enum class Family : uint8_t { None = 0, Num = 1, Text = 2, Bool = 3 };
 
-// 值形态: db_type 行 rep 列取值, 与 Value 盒形态一一对应, 代码侧词表
+// 值表示: db_type 行 rep 列取值, 与 Value 盒形式一一对应, 代码侧枚举取值集合
 enum class Rep : uint8_t { None = 0, Int64 = 1, Float = 2, Double = 3, Str = 4, Bool = 5, Dec = 6 };
 
-// 存储形态: db_type 行 store 列取值, 代码侧词表
+// 存储形式: db_type 行 store 列取值, 代码侧枚举取值集合
 enum class Store : uint8_t { None = 0, Fixed = 1, CharPad = 2, VarLen = 3, Decimal = 4 };
 
-// 类型属性: db_type 行热字段的内联形态, 随 ColumnSpec/Value 携带供各层按属性分派;
+// 类型属性: db_type 行常用字段(高频使用, 内联携带)的内联形态, 随 ColumnSpec/Value 携带供各层按属性分派;
 // id 取 db_type.type_id, 0 为无类型(仅值域 NULL), 其余字段与 id 出自同一行
 struct TypeAttr {
     uint16_t id = 0;
@@ -45,7 +45,7 @@ struct TypeAttr {
     bool operator==(const TypeAttr&) const = default;
 };
 
-// 自举内核: db_type 种子行数据, 引导写入 db_type 并供元数据表列定义与测试直接构造属性;
+// 内置类型种子数据: 引导写入 db_type 并供元数据表列定义与测试直接构造属性;
 // 新增类型在此加行, 语法关键字与各层行为分派另行同步
 struct TypeSeed {
     TypeAttr attr;
@@ -71,7 +71,7 @@ inline constexpr TypeSeed kTypeSeeds[] = {
          true},
 };
 
-// 自举内核各类型属性(命名常量)
+// 内置类型种子数据的各类型属性(命名常量)
 inline constexpr TypeAttr kInt = kTypeSeeds[0].attr;
 inline constexpr TypeAttr kBigint = kTypeSeeds[1].attr;
 inline constexpr TypeAttr kDouble = kTypeSeeds[2].attr;
@@ -102,14 +102,14 @@ struct TableMeta {
 inline const boost::multiprecision::int256_t kNumericUnscaledMax =
     boost::multiprecision::pow(boost::multiprecision::int256_t(10), 38);
 
-// numeric 值形态: unscaled 为按 scale 放大的整数值, scale 随值走(0..255, 尾零不剥)
+// numeric 值表示: unscaled 为按 scale 放大的整数值, scale 随值走(0..255, 尾零不剥)
 struct DecimalVal {
     boost::multiprecision::int256_t unscaled;
     uint8_t scale = 0;
     bool operator==(const DecimalVal&) const = default;
 };
 
-// 行值: 类型属性 + 存储形态; rep 与 box 形态对应: Int64→int64_t,
+// 行值: 类型属性 + 存储形式; rep 与 box 形式对应: Int64→int64_t,
 // Float→float, Double→double, Str→string, Bool→bool, Dec→DecimalVal;
 // 构造一律走下方工厂, 禁止聚合直造, 缺省即无类型 NULL
 struct Value {
@@ -117,7 +117,7 @@ struct Value {
     std::variant<std::monostate, bool, int64_t, double, float, std::string, DecimalVal> box;
 };
 
-// 值工厂: 属性与盒形态绑定, 防裸构造陷阱(字符串字面量会静默选中 bool 备选)
+// 值工厂: 属性与盒形式绑定, 防裸构造陷阱(字符串字面量会静默选中 bool 备选)
 inline Value int_val(TypeAttr t, int64_t v) { return Value{t, v}; }
 inline Value float_val(TypeAttr t, float v) { return Value{t, v}; }
 inline Value double_val(TypeAttr t, double v) { return Value{t, v}; }

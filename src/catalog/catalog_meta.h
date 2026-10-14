@@ -23,9 +23,9 @@ std::vector<st::ColumnSpec> column_meta_cols();
 std::vector<st::ColumnSpec> schema_meta_cols();
 // db_type 列定义
 std::vector<st::ColumnSpec> type_meta_cols();
-// db_type 种子行: 由自举内核生成, 无别名的行 alias 为 NULL
+// db_type 种子行: 由内置类型种子数据生成, 无别名的行 alias 为 NULL
 std::vector<std::vector<st::Value>> type_meta_rows();
-// db_type 行解出 TypeRow, 值缺失/非法或属性值不在词表内当场报错
+// db_type 行解出 TypeRow, 值缺失/非法或属性值不在枚举取值集合内当场报错
 TypeRow parse_type_row(const std::vector<st::Value>& row);
 // 生成某表的 db_column 自描述行(ordinal 从 0 起, type 存 db_type.type_id, not_null 存 0/1,
 // length/scale 存声明长度/标度)

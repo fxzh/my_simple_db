@@ -56,7 +56,7 @@ std::vector<st::ColumnSpec> type_meta_cols()
             {"width", st::kInt, 0, true}};
 }
 
-// db_type 种子行: 由自举内核生成, 无别名的行 alias 为 NULL
+// db_type 种子行: 由内置类型种子数据生成, 无别名的行 alias 为 NULL
 std::vector<std::vector<st::Value>> type_meta_rows()
 {
     std::vector<std::vector<st::Value>> rows;
@@ -119,7 +119,7 @@ const std::string& row_str(const std::vector<st::Value>& row, size_t idx)
 
 namespace {
 
-// 值族/值形态/存储形态值是否在代码侧词表内
+// 值族/值表示/存储形式取值是否在代码侧枚举取值集合内
 bool type_word_known(int64_t family, int64_t rep, int64_t store)
 {
     if (family < static_cast<int64_t>(st::Family::Num)
@@ -171,7 +171,7 @@ std::pair<int64_t, st::ColumnSpec> parse_column_row(const std::vector<st::Value>
 
 }  // namespace
 
-// db_type 行解出 TypeRow, 值缺失/非法或属性值不在词表内当场报错
+// db_type 行解出 TypeRow, 值缺失/非法或属性值不在枚举取值集合内当场报错
 TypeRow parse_type_row(const std::vector<st::Value>& row)
 {
     const int64_t id = row_int(row, 0);
@@ -188,7 +188,7 @@ TypeRow parse_type_row(const std::vector<st::Value>& row)
         DB_CRITICAL(LogModule::CATALOG, "类型 id 非法: {}", id);
     }
     if (!type_word_known(family, rep, store)) {
-        DB_CRITICAL(LogModule::CATALOG, "类型属性值不在词表内: {}", id);
+        DB_CRITICAL(LogModule::CATALOG, "类型属性值不在枚举取值集合内: {}", id);
     }
     if (rank < 0 || rank > 255 || (family != static_cast<int64_t>(st::Family::Num) && rank != 0)) {
         DB_CRITICAL(LogModule::CATALOG, "类型提升等级非法: {}", rank);

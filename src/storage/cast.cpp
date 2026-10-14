@@ -16,42 +16,42 @@ namespace mp = boost::multiprecision;
 
 namespace {
 
-// 取 int64 盒值, 形态不符当场报错
+// 取 int64 盒值, 表示不符当场报错
 int64_t get_i64(const Value& v)
 {
     const int64_t* i = std::get_if<int64_t>(&v.box);
     if (i == nullptr) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 值形态与源域不符");
+        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 值表示与源域不符");
     }
     return *i;
 }
 
-// 取 float 盒值, 形态不符当场报错
+// 取 float 盒值, 表示不符当场报错
 float get_f32(const Value& v)
 {
     const float* f = std::get_if<float>(&v.box);
     if (f == nullptr) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 值形态与源域不符");
+        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 值表示与源域不符");
     }
     return *f;
 }
 
-// 取 double 盒值, 形态不符当场报错
+// 取 double 盒值, 表示不符当场报错
 double get_f64(const Value& v)
 {
     const double* d = std::get_if<double>(&v.box);
     if (d == nullptr) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 值形态与源域不符");
+        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 值表示与源域不符");
     }
     return *d;
 }
 
-// 取 string 盒值只读视图, 形态不符当场报错
+// 取 string 盒值只读视图, 表示不符当场报错
 std::string_view get_str_view(const Value& v)
 {
     const std::string* s = std::get_if<std::string>(&v.box);
     if (s == nullptr) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 值形态与源域不符");
+        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 值表示与源域不符");
     }
     return *s;
 }
@@ -66,22 +66,22 @@ std::string_view get_char_view(const Value& v)
     return s;
 }
 
-// 取 bool 盒值, 形态不符当场报错
+// 取 bool 盒值, 表示不符当场报错
 bool get_bool(const Value& v)
 {
     const bool* b = std::get_if<bool>(&v.box);
     if (b == nullptr) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 值形态与源域不符");
+        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 值表示与源域不符");
     }
     return *b;
 }
 
-// 取 DecimalVal 盒值, 形态不符当场报错
+// 取 DecimalVal 盒值, 表示不符当场报错
 const DecimalVal& get_dec(const Value& v)
 {
     const DecimalVal* d = std::get_if<DecimalVal>(&v.box);
     if (d == nullptr) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 值形态与源域不符");
+        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 值表示与源域不符");
     }
     return *d;
 }
@@ -96,10 +96,10 @@ mp::int256_t pow10(int n)
     return r;
 }
 
-// 转换函数: 入参非 NULL, 源值形态即 v.type.rep(由入口按表分派), 产物按 to 定型
+// 转换函数: 入参非 NULL, 源值表示即 v.type.rep(由入口按表分派), 产物按 to 定型
 using CastFn = Value (*)(const Value& v, TypeAttr to);
 
-// 同盒换域(值不变, 域界与长度由存储编码或语义层检查)
+// 同形式换类型属性(值不变, 域界与长度由存储编码或语义层检查)
 Value restamp(const Value& v, TypeAttr to)
 {
     return Value{to, v.box};
@@ -145,7 +145,7 @@ std::string_view text_view(const Value& v)
     return v.type.store == Store::CharPad ? get_char_view(v) : get_str_view(v);
 }
 
-// 文本域互换: 定长源去尾随 pad 后转变长, 其余同盒换域(长度由语义层校验)
+// 文本域互换: 定长源去尾随 pad 后转变长, 其余同形式换类型属性(长度由语义层校验)
 Value text_to_text(const Value& v, TypeAttr to)
 {
     if (v.type.store == Store::CharPad && to.store == Store::VarLen) {
@@ -221,9 +221,9 @@ double dec_to_f64_raw(const DecimalVal& d)
     return parse_f64(decimal_to_text(d));
 }
 
-// ==================== 值形态间转换函数 ====================
+// ==================== 值表示间转换函数 ====================
 
-// int64(int/bigint 源共用盒形态)转文本: 最短十进制
+// int64(int/bigint 源共用盒形式)转文本: 最短十进制
 Value i64_to_text(const Value& v, TypeAttr to)
 {
     return str_val(to, std::format("{}", get_i64(v)));
@@ -358,7 +358,7 @@ Value f32_to_i64(const Value& v, TypeAttr to)
     return int_val(to, trunc_to_i64(static_cast<double>(get_f32(v))));
 }
 
-// int64(int/bigint 源共用盒形态)转定点十进制: scale 0
+// int64(int/bigint 源共用盒形式)转定点十进制: scale 0
 Value i64_to_dec(const Value& v, TypeAttr to)
 {
     return numeric_val(to, mp::int256_t(get_i64(v)), 0);
@@ -415,7 +415,7 @@ struct CastEntry {
     bool implicit = false;
 };
 
-// 内置转换分派表: 行源值形态列目标值形态, 下标即 Rep 枚举值
+// 内置转换分派表: 行源值表示列目标值表示, 下标即 Rep 枚举值
 // (None, Int64, Float, Double, Str, Bool, Dec); 非 None 槽位全填,
 // 空槽与隐式查到仅显式表项均为调用方违约
 constexpr CastEntry kCastTable[7][7] = {

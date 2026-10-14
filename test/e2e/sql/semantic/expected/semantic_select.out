@@ -14,7 +14,7 @@ SELECT i FROM t_ss WHERE NOT i;
 ERROR: 逻辑运算操作数不是布尔值
 SELECT i FROM t_ss WHERE i > s;
 ERROR: 比较运算两侧须同为数值、字符串或布尔
--- between 两侧须与被测式同族
+-- between 两侧须与被测表达式同族
 SELECT i FROM t_ss WHERE i BETWEEN 1 AND s;
 ERROR: 比较运算两侧须同为数值、字符串或布尔
 SELECT i FROM t_ss WHERE s BETWEEN 'a' AND 1;

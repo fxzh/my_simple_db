@@ -38,17 +38,17 @@ int64_t get_int(const st::Value& v, st::TypeAttr domain)
     return std::get<int64_t>(st::cast_value(v, domain).box);
 }
 
-// 取 DecimalVal 盒值, 形态不符当场报错
+// 取 DecimalVal 盒值, 表示不符当场报错
 const st::DecimalVal& get_dec(const st::Value& v)
 {
     const st::DecimalVal* d = std::get_if<st::DecimalVal>(&v.box);
     if (d == nullptr) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 值形态与数值域不符");
+        DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 值表示与数值域不符");
     }
     return *d;
 }
 
-// 数值盒值提升 double: 经 cast 分派表转 double 域(double 属性取自举内核),
+// 数值盒值提升 double: 经 cast 分派表转 double 域(double 属性取自内置类型种子数据),
 // 供无目标域上下文的比较提升
 double box_f64(const st::Value& v)
 {
@@ -244,7 +244,7 @@ st::Family value_family(const st::Value& v)
     return v.type.family;
 }
 
-// 一元负号: NULL 传播, 取反; 结果按绑定期推导域装配并按域做溢出检查
+// 一元负号: NULL 传播, 取反; 结果按绑定期推导域构造并按域做溢出检查
 st::Value eval_neg(const ana::BoundNeg& e, const st::Row* row)
 {
     const st::Value v = eval_bound(*e.operand, row);
@@ -268,7 +268,7 @@ st::Value eval_neg(const ana::BoundNeg& e, const st::Row* row)
     return st::int_val(e.type, -i);
 }
 
-// 双目算术: 任一操作数为 NULL 结果 NULL, 按绑定期推导域计算与装配, 类型驱动提升
+// 双目算术: 任一操作数为 NULL 结果 NULL, 按绑定期推导域计算与构造, 类型驱动提升
 // (整型向零截断), 溢出/除零当场报错; 操作数数值性由语义层保证
 st::Value eval_binary(const ana::BoundArith& e, const st::Row* row)
 {
@@ -418,10 +418,10 @@ st::Value eval_is_null(const ana::BoundIsNull& e, const st::Row* row)
     return st::bool_val(st::kBool, e.negate ? !is_null(v) : is_null(v));
 }
 
-// 内建函数求值签名: args 已求值且无 NULL, ret 为绑定期固化的结果域属性
+// 内建函数求值签名: args 已求值且无 NULL, ret 为绑定期固定的结果域属性
 using FuncEval = st::Value (*)(const std::vector<st::Value>& args, st::TypeAttr ret);
 
-// abs 求值: 按绑定期固化域装配, 整型域下界取绝对值溢出报错
+// abs 求值: 按绑定期固定域构造, 整型域下界取绝对值溢出报错
 st::Value eval_abs(const std::vector<st::Value>& args, st::TypeAttr ret)
 {
     const st::Value& v = args[0];
@@ -448,7 +448,7 @@ constexpr FuncEval kFuncTable[] = {
     eval_abs,
 };
 
-// 函数调用: 任一实参为 NULL 即原样传布, 其余经求值表按绑定期固化域计算装配,
+// 函数调用: 任一实参为 NULL 即原样传布, 其余经求值表按绑定期固定域计算并构造,
 // 整型溢出当场报错; 实参个数与类型由语义层保证
 st::Value eval_func_call(const ana::BoundFuncCall& e, const st::Row* row)
 {
@@ -483,7 +483,7 @@ st::Value eval_cast(const ana::BoundCast& e, const st::Row* row)
     if (e.type.rep == st::Rep::Int64 && e.type.width == 4) {
         const int64_t* i = std::get_if<int64_t>(&out.box);
         if (i == nullptr) {
-            DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: cast 产物形态与目标域不符");
+            DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: cast 产物表示与目标域不符");
         }
         if (*i < INT32_MIN || *i > INT32_MAX) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXPR, "整型值超出 int 可表示范围");
@@ -492,7 +492,7 @@ st::Value eval_cast(const ana::BoundCast& e, const st::Row* row)
     if (e.type.family == st::Family::Text && e.length > 0) {
         const std::string* s = std::get_if<std::string>(&out.box);
         if (s == nullptr) {
-            DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: cast 产物形态与目标域不符");
+            DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: cast 产物表示与目标域不符");
         }
         if (s->size() > e.length) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXPR, "字符串超出目标长度");

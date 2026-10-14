@@ -36,7 +36,7 @@ void simplify_cmp(std::unique_ptr<ana::BoundExpr>& e);
 // 整棵子树剪成空结果节点; 在常量折叠之后运行
 void prune_filter(std::unique_ptr<PlanNode>& plan);
 
-// 索引选择: Filter(SeqScan) 命中索引时改写为 残Filter(Fetch(IndexScan)), 已覆盖合取项
+// 索引选择: Filter(SeqScan) 命中索引时改写为 残余 Filter(Fetch(IndexScan)), 已覆盖合取项
 // 从 Filter 摘除(扫描区间精确等于被摘合取项), 交空剪成空结果节点; 在常量过滤器剪除之后运行
 void select_index(ct::Catalog& db, std::unique_ptr<PlanNode>& plan);
 

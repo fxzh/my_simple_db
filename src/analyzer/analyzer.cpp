@@ -85,7 +85,7 @@ std::unique_ptr<BoundInsert> parse_insert(ct::Catalog& db, const InsertStmt& is,
                                           const std::string& current_schema)
 {
     const ct::TableRef table = to_table_ref(is.table_name(), current_schema);
-    // bootstrap 会话向 system.db_func 灌内建函数行, 放行
+    // bootstrap 会话向 system.db_func 写入内建函数行, 放行
     if (!db.bootstrap_mode()) {
         check_reserved_table(table);
     }

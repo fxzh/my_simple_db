@@ -113,7 +113,7 @@ bool encode_row(const std::vector<ColumnSpec>& cols, const std::vector<Value>& v
                 }
                 if (col.type.store != Store::Fixed) {
                     DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
-                             "encode: 存储形态与值形态不符");
+                             "encode: 存储形式与值表示不符");
                 }
                 if (col.type.width == 4) {
                     if (v < INT32_MIN || v > INT32_MAX) {
@@ -125,18 +125,18 @@ bool encode_row(const std::vector<ColumnSpec>& cols, const std::vector<Value>& v
                     put_u32(out, static_cast<uint32_t>(static_cast<uint64_t>(v) >> 32));
                 } else {
                     DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
-                             "encode: 定宽字节数不在词表内: {}", col.type.width);
+                             "encode: 定宽字节数不在枚举取值集合内: {}", col.type.width);
                 }
                 break;
             }
             case Rep::Double: {
                 double v = 0.0;
                 if (!get_double(values[i], &v) || !std::isfinite(v)) {
-                    return false;  // 形态不匹配或非有限值
+                    return false;  // 表示不匹配或非有限值
                 }
                 if (col.type.store != Store::Fixed || col.type.width != 8) {
                     DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
-                             "encode: 属性组合不在词表内");
+                             "encode: 属性组合不在枚举取值集合内");
                 }
                 uint64_t bits = 0;
                 std::memcpy(&bits, &v, sizeof(bits));
@@ -167,18 +167,18 @@ bool encode_row(const std::vector<ColumnSpec>& cols, const std::vector<Value>& v
                     out.insert(out.end(), static_cast<size_t>(n) - v.size(), ' ');  // 不足补空格
                 } else {
                     DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
-                             "encode: 存储形态与值形态不符");
+                             "encode: 存储形式与值表示不符");
                 }
                 break;
             }
             case Rep::Float: {
                 const float* f = std::get_if<float>(&values[i].box);
                 if (f == nullptr || !std::isfinite(*f)) {
-                    return false;  // 形态不匹配或非有限值
+                    return false;  // 表示不匹配或非有限值
                 }
                 if (col.type.store != Store::Fixed || col.type.width != 4) {
                     DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
-                             "encode: 属性组合不在词表内");
+                             "encode: 属性组合不在枚举取值集合内");
                 }
                 uint32_t bits = 0;
                 std::memcpy(&bits, f, sizeof(bits));
@@ -192,7 +192,7 @@ bool encode_row(const std::vector<ColumnSpec>& cols, const std::vector<Value>& v
                 }
                 if (col.type.store != Store::Fixed || col.type.width != 1) {
                     DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
-                             "encode: 属性组合不在词表内");
+                             "encode: 属性组合不在枚举取值集合内");
                 }
                 out.push_back(static_cast<uint8_t>(v ? 1 : 0));
                 break;
@@ -204,7 +204,7 @@ bool encode_row(const std::vector<ColumnSpec>& cols, const std::vector<Value>& v
                 }
                 if (col.type.store != Store::Decimal) {
                     DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
-                             "encode: 属性组合不在词表内");
+                             "encode: 属性组合不在枚举取值集合内");
                 }
                 // 16B 小端补码 unscaled + 1B scale
                 const mp::uint256_t mag = static_cast<mp::uint256_t>(mp::abs(d->unscaled));
@@ -283,7 +283,7 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
                     pos += 8;
                 } else {
                     DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
-                             "decode: 定宽字节数不在词表内: {}", col.type.width);
+                             "decode: 定宽字节数不在枚举取值集合内: {}", col.type.width);
                 }
                 break;
             }
@@ -323,7 +323,7 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
                     out.push_back(str_val(col.type, std::move(v)));
                 } else {
                     DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
-                             "decode: 存储形态与值形态不符");
+                             "decode: 存储形式与值表示不符");
                 }
                 break;
             }

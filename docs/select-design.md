@@ -20,7 +20,7 @@ SELECT 投影列表 [WHERE] [ORDER BY ...] [LIMIT n [OFFSET m]]      -- 无 FROM
 
 ```
 client: 三帧流式接收(ResultSetHead/Batch/End) → 物化渲染
-server session.cpp: ExecResult.is_result_set → send_result_stream 逐行拉取攒批(256 行/批)发帧
+server session.cpp: ExecResult.is_result_set → send_result_stream 逐行拉取累积成批发帧(256 行/批)
 executor: execute = ana::analyze → pl::build → pl::optimize → make_operator → open
           (查询子树为迭代算子 open/next/close, 叶子计划直接转 catalog 调用)
 planner:  PlanNode 树, select 形如 [Sort](Project([Filter](SeqScan | Fetch(IndexScan))))

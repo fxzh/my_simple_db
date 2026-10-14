@@ -468,7 +468,7 @@ public:
     StmtKind kind() const override { return StmtKind::Explain; }
 };
 
-// SET 值形态: 值文本的字面量来源, 接收侧按形态做值域校验
+// SET 值形式: 值文本的字面量来源, 接收侧按形式做值域校验
 enum class SetValueForm : uint8_t { Int, Ident, Str };
 
 // SET 变量 = 值(值以文本承载, 语义由变量接收侧解释)

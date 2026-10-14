@@ -29,7 +29,7 @@ ExecResult tag_result(proto::CommandTag tag, uint64_t count)
     return r;
 }
 
-// 写入列的值经 cast 分派表按列域归一: 恒等/同盒换域/float 列收窄, NULL 原样;
+// 写入列的值经 cast 分派表按列域归一: 恒等/同形式换类型属性/float 列收窄, NULL 原样;
 // 声明 (精度,标度) 的 numeric 列走标度归一, 裸 numeric 仅域归一(标度随值);
 // 收窄不可表示由表项报错, 无转换项即 Internal(值域合法性由语义层保证)
 st::Value coerce_col_value(const st::ColumnSpec& col, st::Value v)
@@ -69,7 +69,7 @@ ExecResult run_select(ct::Catalog& db, std::unique_ptr<pl::PlanNode> plan)
     return result;
 }
 
-// DELETE ... WHERE: 抽干删除子树算子收集行引用, 再逐个物理删除, 返回实际删除行数
+// DELETE ... WHERE: 取尽删除子树算子输出收集行引用, 再逐个物理删除, 返回实际删除行数
 uint64_t run_delete_where(ct::Catalog& db, const pl::DeletePlan& dp)
 {
     std::vector<st::RowRef> refs;
@@ -87,7 +87,7 @@ uint64_t run_delete_where(ct::Catalog& db, const pl::DeletePlan& dp)
     return deleted;
 }
 
-// UPDATE: 抽干子树算子收集旧行(引用+值), 逐行求值赋值生成新行后批量墓碑+追加,
+// UPDATE: 取尽子树算子输出收集旧行(引用+值), 逐行求值赋值生成新行后批量墓碑+追加,
 // 返回更新行数; 堆追加式, 扫描与修改必须两阶段否则会扫到本语句新追加的行
 uint64_t run_update(ct::Catalog& db, const pl::UpdatePlan& up)
 {

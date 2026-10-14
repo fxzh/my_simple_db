@@ -140,7 +140,7 @@ proto::DecimalCell dec_cell(const st::DecimalVal& d)
     return c;
 }
 
-// st::Value 按值形态分派为协议单元格: 判空先行
+// st::Value 按值表示分派为协议单元格: 判空先行
 proto::CellVal to_cell(const st::Value& v)
 {
     if (st::value_is_null(v)) {
@@ -165,14 +165,14 @@ proto::CellVal to_cell(const st::Value& v)
     DB_RAISE(db::ErrCode::Internal, EXECUTOR, "值无语义类型");
 }
 
-// 结果集流式发送: 头帧 + 逐行攒批帧 + 结束帧(总行数); 发送失败返回 false(对端已断)
+// 结果集流式发送: 头帧 + 逐行累积成批的帧 + 结束帧(总行数); 发送失败返回 false(对端已断)
 bool send_result_stream(int sock, exec::ExecResult& result, int client_id, LogLevel session_level)
 {
     if (!proto::send_frame(sock, proto::MsgType::ResultSetHead,
                            proto::encode_rs_head(result.col_names))) {
         return false;
     }
-    // 逐行拉取逐格转协议单元格, 攒满一批发一帧
+    // 逐行拉取逐格转协议单元格, 累积满一批发一帧
     uint64_t total = 0;
     std::vector<std::vector<proto::CellVal>> batch;
     st::Row row;
@@ -397,7 +397,7 @@ bool txn_forbidden_stmt(const SQLStatement& stmt)
 // 执行一条语句: 开事务/执行/自动提交/结果分流; false = 结果集发送失败(对端已断)
 bool exec_statement(SessionCtx& s, const SQLStatement& stmt)
 {
-    // 事务开启: 自动提交语句为单语句事务, 显式事务首条语句取锁长持至 COMMIT/ROLLBACK
+    // 事务开启: 自动提交语句为单语句事务, 显式事务首条语句取锁长期持有至 COMMIT/ROLLBACK
     if (s.in_txn) {
         if (!s.txn_started) {
             s.db->begin_txn();

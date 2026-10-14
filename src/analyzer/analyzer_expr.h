@@ -27,7 +27,7 @@ RowDesc build_row_desc(const st::TableMeta& meta);
 
 // ==================== 类型工具 ====================
 
-// 整型类判定(int/bigint 共用盒形态)
+// 整型类判定(int/bigint 共用盒形式)
 inline bool is_int_type(st::TypeAttr t) { return t.rep == st::Rep::Int64; }
 // 浮点类判定
 inline bool is_float_type(st::TypeAttr t)
