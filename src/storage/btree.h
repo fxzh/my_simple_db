@@ -20,11 +20,11 @@ struct IndexKey {
     bool null = false;  // NULL 键标志
 };
 
-// 键序保持编码: 索引列值 → IndexKey, 编码由列类型驱动(赋值家族宽化使值的语义类型可与列类型不同)
+// 键序保持编码: 索引列值 → IndexKey, 编码由列类型属性驱动(赋值家族宽化使值的属性可与列属性不同)
 // int/bigint 最高符号位翻转; float/double 按 IEEE754 位翻转(-0 归一为 +0), float 宽化到
 // double 后与 double 同变换; bool 编码 0/1
 // NULL 入索引且排最大(PG 行为); char/varchar 变长键与 numeric 列暂不支持, 当场报错
-IndexKey encode_key(ColType type, const Value& v);
+IndexKey encode_key(TypeAttr type, const Value& v);
 
 // 键三路比较: 非 NULL 按值序, NULL 排最大, 负/零/正 对应 小于/等于/大于
 int key_cmp(const IndexKey& a, const IndexKey& b);

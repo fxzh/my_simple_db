@@ -19,14 +19,15 @@ namespace ana {
 
 namespace {
 
-// AST 列定义转存储层列规格; 显式长度/精度/标度非法时当场记录并抛出
-void convert_columns(const std::vector<ColumnDef>& defs, std::vector<st::ColumnSpec>& cols)
+// AST 列定义转存储层列规格; 类型名经 db_type 定型, 显式长度/精度/标度非法时当场记录并抛出
+void convert_columns(ct::Catalog& db, const std::vector<ColumnDef>& defs,
+                     std::vector<st::ColumnSpec>& cols)
 {
     cols.reserve(defs.size());
     for (const ColumnDef& def : defs) {
         uint16_t len = 0;
         uint8_t scl = 0;
-        const st::ColType t = map_type_spec(def.type, def.length, def.scale, len, scl);
+        const st::TypeAttr t = map_type_spec(db, def.type, def.length, def.scale, len, scl);
         cols.emplace_back(st::ColumnSpec{def.name, t, len, def.not_null, scl});
     }
 }
@@ -64,7 +65,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
         }
         auto b = std::make_unique<BoundCreateTable>();
         b->table = table;
-        convert_columns(cs.column_defs(), b->cols);
+        convert_columns(db, cs.column_defs(), b->cols);
         return b;
     }
     case StmtKind::DropTable: {
@@ -103,9 +104,8 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
             DB_RAISE(db::ErrCode::UnknownColumn, LogModule::ANALYZER, "列不存在: {}",
                      cs.column_name());
         }
-        const st::ColType type = meta.cols[ordinal].type;
-        if (type != st::ColType::Int && type != st::ColType::BigInt && type != st::ColType::Float
-            && type != st::ColType::Double && type != st::ColType::Bool) {
+        const st::TypeAttr type = meta.cols[ordinal].type;
+        if (type.rep == st::Rep::Dec || type.rep == st::Rep::Str || type.rep == st::Rep::None) {
             DB_RAISE(db::ErrCode::InvalidType, LogModule::ANALYZER, "索引列类型不支持: {}",
                      cs.column_name());
         }
@@ -174,7 +174,7 @@ std::unique_ptr<BoundStmt> analyze(ct::Catalog& db, const SQLStatement& stmt,
             }
             BoundUpdateItem a;
             a.col_idx = it->second;
-            st::ColType t;
+            st::TypeAttr t;
             // 行上下文: 右值基于旧行求值, 赋值间互不可见
             a.value = bind_expr(*item.value, &row_desc, db, t);
             const st::ColumnSpec& col = b->table.meta.cols[it->second];

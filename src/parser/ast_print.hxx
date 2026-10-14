@@ -20,27 +20,16 @@ inline std::string qualified_to_string(const QualifiedName& q)
 }
 
 // 类型名转文本, 带 (长度) 或 (精度,标度) 后缀: 供打印与日志使用
-inline std::string type_to_string(DataType type, std::optional<long long> length,
+inline std::string type_to_string(const std::string& type, std::optional<long long> length,
                                   std::optional<long long> scale)
 {
-    const char* name = nullptr;
-    switch (type) {
-    case DataType::Int: name = "int"; break;
-    case DataType::BigInt: name = "bigint"; break;
-    case DataType::Float: name = "float"; break;
-    case DataType::Double: name = "double"; break;
-    case DataType::Char: name = "char"; break;
-    case DataType::VarChar: name = "varchar"; break;
-    case DataType::Bool: name = "boolean"; break;
-    case DataType::Numeric: name = "numeric"; break;
-    }
     if (!length) {
-        return name;
+        return type;
     }
-    if (type == DataType::Numeric && scale) {
-        return std::format("{}({},{})", name, *length, *scale);
+    if (scale) {
+        return std::format("{}({},{})", type, *length, *scale);
     }
-    return std::format("{}({})", name, *length);
+    return std::format("{}({})", type, *length);
 }
 
 // 比较运算符转文本: 供打印与反生成使用

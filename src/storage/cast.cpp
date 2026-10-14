@@ -16,9 +16,6 @@ namespace mp = boost::multiprecision;
 
 namespace {
 
-// 转换函数: 入参非 NULL, 源域即 v.type(由入口按表分派)
-using CastFn = Value (*)(const Value& v);
-
 // 取 int64 盒值, 形态不符当场报错
 int64_t get_i64(const Value& v)
 {
@@ -47,16 +44,6 @@ double get_f64(const Value& v)
         DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 值形态与源域不符");
     }
     return *d;
-}
-
-// 取 string 盒值, 形态不符当场报错
-std::string get_str(const Value& v)
-{
-    const std::string* s = std::get_if<std::string>(&v.box);
-    if (s == nullptr) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 值形态与源域不符");
-    }
-    return *s;
 }
 
 // 取 string 盒值只读视图, 形态不符当场报错
@@ -109,63 +96,62 @@ mp::int256_t pow10(int n)
     return r;
 }
 
-// 恒等转换
-Value cast_id(const Value& v)
-{
-    return v;
-}
+// 转换函数: 入参非 NULL, 源值形态即 v.type.rep(由入口按表分派), 产物按 to 定型
+using CastFn = Value (*)(const Value& v, TypeAttr to);
 
-// int64 同盒换域: Int→BigInt
-Value int_to_bigint(const Value& v)
+// 同盒换域(值不变, 域界与长度由存储编码或语义层检查)
+Value restamp(const Value& v, TypeAttr to)
 {
-    return bigint_val(get_i64(v));
-}
-
-// int64 同盒换域: BigInt→Int, int32 域界由存储编码检查
-Value bigint_to_int(const Value& v)
-{
-    return int_val(get_i64(v));
+    return Value{to, v.box};
 }
 
 // int64→float: 单次舍入, 不经 double 中转
-Value int_to_float(const Value& v)
+Value i64_to_f32(const Value& v, TypeAttr to)
 {
-    return float_val(static_cast<float>(get_i64(v)));
+    return float_val(to, static_cast<float>(get_i64(v)));
 }
 
 // int64→double
-Value int_to_double(const Value& v)
+Value i64_to_f64(const Value& v, TypeAttr to)
 {
-    return double_val(static_cast<double>(get_i64(v)));
+    return double_val(to, static_cast<double>(get_i64(v)));
 }
 
-// float→double: 宽化无损
-Value float_to_double(const Value& v)
+// double 收窄为 float: 有限值不可表示当场报错
+float narrow_f32(double d)
 {
-    return double_val(static_cast<double>(get_f32(v)));
-}
-
-// double→float: 收窄, 有限值不可表示当场报错
-Value double_to_float(const Value& v)
-{
-    const double d = get_f64(v);
     const float f = static_cast<float>(d);
     if (std::isfinite(d) && !std::isfinite(f)) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "浮点值超出 float 可表示范围");
     }
-    return float_val(f);
+    return f;
 }
 
-// string 同盒换域: VarChar→Char, 长度由语义层校验
-Value varchar_to_char(const Value& v)
+// double→float: 收窄, 有限值不可表示当场报错
+Value f64_to_f32(const Value& v, TypeAttr to)
 {
-    return char_val(get_str(v));
+    return float_val(to, narrow_f32(get_f64(v)));
 }
 
-// string 同盒换域: Char→VarChar, 去尾随 pad
-Value char_to_varchar(const Value& v)
+// float→double: 宽化无损
+Value f32_to_f64(const Value& v, TypeAttr to)
 {
-    return str_val(std::string(get_char_view(v)));
+    return double_val(to, static_cast<double>(get_f32(v)));
+}
+
+// 文本源视图: 定长源去尾随空格(pad 为存储补齐产物)
+std::string_view text_view(const Value& v)
+{
+    return v.type.store == Store::CharPad ? get_char_view(v) : get_str_view(v);
+}
+
+// 文本域互换: 定长源去尾随 pad 后转变长, 其余同盒换域(长度由语义层校验)
+Value text_to_text(const Value& v, TypeAttr to)
+{
+    if (v.type.store == Store::CharPad && to.store == Store::VarLen) {
+        return str_val(to, std::string(get_char_view(v)));
+    }
+    return Value{to, v.box};
 }
 
 // 文本解析为 int64: 可选 +/- 前缀(from_chars 不认 '+'), 全串参与解析,
@@ -202,7 +188,7 @@ double parse_f64(std::string_view s)
 }
 
 // 定点十进制四舍五入(远离零)为 int64, 超 int64 域当场报错
-int64_t dec_to_i64(const DecimalVal& d)
+int64_t dec_round_i64(const DecimalVal& d)
 {
     mp::int256_t mag = mp::abs(d.unscaled);
     if (d.scale >= 39) {
@@ -229,88 +215,92 @@ int64_t trunc_to_i64(double d)
     return static_cast<int64_t>(d);
 }
 
-// int64(int/BigInt 源共用盒形态)转文本: 最短十进制
-Value int_to_varchar(const Value& v)
+// 定点十进制转 double 的共用路径: 定点文本经 from_chars 舍入
+double dec_to_f64_raw(const DecimalVal& d)
 {
-    return str_val(std::format("{}", get_i64(v)));
+    return parse_f64(decimal_to_text(d));
 }
-Value int_to_char(const Value& v)
+
+// ==================== 值形态间转换函数 ====================
+
+// int64(int/bigint 源共用盒形态)转文本: 最短十进制
+Value i64_to_text(const Value& v, TypeAttr to)
 {
-    return char_val(std::format("{}", get_i64(v)));
+    return str_val(to, std::format("{}", get_i64(v)));
 }
 
 // float 转文本: 最短往返表示
-Value float_to_varchar(const Value& v)
+Value f32_to_text(const Value& v, TypeAttr to)
 {
-    return str_val(std::format("{}", get_f32(v)));
-}
-Value float_to_char(const Value& v)
-{
-    return char_val(std::format("{}", get_f32(v)));
+    return str_val(to, std::format("{}", get_f32(v)));
 }
 
 // double 转文本: 最短往返表示
-Value double_to_varchar(const Value& v)
+Value f64_to_text(const Value& v, TypeAttr to)
 {
-    return str_val(std::format("{}", get_f64(v)));
-}
-Value double_to_char(const Value& v)
-{
-    return char_val(std::format("{}", get_f64(v)));
+    return str_val(to, std::format("{}", get_f64(v)));
 }
 
 // bool 转文本
-Value bool_to_varchar(const Value& v)
+Value bool_to_text(const Value& v, TypeAttr to)
 {
-    return str_val(get_bool(v) ? "true" : "false");
-}
-Value bool_to_char(const Value& v)
-{
-    return char_val(get_bool(v) ? "true" : "false");
+    return str_val(to, get_bool(v) ? "true" : "false");
 }
 
 // bool 转数值
-Value bool_to_int(const Value& v)
+Value bool_to_i64(const Value& v, TypeAttr to)
 {
-    return int_val(get_bool(v) ? 1 : 0);
+    return int_val(to, get_bool(v) ? 1 : 0);
 }
-Value bool_to_bigint(const Value& v)
+Value bool_to_f32(const Value& v, TypeAttr to)
 {
-    return bigint_val(get_bool(v) ? 1 : 0);
+    return float_val(to, get_bool(v) ? 1.0f : 0.0f);
 }
-Value bool_to_float(const Value& v)
+Value bool_to_f64(const Value& v, TypeAttr to)
 {
-    return float_val(get_bool(v) ? 1.0f : 0.0f);
+    return double_val(to, get_bool(v) ? 1.0 : 0.0);
 }
-Value bool_to_double(const Value& v)
+Value bool_to_dec(const Value& v, TypeAttr to)
 {
-    return double_val(get_bool(v) ? 1.0 : 0.0);
+    return numeric_val(to, mp::int256_t(get_bool(v) ? 1 : 0), 0);
 }
 
 // 数值转 Bool: 仅精确 0/1
-Value int_to_bool(const Value& v)
+Value i64_to_bool(const Value& v, TypeAttr to)
 {
     const int64_t i = get_i64(v);
     if (i != 0 && i != 1) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "数值转布尔仅接受 0 或 1");
     }
-    return bool_val(i != 0);
+    return bool_val(to, i != 0);
 }
-Value float_to_bool(const Value& v)
+Value f32_to_bool(const Value& v, TypeAttr to)
 {
     const float f = get_f32(v);
     if (f != 0.0f && f != 1.0f) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "数值转布尔仅接受 0 或 1");
     }
-    return bool_val(f != 0.0f);
+    return bool_val(to, f != 0.0f);
 }
-Value double_to_bool(const Value& v)
+Value f64_to_bool(const Value& v, TypeAttr to)
 {
     const double d = get_f64(v);
     if (d != 0.0 && d != 1.0) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "数值转布尔仅接受 0 或 1");
     }
-    return bool_val(d != 0.0);
+    return bool_val(to, d != 0.0);
+}
+Value dec_to_bool(const Value& v, TypeAttr to)
+{
+    const DecimalVal& d = get_dec(v);
+    if (d.unscaled == 0) {
+        return bool_val(to, false);
+    }
+    // scale<39 时幅值 < 10^38, 与 10^scale 比较判定值是否恰为 1
+    if (d.scale < 39 && mp::abs(d.unscaled) == pow10(d.scale)) {
+        return bool_val(to, true);
+    }
+    DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "数值转布尔仅接受 0 或 1");
 }
 
 // 文本转 Bool 解析: 仅 true/false, 大小写不敏感
@@ -339,155 +329,84 @@ bool parse_bool(std::string_view s)
 }
 
 // 文本转 Bool: 仅 true/false, 大小写不敏感
-Value text_to_bool(const Value& v)
+Value text_to_bool(const Value& v, TypeAttr to)
 {
-    return bool_val(parse_bool(get_str_view(v)));
+    return bool_val(to, parse_bool(text_view(v)));
 }
 
-// 文本转数值: VarChar 源, int32 域界由存储编码检查
-Value text_to_int(const Value& v)
+// 文本转数值(int32 域界由存储编码检查)
+Value text_to_i64(const Value& v, TypeAttr to)
 {
-    return int_val(parse_i64(get_str_view(v)));
+    return int_val(to, parse_i64(text_view(v)));
 }
-Value text_to_bigint(const Value& v)
+Value text_to_f64(const Value& v, TypeAttr to)
 {
-    return bigint_val(parse_i64(get_str_view(v)));
+    return double_val(to, parse_f64(text_view(v)));
 }
-Value text_to_double(const Value& v)
+Value text_to_f32(const Value& v, TypeAttr to)
 {
-    return double_val(parse_f64(get_str_view(v)));
-}
-Value text_to_float(const Value& v)
-{
-    // 先解析为 double 再收窄, 不可表示由收窄报错
-    return double_to_float(double_val(parse_f64(get_str_view(v))));
-}
-
-// Char 源文本转换: 去 pad 后按 VarChar 源同样规则解析
-Value char_to_int(const Value& v)
-{
-    return int_val(parse_i64(get_char_view(v)));
-}
-Value char_to_bigint(const Value& v)
-{
-    return bigint_val(parse_i64(get_char_view(v)));
-}
-Value char_to_double(const Value& v)
-{
-    return double_val(parse_f64(get_char_view(v)));
-}
-Value char_to_float(const Value& v)
-{
-    // 先解析为 double 再收窄, 不可表示由收窄报错
-    return double_to_float(double_val(parse_f64(get_char_view(v))));
-}
-Value char_to_bool(const Value& v)
-{
-    return bool_val(parse_bool(get_char_view(v)));
+    return float_val(to, narrow_f32(parse_f64(text_view(v))));
 }
 
 // 浮点向零截断为整型: Float 经 double 宽化无损中转
-Value double_to_int(const Value& v)
+Value f64_to_i64(const Value& v, TypeAttr to)
 {
-    return int_val(trunc_to_i64(get_f64(v)));
+    return int_val(to, trunc_to_i64(get_f64(v)));
 }
-Value double_to_bigint(const Value& v)
+Value f32_to_i64(const Value& v, TypeAttr to)
 {
-    return bigint_val(trunc_to_i64(get_f64(v)));
-}
-Value float_to_int(const Value& v)
-{
-    return int_val(trunc_to_i64(static_cast<double>(get_f32(v))));
-}
-Value float_to_bigint(const Value& v)
-{
-    return bigint_val(trunc_to_i64(static_cast<double>(get_f32(v))));
+    return int_val(to, trunc_to_i64(static_cast<double>(get_f32(v))));
 }
 
-// int64(int/BigInt 源共用盒形态)转定点十进制: scale 0
-Value int_to_numeric(const Value& v)
+// int64(int/bigint 源共用盒形态)转定点十进制: scale 0
+Value i64_to_dec(const Value& v, TypeAttr to)
 {
-    return numeric_val(mp::int256_t(get_i64(v)), 0);
-}
-
-// bool 转定点十进制: 0/1, scale 0
-Value bool_to_numeric(const Value& v)
-{
-    return numeric_val(mp::int256_t(get_bool(v) ? 1 : 0), 0);
+    return numeric_val(to, mp::int256_t(get_i64(v)), 0);
 }
 
 // double 转定点十进制: 最短往返十进制文本再精确解析
-Value double_to_numeric(const Value& v)
+Value f64_to_dec(const Value& v, TypeAttr to)
 {
     const DecimalVal d = parse_decimal_text(std::format("{}", get_f64(v)));
-    return numeric_val(d.unscaled, d.scale);
+    return numeric_val(to, d.unscaled, d.scale);
 }
 
 // float 转定点十进制: 最短往返十进制文本再精确解析
-Value float_to_numeric(const Value& v)
+Value f32_to_dec(const Value& v, TypeAttr to)
 {
     const DecimalVal d = parse_decimal_text(std::format("{}", get_f32(v)));
-    return numeric_val(d.unscaled, d.scale);
+    return numeric_val(to, d.unscaled, d.scale);
 }
 
-// 文本转定点十进制: VarChar 源
-Value text_to_numeric(const Value& v)
+// 文本转定点十进制
+Value text_to_dec(const Value& v, TypeAttr to)
 {
-    const DecimalVal d = parse_decimal_text(get_str_view(v));
-    return numeric_val(d.unscaled, d.scale);
-}
-
-// Char 源文本转定点十进制: 去 pad 后按 VarChar 源同样规则解析
-Value char_to_numeric(const Value& v)
-{
-    const DecimalVal d = parse_decimal_text(get_char_view(v));
-    return numeric_val(d.unscaled, d.scale);
+    const DecimalVal d = parse_decimal_text(text_view(v));
+    return numeric_val(to, d.unscaled, d.scale);
 }
 
 // 定点十进制转整型: 四舍五入(远离零), int32 域界由存储编码检查
-Value numeric_to_int(const Value& v)
+Value dec_to_i64(const Value& v, TypeAttr to)
 {
-    return int_val(dec_to_i64(get_dec(v)));
-}
-Value numeric_to_bigint(const Value& v)
-{
-    return bigint_val(dec_to_i64(get_dec(v)));
+    return int_val(to, dec_round_i64(get_dec(v)));
 }
 
 // 定点十进制转 double: 定点文本经 from_chars 舍入
-Value numeric_to_double(const Value& v)
+Value dec_to_f64(const Value& v, TypeAttr to)
 {
-    return double_val(parse_f64(decimal_to_text(get_dec(v))));
+    return double_val(to, dec_to_f64_raw(get_dec(v)));
 }
 
 // 定点十进制转 float: 经 double 中转收窄, 不可表示由收窄报错
-Value numeric_to_float(const Value& v)
+Value dec_to_f32(const Value& v, TypeAttr to)
 {
-    return double_to_float(numeric_to_double(v));
+    return float_val(to, narrow_f32(dec_to_f64_raw(get_dec(v))));
 }
 
 // 定点十进制转文本
-Value numeric_to_varchar(const Value& v)
+Value dec_to_text(const Value& v, TypeAttr to)
 {
-    return str_val(decimal_to_text(get_dec(v)));
-}
-Value numeric_to_char(const Value& v)
-{
-    return char_val(decimal_to_text(get_dec(v)));
-}
-
-// 定点十进制转 Bool: 仅精确 0/1
-Value numeric_to_bool(const Value& v)
-{
-    const DecimalVal& d = get_dec(v);
-    if (d.unscaled == 0) {
-        return bool_val(false);
-    }
-    // scale<39 时幅值 < 10^38, 与 10^scale 比较判定值是否恰为 1
-    if (d.scale < 39 && mp::abs(d.unscaled) == pow10(d.scale)) {
-        return bool_val(true);
-    }
-    DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "数值转布尔仅接受 0 或 1");
+    return str_val(to, decimal_to_text(get_dec(v)));
 }
 
 // 转换分派表项: fn 为空表示无转换, implicit 为真时隐式模式可用
@@ -496,51 +415,38 @@ struct CastEntry {
     bool implicit = false;
 };
 
-// 内置转换分派表: 行源域列目标域, 下标即 ColType 枚举值
-// (Null, Int, BigInt, Double, VarChar, Float, Char, Bool, Numeric); 非 Null 槽位全填,
+// 内置转换分派表: 行源值形态列目标值形态, 下标即 Rep 枚举值
+// (None, Int64, Float, Double, Str, Bool, Dec); 非 None 槽位全填,
 // 空槽与隐式查到仅显式表项均为调用方违约
-constexpr CastEntry kCastTable[9][9] = {
-    /* Null */    {{}, {}, {}, {}, {}, {}, {}, {}, {}},
-    /* Int */     {{}, {cast_id, true}, {int_to_bigint, true}, {int_to_double, true},
-                   {int_to_varchar}, {int_to_float, true}, {int_to_char}, {int_to_bool},
-                   {int_to_numeric, true}},
-    /* BigInt */  {{}, {bigint_to_int, true}, {cast_id, true}, {int_to_double, true},
-                   {int_to_varchar}, {int_to_float, true}, {int_to_char}, {int_to_bool},
-                   {int_to_numeric, true}},
-    /* Double */  {{}, {double_to_int}, {double_to_bigint}, {cast_id, true},
-                   {double_to_varchar}, {double_to_float, true}, {double_to_char},
-                   {double_to_bool}, {double_to_numeric}},
-    /* VarChar */ {{}, {text_to_int}, {text_to_bigint}, {text_to_double},
-                   {cast_id, true}, {text_to_float}, {varchar_to_char, true}, {text_to_bool},
-                   {text_to_numeric}},
-    /* Float */   {{}, {float_to_int}, {float_to_bigint}, {float_to_double, true},
-                   {float_to_varchar}, {cast_id, true}, {float_to_char}, {float_to_bool},
-                   {float_to_numeric}},
-    /* Char */    {{}, {char_to_int}, {char_to_bigint}, {char_to_double},
-                   {char_to_varchar, true}, {char_to_float}, {cast_id, true}, {char_to_bool},
-                   {char_to_numeric}},
-    /* Bool */    {{}, {bool_to_int}, {bool_to_bigint}, {bool_to_double},
-                   {bool_to_varchar}, {bool_to_float}, {bool_to_char}, {cast_id, true},
-                   {bool_to_numeric}},
-    /* Numeric */ {{}, {numeric_to_int}, {numeric_to_bigint}, {numeric_to_double, true},
-                   {numeric_to_varchar}, {numeric_to_float, true}, {numeric_to_char},
-                   {numeric_to_bool},
-                   {cast_id, true}},
+constexpr CastEntry kCastTable[7][7] = {
+    /* None */   {{}, {}, {}, {}, {}, {}, {}},
+    /* Int64 */  {{}, {restamp, true}, {i64_to_f32, true}, {i64_to_f64, true},
+                   {i64_to_text}, {i64_to_bool}, {i64_to_dec, true}},
+    /* Float */  {{}, {f32_to_i64}, {restamp, true}, {f32_to_f64, true},
+                   {f32_to_text}, {f32_to_bool}, {f32_to_dec}},
+    /* Double */ {{}, {f64_to_i64}, {f64_to_f32, true}, {restamp, true},
+                   {f64_to_text}, {f64_to_bool}, {f64_to_dec}},
+    /* Str */    {{}, {text_to_i64}, {text_to_f32}, {text_to_f64},
+                   {text_to_text, true}, {text_to_bool}, {text_to_dec}},
+    /* Bool */   {{}, {bool_to_i64}, {bool_to_f32}, {bool_to_f64},
+                   {bool_to_text}, {restamp, true}, {bool_to_dec}},
+    /* Dec */    {{}, {dec_to_i64}, {dec_to_f32, true}, {dec_to_f64, true},
+                   {dec_to_text}, {dec_to_bool}, {restamp, true}},
 };
 
 }  // namespace
 
-Value cast_value(const Value& v, ColType to, CastMode mode)
+Value cast_value(const Value& v, TypeAttr to, CastMode mode)
 {
     if (value_is_null(v)) {
         DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 不接受 NULL");
     }
-    const CastEntry& e = kCastTable[static_cast<size_t>(v.type)][static_cast<size_t>(to)];
+    const CastEntry& e = kCastTable[static_cast<size_t>(v.type.rep)][static_cast<size_t>(to.rep)];
     if (e.fn == nullptr || (mode == CastMode::Implicit && !e.implicit)) {
         DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 无 {}→{} 转换",
-                 static_cast<int>(v.type), static_cast<int>(to));
+                 static_cast<int>(v.type.rep), static_cast<int>(to.rep));
     }
-    return e.fn(v);
+    return e.fn(v, to);
 }
 
 // 文本解析为定点十进制: [+/-]数字[.数字][eE[+/-]数字], 全串参与, 尾零保留;
@@ -641,11 +547,11 @@ std::string decimal_to_text(const DecimalVal& d)
     return out;
 }
 
-// numeric 目标归一: 先经分派表转 Numeric 域, 再四舍五入(远离零)到目标标度;
+// numeric 目标归一: 先经分派表转到定点十进制形态, 再四舍五入(远离零)到目标标度;
 // 精度非 0 时校验结果十进制位数, 放大超界/超精度当场报错
-Value coerce_numeric(const Value& v, uint16_t precision, uint8_t scale)
+Value coerce_numeric(const Value& v, TypeAttr to, uint16_t precision, uint8_t scale)
 {
-    const Value n = cast_value(v, ColType::Numeric, CastMode::Explicit);
+    const Value n = cast_value(v, to, CastMode::Explicit);
     const DecimalVal d = get_dec(n);
     mp::int256_t u = d.unscaled;
     if (d.scale > scale) {
@@ -675,7 +581,7 @@ Value coerce_numeric(const Value& v, uint16_t precision, uint8_t scale)
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "numeric 值超出声明精度");
         }
     }
-    return numeric_val(u, scale);
+    return numeric_val(to, u, scale);
 }
 
 }  // namespace st

@@ -19,20 +19,21 @@ namespace {
 
 st::Value eval_bound(const ana::BoundExpr& expr, const st::Row* row);
 
-// 数值转 double: 经 cast 分派表提升到 Double 域, 非数值源域由表入口报错
-double to_double(const st::Value& v)
+// 数值转 double: 经 cast 分派表提升到目标域(目标须为 double 形态), 非数值源域由表入口报错
+double to_double(const st::Value& v, st::TypeAttr to)
 {
-    return std::get<double>(st::cast_value(v, st::ColType::Double).box);
+    return std::get<double>(st::cast_value(v, to).box);
 }
 
-// 数值转 float: 经 cast 分派表转到 Float 域(整型单次舍入), 非数值源域由表入口报错
-float to_float(const st::Value& v)
+// 数值转 float: 经 cast 分派表转到目标域(目标须为 float 形态, 整型单次舍入),
+// 非数值源域由表入口报错
+float to_float(const st::Value& v, st::TypeAttr to)
 {
-    return std::get<float>(st::cast_value(v, st::ColType::Float).box);
+    return std::get<float>(st::cast_value(v, to).box);
 }
 
-// 整型取值: 经 cast 分派表归一到目标整域(Int/BigInt 同盒)后取盒值
-int64_t get_int(const st::Value& v, st::ColType domain)
+// 整型取值: 经 cast 分派表归一到目标整域(int/bigint 同盒)后取盒值
+int64_t get_int(const st::Value& v, st::TypeAttr domain)
 {
     return std::get<int64_t>(st::cast_value(v, domain).box);
 }
@@ -47,10 +48,18 @@ const st::DecimalVal& get_dec(const st::Value& v)
     return *d;
 }
 
-// 数值转 numeric 域: 经 cast 分派表转换后取盒值, 非数值源域由表入口报错
-st::DecimalVal to_numeric(const st::Value& v)
+// 数值盒值提升 double: 经 cast 分派表转 double 域(double 属性取自举内核),
+// 供无目标域上下文的比较提升
+double box_f64(const st::Value& v)
 {
-    return std::get<st::DecimalVal>(st::cast_value(v, st::ColType::Numeric).box);
+    return std::get<double>(st::cast_value(v, st::kDouble).box);
+}
+
+// 数值转 numeric 域: 经 cast 分派表转换后取盒值(目标须为定点十进制形态),
+// 非数值源域由表入口报错
+st::DecimalVal to_numeric(const st::Value& v, st::TypeAttr to)
+{
+    return std::get<st::DecimalVal>(st::cast_value(v, to).box);
 }
 
 // 值是否 NULL(仅看 box)
@@ -229,23 +238,10 @@ int dec_cmp(const st::DecimalVal& a, const st::DecimalVal& b)
     return (an ? !m_smaller : m_smaller) ? -1 : 1;
 }
 
-// 值家族: 数值/文本/布尔, 供比较分派; 值无语义类型时归 None
-enum class ValueFamily { Num, Text, Bool, None };
-
-ValueFamily value_family(const st::Value& v)
+// 值族: 数值/文本/布尔, 供比较分派; 值无类型时归 None(属性内联于值)
+st::Family value_family(const st::Value& v)
 {
-    switch (v.type) {
-    case st::ColType::Int:
-    case st::ColType::BigInt:
-    case st::ColType::Float:
-    case st::ColType::Double:
-    case st::ColType::Numeric: return ValueFamily::Num;
-    case st::ColType::Char:
-    case st::ColType::VarChar: return ValueFamily::Text;
-    case st::ColType::Bool: return ValueFamily::Bool;
-    case st::ColType::Null: return ValueFamily::None;
-    }
-    return ValueFamily::None;
+    return v.type.family;
 }
 
 // 一元负号: NULL 传播, 取反; 结果按绑定期推导域装配并按域做溢出检查
@@ -255,22 +251,21 @@ st::Value eval_neg(const ana::BoundNeg& e, const st::Row* row)
     if (is_null(v)) {
         return v;  // NULL 传播
     }
-    if (e.type == st::ColType::Float) {
-        return st::float_val(-to_float(v));  // 有限值取反仍有限
+    if (e.type.rep == st::Rep::Float) {
+        return st::float_val(e.type, -to_float(v, e.type));  // 有限值取反仍有限
     }
-    if (e.type == st::ColType::Double) {
-        return st::double_val(-to_double(v));  // 有限值取反仍有限
+    if (e.type.rep == st::Rep::Double) {
+        return st::double_val(e.type, -to_double(v, e.type));  // 有限值取反仍有限
     }
-    if (e.type == st::ColType::Numeric) {
+    if (e.type.rep == st::Rep::Dec) {
         const st::DecimalVal& d = get_dec(v);
-        return st::numeric_val(-d.unscaled, d.scale);  // 幅值不变
+        return st::numeric_val(e.type, -d.unscaled, d.scale);  // 幅值不变
     }
     const int64_t i = get_int(v, e.type);
-    if (i == INT64_MIN || (e.type == st::ColType::Int && i == INT32_MIN)) {
+    if (i == INT64_MIN || (e.type.width == 4 && i == INT32_MIN)) {
         DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "整型取反溢出");
     }
-    const int64_t out = -i;
-    return e.type == st::ColType::Int ? st::int_val(out) : st::bigint_val(out);
+    return st::int_val(e.type, -i);
 }
 
 // 双目算术: 任一操作数为 NULL 结果 NULL, 按绑定期推导域计算与装配, 类型驱动提升
@@ -282,17 +277,17 @@ st::Value eval_binary(const ana::BoundArith& e, const st::Row* row)
     if (is_null(lv) || is_null(rv)) {
         return st::Value{};  // NULL 传播, 短路于除零/溢出检查
     }
-    if (e.type == st::ColType::Numeric) {
+    if (e.type.rep == st::Rep::Dec) {
         // 操作数转 numeric 域, 结果标度按操作数值标度推导
-        const st::DecimalVal l = to_numeric(lv);
-        const st::DecimalVal r = to_numeric(rv);
+        const st::DecimalVal l = to_numeric(lv, e.type);
+        const st::DecimalVal r = to_numeric(rv, e.type);
         const uint8_t rs = dec_result_scale(e.op, l, r);
-        return st::numeric_val(dec_arith(e.op, l, r, rs), rs);
+        return st::numeric_val(e.type, dec_arith(e.op, l, r, rs), rs);
     }
-    if (e.type == st::ColType::Float) {
+    if (e.type.rep == st::Rep::Float) {
         // 单精度域逐运算舍入
-        const float l = to_float(lv);
-        const float r = to_float(rv);
+        const float l = to_float(lv, e.type);
+        const float r = to_float(rv, e.type);
         float out = 0.0f;
         switch (e.op) {
         case '+': out = l + r; break;
@@ -303,20 +298,20 @@ st::Value eval_binary(const ana::BoundArith& e, const st::Row* row)
         if (!std::isfinite(out)) {
             DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "浮点运算溢出或除零");
         }
-        return st::float_val(out);
+        return st::float_val(e.type, out);
     }
-    if (e.type == st::ColType::Double) {
+    if (e.type.rep == st::Rep::Double) {
         double out = 0.0;
         switch (e.op) {
-        case '+': out = to_double(lv) + to_double(rv); break;
-        case '-': out = to_double(lv) - to_double(rv); break;
-        case '*': out = to_double(lv) * to_double(rv); break;
-        case '/': out = to_double(lv) / to_double(rv); break;
+        case '+': out = to_double(lv, e.type) + to_double(rv, e.type); break;
+        case '-': out = to_double(lv, e.type) - to_double(rv, e.type); break;
+        case '*': out = to_double(lv, e.type) * to_double(rv, e.type); break;
+        case '/': out = to_double(lv, e.type) / to_double(rv, e.type); break;
         }
         if (!std::isfinite(out)) {
             DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "浮点运算溢出或除零");
         }
-        return st::double_val(out);
+        return st::double_val(e.type, out);
     }
     const int64_t l = get_int(lv, e.type);
     const int64_t r = get_int(rv, e.type);
@@ -347,10 +342,10 @@ st::Value eval_binary(const ana::BoundArith& e, const st::Row* row)
         out = l / r;  // 向零截断
         break;
     }
-    if (e.type == st::ColType::Int && (out < INT32_MIN || out > INT32_MAX)) {
+    if (e.type.width == 4 && (out < INT32_MIN || out > INT32_MAX)) {
         DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, arith_overflow_msg(e.op));
     }
-    return e.type == st::ColType::Int ? st::int_val(out) : st::bigint_val(out);
+    return st::int_val(e.type, out);
 }
 
 // 比较: 任一侧 NULL 即 NULL; 其余经 value_cmp 三向比较, 可比性由语义层保证
@@ -363,12 +358,12 @@ st::Value eval_compare(const ana::BoundCmp& e, const st::Row* row)
     }
     const int c = value_cmp(lv, rv);
     switch (e.op) {
-    case CmpOp::Eq: return st::bool_val(c == 0);
-    case CmpOp::Ne: return st::bool_val(c != 0);
-    case CmpOp::Lt: return st::bool_val(c < 0);
-    case CmpOp::Le: return st::bool_val(c <= 0);
-    case CmpOp::Gt: return st::bool_val(c > 0);
-    case CmpOp::Ge: return st::bool_val(c >= 0);
+    case CmpOp::Eq: return st::bool_val(st::kBool, c == 0);
+    case CmpOp::Ne: return st::bool_val(st::kBool, c != 0);
+    case CmpOp::Lt: return st::bool_val(st::kBool, c < 0);
+    case CmpOp::Le: return st::bool_val(st::kBool, c <= 0);
+    case CmpOp::Gt: return st::bool_val(st::kBool, c > 0);
+    case CmpOp::Ge: return st::bool_val(st::kBool, c >= 0);
     }
     DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 未知比较种类");
 }
@@ -386,20 +381,20 @@ st::Value eval_logic(const ana::BoundLogic& e, const st::Row* row)
     }
     if (e.op == LogicOp::And) {
         if ((lb != nullptr && !*lb) || (rb != nullptr && !*rb)) {
-            return st::bool_val(false);  // 有 false 即 false
+            return st::bool_val(st::kBool, false);  // 有 false 即 false
         }
         if (lb == nullptr || rb == nullptr) {
             return st::Value{};  // 有 UNKNOWN 即 UNKNOWN
         }
-        return st::bool_val(true);
+        return st::bool_val(st::kBool, true);
     }
     if ((lb != nullptr && *lb) || (rb != nullptr && *rb)) {
-        return st::bool_val(true);  // 有 true 即 true
+        return st::bool_val(st::kBool, true);  // 有 true 即 true
     }
     if (lb == nullptr || rb == nullptr) {
         return st::Value{};  // 有 UNKNOWN 即 UNKNOWN
     }
-    return st::bool_val(false);
+    return st::bool_val(st::kBool, false);
 }
 
 // NOT: 三值逻辑, NULL 传播; 操作数布尔性由语义层保证
@@ -413,39 +408,38 @@ st::Value eval_not(const ana::BoundNot& e, const st::Row* row)
     if (b == nullptr) {
         DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 逻辑操作数不是布尔");
     }
-    return st::bool_val(!*b);
+    return st::bool_val(st::kBool, !*b);
 }
 
 // IS [NOT] NULL: 对任意类型操作数判空
 st::Value eval_is_null(const ana::BoundIsNull& e, const st::Row* row)
 {
     const st::Value v = eval_bound(*e.operand, row);
-    return st::bool_val(e.negate ? !is_null(v) : is_null(v));
+    return st::bool_val(st::kBool, e.negate ? !is_null(v) : is_null(v));
 }
 
-// 内建函数求值签名: args 已求值且无 NULL, ret 为绑定期固化的结果域
-using FuncEval = st::Value (*)(const std::vector<st::Value>& args, st::ColType ret);
+// 内建函数求值签名: args 已求值且无 NULL, ret 为绑定期固化的结果域属性
+using FuncEval = st::Value (*)(const std::vector<st::Value>& args, st::TypeAttr ret);
 
 // abs 求值: 按绑定期固化域装配, 整型域下界取绝对值溢出报错
-st::Value eval_abs(const std::vector<st::Value>& args, st::ColType ret)
+st::Value eval_abs(const std::vector<st::Value>& args, st::TypeAttr ret)
 {
     const st::Value& v = args[0];
-    if (ret == st::ColType::Float) {
-        return st::float_val(std::fabs(to_float(v)));
+    if (ret.rep == st::Rep::Float) {
+        return st::float_val(ret, std::fabs(to_float(v, ret)));
     }
-    if (ret == st::ColType::Double) {
-        return st::double_val(std::fabs(to_double(v)));
+    if (ret.rep == st::Rep::Double) {
+        return st::double_val(ret, std::fabs(to_double(v, ret)));
     }
-    if (ret == st::ColType::Numeric) {
+    if (ret.rep == st::Rep::Dec) {
         const st::DecimalVal& d = get_dec(v);
-        return st::numeric_val(d.unscaled < 0 ? -d.unscaled : d.unscaled, d.scale);
+        return st::numeric_val(ret, d.unscaled < 0 ? -d.unscaled : d.unscaled, d.scale);
     }
     const int64_t i = get_int(v, ret);
-    if (i == INT64_MIN || (ret == st::ColType::Int && i == INT32_MIN)) {
+    if (i == INT64_MIN || (ret.width == 4 && i == INT32_MIN)) {
         DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "整型绝对值溢出");
     }
-    const int64_t out = i < 0 ? -i : i;
-    return ret == st::ColType::Int ? st::int_val(out) : st::bigint_val(out);
+    return st::int_val(ret, i < 0 ? -i : i);
 }
 
 // 内建函数求值表: 下标即 FuncId 取值(从 1 起, 0 号槽占位), 增改函数须同步 analyzer 注册表
@@ -475,18 +469,18 @@ st::Value eval_func_call(const ana::BoundFuncCall& e, const st::Row* row)
 }
 
 // CAST: NULL 传播; 转换经 cast 分派表显式模式执行, numeric 声明目标走标度归一;
-// Int 目标超 int32 域与文本目标超声明长度(仅文本目标 length 非 0)当场报错
+// int 目标超 int32 域与文本目标超声明长度(仅文本目标 length 非 0)当场报错
 st::Value eval_cast(const ana::BoundCast& e, const st::Row* row)
 {
     const st::Value v = eval_bound(*e.operand, row);
     if (is_null(v)) {
         return v;  // NULL 传播
     }
-    if (e.type == st::ColType::Numeric && e.length > 0) {
-        return st::coerce_numeric(v, e.length, e.scale);
+    if (e.type.rep == st::Rep::Dec && e.length > 0) {
+        return st::coerce_numeric(v, e.type, e.length, e.scale);
     }
     const st::Value out = st::cast_value(v, e.type, st::CastMode::Explicit);
-    if (e.type == st::ColType::Int) {
+    if (e.type.rep == st::Rep::Int64 && e.type.width == 4) {
         const int64_t* i = std::get_if<int64_t>(&out.box);
         if (i == nullptr) {
             DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: cast 产物形态与目标域不符");
@@ -495,7 +489,7 @@ st::Value eval_cast(const ana::BoundCast& e, const st::Row* row)
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXPR, "整型值超出 int 可表示范围");
         }
     }
-    if ((e.type == st::ColType::Char || e.type == st::ColType::VarChar) && e.length > 0) {
+    if (e.type.family == st::Family::Text && e.length > 0) {
         const std::string* s = std::get_if<std::string>(&out.box);
         if (s == nullptr) {
             DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: cast 产物形态与目标域不符");
@@ -571,8 +565,8 @@ int value_cmp(const st::Value& a, const st::Value& b)
         return an && bn ? 0 : (an ? 1 : -1);  // NULL 最大, 双 NULL 相等
     }
     switch (value_family(a)) {
-    case ValueFamily::Num: {
-        if (value_family(b) != ValueFamily::Num) {
+    case st::Family::Num: {
+        if (value_family(b) != st::Family::Num) {
             break;
         }
         const int64_t* li = std::get_if<int64_t>(&a.box);
@@ -592,12 +586,12 @@ int value_cmp(const st::Value& a, const st::Value& b)
         if (li != nullptr && rd != nullptr) {
             return dec_cmp(st::DecimalVal{mp::int256_t(*li), 0}, *rd);
         }
-        const double l = to_double(a);  // 浮点参与的混合比较提升 double
-        const double r = to_double(b);
+        const double l = box_f64(a);  // 浮点参与的混合比较提升 double
+        const double r = box_f64(b);
         return l < r ? -1 : (l > r ? 1 : 0);
     }
-    case ValueFamily::Text: {
-        if (value_family(b) != ValueFamily::Text) {
+    case st::Family::Text: {
+        if (value_family(b) != st::Family::Text) {
             break;
         }
         const std::string* ls = std::get_if<std::string>(&a.box);
@@ -605,13 +599,13 @@ int value_cmp(const st::Value& a, const st::Value& b)
         if (ls == nullptr || rs == nullptr) {
             break;
         }
-        // 仅 Char 侧去尾随空格(PAD SPACE 语义)
-        const std::string_view lv = a.type == st::ColType::Char ? rtrim_space(*ls) : *ls;
-        const std::string_view rv = b.type == st::ColType::Char ? rtrim_space(*rs) : *rs;
+        // 仅定长侧去尾随空格(PAD SPACE 语义)
+        const std::string_view lv = a.type.store == st::Store::CharPad ? rtrim_space(*ls) : *ls;
+        const std::string_view rv = b.type.store == st::Store::CharPad ? rtrim_space(*rs) : *rs;
         return lv.compare(rv);
     }
-    case ValueFamily::Bool: {
-        if (value_family(b) != ValueFamily::Bool) {
+    case st::Family::Bool: {
+        if (value_family(b) != st::Family::Bool) {
             break;
         }
         const bool* lb = std::get_if<bool>(&a.box);
@@ -621,7 +615,7 @@ int value_cmp(const st::Value& a, const st::Value& b)
         }
         return *lb == *rb ? 0 : (*lb ? 1 : -1);
     }
-    case ValueFamily::None:
+    case st::Family::None:
         break;
     }
     DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 值家族不可比");

@@ -11,7 +11,7 @@
 远端没有 .git 文件夹
 
 # 远程测试要求
-编译debug版本与release版本均无error, 如果某种必要的写法触发了某项编译warning, 停止工作并报告
+编译debug版本与release版本均无error(所有warning已视为error), 如果某种必要的写法触发了某项编译warning, 停止工作并报告
 ctest自动测试只需任选debug/release其中一个版本测试
 
 # 远程启停

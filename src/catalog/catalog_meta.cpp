@@ -14,91 +14,69 @@ namespace ct {
 // db_table 列定义
 std::vector<st::ColumnSpec> table_meta_cols()
 {
-    return {{"table_id", st::ColType::BigInt, 0, true},
-            {"table_name", st::ColType::VarChar, kMetaNameLen, true},
-            {"file_id", st::ColType::BigInt, 0, true},
-            {"schema_id", st::ColType::BigInt, 0, true}};
+    return {{"table_id", st::kBigint, 0, true},
+            {"table_name", st::kVarChar, kMetaNameLen, true},
+            {"file_id", st::kBigint, 0, true},
+            {"schema_id", st::kBigint, 0, true}};
 }
 
 // db_column 列定义
 std::vector<st::ColumnSpec> column_meta_cols()
 {
-    return {{"table_id", st::ColType::BigInt, 0, true},
-            {"col_name", st::ColType::VarChar, kMetaNameLen, true},
-            {"ordinal", st::ColType::Int, 0, true},
-            {"type", st::ColType::Int, 0, true},
-            {"length", st::ColType::Int, 0, true},
-            {"scale", st::ColType::Int, 0, true},
-            {"not_null", st::ColType::Int, 0, true}};
+    return {{"table_id", st::kBigint, 0, true},
+            {"col_name", st::kVarChar, kMetaNameLen, true},
+            {"ordinal", st::kInt, 0, true},
+            {"type", st::kInt, 0, true},
+            {"length", st::kInt, 0, true},
+            {"scale", st::kInt, 0, true},
+            {"not_null", st::kInt, 0, true}};
 }
 
 // db_schema 列定义
 std::vector<st::ColumnSpec> schema_meta_cols()
 {
-    return {{"schema_id", st::ColType::BigInt, 0, true},
-            {"schema_name", st::ColType::VarChar, kMetaNameLen, true}};
+    return {{"schema_id", st::kBigint, 0, true},
+            {"schema_name", st::kVarChar, kMetaNameLen, true}};
 }
 
 // db_type 列定义
 std::vector<st::ColumnSpec> type_meta_cols()
 {
-    return {{"type_id", st::ColType::Int, 0, true},
-            {"type_name", st::ColType::VarChar, kMetaNameLen, true},
-            {"alias", st::ColType::VarChar, kMetaNameLen, false},
-            {"family", st::ColType::Int, 0, true},
-            {"rank", st::ColType::Int, 0, true},
-            {"len_allowed", st::ColType::Int, 0, true},
-            {"len_default", st::ColType::Int, 0, true},
-            {"len_max", st::ColType::Int, 0, true},
-            {"scale_allowed", st::ColType::Int, 0, true},
-            {"rep", st::ColType::Int, 0, true},
-            {"store", st::ColType::Int, 0, true},
-            {"width", st::ColType::Int, 0, true}};
+    return {{"type_id", st::kInt, 0, true},
+            {"type_name", st::kVarChar, kMetaNameLen, true},
+            {"alias", st::kVarChar, kMetaNameLen, false},
+            {"family", st::kInt, 0, true},
+            {"rank", st::kInt, 0, true},
+            {"len_allowed", st::kInt, 0, true},
+            {"len_default", st::kInt, 0, true},
+            {"len_max", st::kInt, 0, true},
+            {"scale_allowed", st::kInt, 0, true},
+            {"rep", st::kInt, 0, true},
+            {"store", st::kInt, 0, true},
+            {"width", st::kInt, 0, true}};
 }
 
-// db_type 种子行: 现役类型各一行, 无别名的行 alias 为 NULL;
-// 属性列含义: family 值族(1 数值 2 文本 3 布尔), rank 数值提升等级,
-// len_allowed/len_default/len_max 声明长度规则, scale_allowed 声明标度规则,
-// rep 值形态, store 存储形态(1 定宽 2 定长补空格 3 变长前缀 4 定点十进制), width 定宽字节数
+// db_type 种子行: 由自举内核生成, 无别名的行 alias 为 NULL
 std::vector<std::vector<st::Value>> type_meta_rows()
 {
-    struct TypeSeed {
-        int id;
-        const char* name;
-        const char* alias;  // nullptr 表示无别名
-        int family;
-        int rank;
-        int len_allowed;
-        int len_default;
-        int len_max;
-        int scale_allowed;
-        int rep;
-        int store;
-        int width;
-    };
-    constexpr TypeSeed seeds[] = {
-            {1, "int", nullptr, 1, 1, 0, 0, 0, 0, 1, 1, 4},
-            {2, "bigint", nullptr, 1, 2, 0, 0, 0, 0, 1, 1, 8},
-            {3, "double", nullptr, 1, 5, 0, 0, 0, 0, 3, 1, 8},
-            {4, "varchar", nullptr, 2, 0, 1, 0, 65535, 0, 4, 3, 0},
-            {5, "float", nullptr, 1, 4, 0, 0, 0, 0, 2, 1, 4},
-            {6, "char", nullptr, 2, 0, 1, 1, 65535, 0, 4, 2, 0},
-            {7, "boolean", "bool", 3, 0, 0, 0, 0, 0, 5, 1, 1},
-            {8, "numeric", "decimal", 1, 3, 1, 0, 38, 1, 6, 4, 0},
-    };
     std::vector<std::vector<st::Value>> rows;
-    for (const TypeSeed& s : seeds) {
-        rows.push_back({st::int_val(s.id), st::str_val(s.name),
-                        s.alias == nullptr ? st::Value{} : st::str_val(s.alias),
-                        st::int_val(s.family), st::int_val(s.rank),
-                        st::int_val(s.len_allowed), st::int_val(s.len_default),
-                        st::int_val(s.len_max), st::int_val(s.scale_allowed),
-                        st::int_val(s.rep), st::int_val(s.store), st::int_val(s.width)});
+    for (const st::TypeSeed& s : st::kTypeSeeds) {
+        rows.push_back({st::int_val(st::kInt, s.attr.id), st::str_val(st::kVarChar, s.name),
+                        s.alias == nullptr ? st::Value{} : st::str_val(st::kVarChar, s.alias),
+                        st::int_val(st::kInt, static_cast<int64_t>(s.attr.family)),
+                        st::int_val(st::kInt, s.attr.rank),
+                        st::int_val(st::kInt, s.len_allowed ? 1 : 0),
+                        st::int_val(st::kInt, s.len_default),
+                        st::int_val(st::kInt, s.len_max),
+                        st::int_val(st::kInt, s.scale_allowed ? 1 : 0),
+                        st::int_val(st::kInt, static_cast<int64_t>(s.attr.rep)),
+                        st::int_val(st::kInt, static_cast<int64_t>(s.attr.store)),
+                        st::int_val(st::kInt, s.attr.width)});
     }
     return rows;
 }
 
-// 生成某表的 db_column 自描述行(ordinal 从 0 起, type/not_null 存枚举值与 0/1,
+// 生成某表的 db_column 自描述行(ordinal 从 0 起, type 存 db_type.type_id, not_null 存 0/1,
 // length/scale 存声明长度/标度)
 std::vector<std::vector<st::Value>> column_meta_rows(uint64_t tid,
                                                      const std::vector<st::ColumnSpec>& cols)
@@ -106,12 +84,13 @@ std::vector<std::vector<st::Value>> column_meta_rows(uint64_t tid,
     std::vector<std::vector<st::Value>> rows;
     rows.reserve(cols.size());
     for (size_t i = 0; i < cols.size(); ++i) {
-        rows.push_back({st::bigint_val(static_cast<int64_t>(tid)), st::str_val(cols[i].name),
-                        st::int_val(static_cast<int64_t>(i)),
-                        st::int_val(static_cast<int64_t>(cols[i].type)),
-                        st::int_val(static_cast<int64_t>(cols[i].length)),
-                        st::int_val(static_cast<int64_t>(cols[i].scale)),
-                        st::int_val(static_cast<int64_t>(cols[i].not_null ? 1 : 0))});
+        rows.push_back({st::int_val(st::kBigint, static_cast<int64_t>(tid)),
+                        st::str_val(st::kVarChar, cols[i].name),
+                        st::int_val(st::kInt, static_cast<int64_t>(i)),
+                        st::int_val(st::kInt, static_cast<int64_t>(cols[i].type.id)),
+                        st::int_val(st::kInt, static_cast<int64_t>(cols[i].length)),
+                        st::int_val(st::kInt, static_cast<int64_t>(cols[i].scale)),
+                        st::int_val(st::kInt, static_cast<int64_t>(cols[i].not_null ? 1 : 0))});
     }
     return rows;
 }
@@ -140,63 +119,129 @@ const std::string& row_str(const std::vector<st::Value>& row, size_t idx)
 
 namespace {
 
-// 列类型值是否在已知集合内; 穷尽 switch, 新增类型未同步时 -Wswitch 报警
-bool col_type_known(st::ColType type)
+// 值族/值形态/存储形态值是否在代码侧词表内
+bool type_word_known(int64_t family, int64_t rep, int64_t store)
 {
-    switch (type) {
-    case st::ColType::Int:
-    case st::ColType::BigInt:
-    case st::ColType::Double:
-    case st::ColType::VarChar:
-    case st::ColType::Float:
-    case st::ColType::Char:
-    case st::ColType::Bool:
-    case st::ColType::Numeric:
-        return true;
-    case st::ColType::Null:
+    if (family < static_cast<int64_t>(st::Family::Num)
+        || family > static_cast<int64_t>(st::Family::Bool)) {
         return false;
     }
-    return false;
+    if (rep < static_cast<int64_t>(st::Rep::Int64) || rep > static_cast<int64_t>(st::Rep::Dec)) {
+        return false;
+    }
+    if (store < static_cast<int64_t>(st::Store::Fixed)
+        || store > static_cast<int64_t>(st::Store::Decimal)) {
+        return false;
+    }
+    return true;
 }
 
-// db_column 行解出 (ordinal, 列定义), 值缺失或非法当场报错
-std::pair<int64_t, st::ColumnSpec> parse_column_row(const std::vector<st::Value>& row)
+// db_column 行解出 (ordinal, 列定义), 列类型经 db_type 行取属性, 值缺失或非法当场报错
+std::pair<int64_t, st::ColumnSpec> parse_column_row(const std::vector<st::Value>& row,
+                                                    const std::vector<TypeRow>& types)
 {
-    const int64_t type = row_int(row, 3);
+    const int64_t tid = row_int(row, 3);
+    const TypeRow* tr = nullptr;
+    for (const TypeRow& t : types) {
+        if (t.attr.id == tid) {
+            tr = &t;
+            break;
+        }
+    }
+    if (tr == nullptr) {
+        DB_CRITICAL(LogModule::CATALOG, "列类型值非法: {}", tid);
+    }
     const int64_t length = row_int(row, 4);
     const int64_t scale = row_int(row, 5);
     const int64_t not_null = row_int(row, 6);
-    const auto col_type = static_cast<st::ColType>(type);
-    if (!col_type_known(col_type)) {
-        DB_CRITICAL(LogModule::CATALOG, "列类型值非法: {}", type);
-    }
-    if (length < 0 || length > UINT16_MAX
-        || (col_type == st::ColType::Numeric && length > st::kNumericPrecisionMax)) {
+    if (length < 0 || length > tr->len_max || (!tr->len_allowed && length != 0)) {
         DB_CRITICAL(LogModule::CATALOG, "列长度值非法: {}", length);
     }
-    if (scale < 0 || scale > st::kNumericPrecisionMax
-        || (col_type != st::ColType::Numeric && scale != 0)
-        || (col_type == st::ColType::Numeric && length > 0 && scale > length)) {
+    if (scale < 0 || scale > UINT8_MAX || (!tr->scale_allowed && scale != 0)
+        || (tr->scale_allowed && scale > length)) {
         DB_CRITICAL(LogModule::CATALOG, "列标度值非法: {}", scale);
     }
     if (not_null != 0 && not_null != 1) {
         DB_CRITICAL(LogModule::CATALOG, "非空标记值非法: {}", not_null);
     }
-    return {row_int(row, 2), st::ColumnSpec{row_str(row, 1), col_type,
+    return {row_int(row, 2), st::ColumnSpec{row_str(row, 1), tr->attr,
                                             static_cast<uint16_t>(length), not_null == 1,
                                             static_cast<uint8_t>(scale)}};
 }
 
 }  // namespace
 
-// 收集指定表的列定义(须持锁): 扫 db_column 匹配 tid 并按 ordinal 排序, 无列定义或序号重复报错
+// db_type 行解出 TypeRow, 值缺失/非法或属性值不在词表内当场报错
+TypeRow parse_type_row(const std::vector<st::Value>& row)
+{
+    const int64_t id = row_int(row, 0);
+    const int64_t family = row_int(row, 3);
+    const int64_t rank = row_int(row, 4);
+    const int64_t len_allowed = row_int(row, 5);
+    const int64_t len_default = row_int(row, 6);
+    const int64_t len_max = row_int(row, 7);
+    const int64_t scale_allowed = row_int(row, 8);
+    const int64_t rep = row_int(row, 9);
+    const int64_t store = row_int(row, 10);
+    const int64_t width = row_int(row, 11);
+    if (id <= 0 || id > UINT16_MAX) {
+        DB_CRITICAL(LogModule::CATALOG, "类型 id 非法: {}", id);
+    }
+    if (!type_word_known(family, rep, store)) {
+        DB_CRITICAL(LogModule::CATALOG, "类型属性值不在词表内: {}", id);
+    }
+    if (rank < 0 || rank > 255 || (family != static_cast<int64_t>(st::Family::Num) && rank != 0)) {
+        DB_CRITICAL(LogModule::CATALOG, "类型提升等级非法: {}", rank);
+    }
+    if (len_allowed != 0 && len_allowed != 1) {
+        DB_CRITICAL(LogModule::CATALOG, "长度许可值非法: {}", len_allowed);
+    }
+    if (len_default < 0 || len_default > UINT16_MAX || len_default > len_max) {
+        DB_CRITICAL(LogModule::CATALOG, "缺省长度值非法: {}", len_default);
+    }
+    if (len_max < 0 || len_max > UINT16_MAX) {
+        DB_CRITICAL(LogModule::CATALOG, "长度上限值非法: {}", len_max);
+    }
+    if (scale_allowed != 0 && scale_allowed != 1) {
+        DB_CRITICAL(LogModule::CATALOG, "标度许可值非法: {}", scale_allowed);
+    }
+    if (width < 0 || width > UINT8_MAX) {
+        DB_CRITICAL(LogModule::CATALOG, "定宽字节数非法: {}", width);
+    }
+    TypeRow out;
+    out.attr.id = static_cast<uint16_t>(id);
+    out.attr.family = static_cast<st::Family>(family);
+    out.attr.rank = static_cast<uint8_t>(rank);
+    out.attr.rep = static_cast<st::Rep>(rep);
+    out.attr.store = static_cast<st::Store>(store);
+    out.attr.width = static_cast<uint8_t>(width);
+    out.name = row_str(row, 1);
+    if (!std::holds_alternative<std::monostate>(row[2].box)) {
+        out.alias = row_str(row, 2);
+    }
+    out.len_allowed = len_allowed == 1;
+    out.len_default = static_cast<uint16_t>(len_default);
+    out.len_max = static_cast<uint16_t>(len_max);
+    out.scale_allowed = scale_allowed == 1;
+    return out;
+}
+
+// 收集指定表的列定义(须持锁): 扫 db_column 匹配 tid 并按 ordinal 排序,
+// 列类型经 db_type 行取属性, 无列定义或序号重复报错
 std::vector<st::ColumnSpec> collect_columns(st::Engine& engine, uint64_t tid,
                                             const std::string& name)
 {
+    std::vector<TypeRow> types;
+    for (const std::vector<st::Value>& row : engine.read_rows(kTypeMetaId, type_meta_cols())) {
+        types.push_back(parse_type_row(row));
+    }
+    if (types.empty()) {
+        DB_CRITICAL(LogModule::CATALOG, "db_type 元数据表为空");
+    }
     std::vector<std::pair<int64_t, st::ColumnSpec>> pairs;
     for (const std::vector<st::Value>& row : engine.read_rows(kColumnMetaId, column_meta_cols())) {
         if (row_int(row, 0) == static_cast<int64_t>(tid)) {
-            pairs.push_back(parse_column_row(row));
+            pairs.push_back(parse_column_row(row, types));
         }
     }
     if (pairs.empty()) {
@@ -215,6 +260,47 @@ std::vector<st::ColumnSpec> collect_columns(st::Engine& engine, uint64_t tid,
         cols.push_back(std::move(p.second));
     }
     return cols;
+}
+
+// ==================== 类型查找 ====================
+
+// 按名查类型(规范名或别名): 扫 db_type 逐行匹配, 未命中报 InvalidType
+TypeRow Catalog::find_type(const std::string& name)
+{
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    for (const std::vector<st::Value>& row : engine_.read_rows(kTypeMetaId, type_meta_cols())) {
+        const TypeRow t = parse_type_row(row);
+        if (t.name == name || (!t.alias.empty() && t.alias == name)) {
+            return t;
+        }
+    }
+    DB_RAISE(db::ErrCode::InvalidType, LogModule::CATALOG, "类型不存在: {}", name);
+}
+
+// 按 type_id 查类型: 扫 db_type 逐行匹配, 未命中报 Internal
+TypeRow Catalog::find_type_by_id(uint16_t id)
+{
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    for (const std::vector<st::Value>& row : engine_.read_rows(kTypeMetaId, type_meta_cols())) {
+        const TypeRow t = parse_type_row(row);
+        if (t.attr.id == id) {
+            return t;
+        }
+    }
+    DB_RAISE(db::ErrCode::Internal, LogModule::CATALOG, "类型 id 未注册: {}", id);
+}
+
+// 按名取内部类型属性: 扫 db_type 逐行匹配, 名为自举保证存在的内部名, 未命中报 Internal
+st::TypeAttr Catalog::require_type(const std::string& name)
+{
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    for (const std::vector<st::Value>& row : engine_.read_rows(kTypeMetaId, type_meta_cols())) {
+        const TypeRow t = parse_type_row(row);
+        if (t.name == name || (!t.alias.empty() && t.alias == name)) {
+            return t.attr;
+        }
+    }
+    DB_RAISE(db::ErrCode::Internal, LogModule::CATALOG, "内部类型缺失: {}", name);
 }
 
 // ==================== 索引条目查找 ====================

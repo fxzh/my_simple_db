@@ -140,28 +140,26 @@ proto::DecimalCell dec_cell(const st::DecimalVal& d)
     return c;
 }
 
-// st::Value 按语义类型分派为协议单元格: 判空先行
+// st::Value 按值形态分派为协议单元格: 判空先行
 proto::CellVal to_cell(const st::Value& v)
 {
     if (st::value_is_null(v)) {
         return std::monostate{};
     }
-    switch (v.type) {
-    case st::ColType::Bool:
+    switch (v.type.rep) {
+    case st::Rep::Bool:
         return std::get<bool>(v.box);
-    case st::ColType::Int:
-    case st::ColType::BigInt:
+    case st::Rep::Int64:
         return std::get<int64_t>(v.box);
-    case st::ColType::Float:
+    case st::Rep::Float:
         return std::get<float>(v.box);
-    case st::ColType::Double:
+    case st::Rep::Double:
         return std::get<double>(v.box);
-    case st::ColType::Char:
-    case st::ColType::VarChar:
+    case st::Rep::Str:
         return std::get<std::string>(v.box);
-    case st::ColType::Numeric:
+    case st::Rep::Dec:
         return dec_cell(std::get<st::DecimalVal>(v.box));
-    case st::ColType::Null:
+    case st::Rep::None:
         break;
     }
     DB_RAISE(db::ErrCode::Internal, EXECUTOR, "值无语义类型");

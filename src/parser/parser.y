@@ -99,6 +99,7 @@
 %type <std::vector<ColumnDef>> column_definitions
 %type <ColumnDef> column_definition
 %type <TypeInfo> type_specifier
+%type <std::string> plain_type len_type prec_type
 %type <long long> int_length
 %type <QualifiedName> qualified_name
 %type <std::vector<std::unique_ptr<Expr>>> value_list func_args
@@ -515,23 +516,36 @@ int_length:
         }
     ;
 
+// 类型说明: 类型名按三类关键字展开, 无参数类型带参即语法错误
 type_specifier:
-        INT    { $$ = TypeInfo{ DataType::Int, std::nullopt, std::nullopt }; }
-    |   BIGINT { $$ = TypeInfo{ DataType::BigInt, std::nullopt, std::nullopt }; }
-    |   FLOAT  { $$ = TypeInfo{ DataType::Float, std::nullopt, std::nullopt }; }
-    |   CHAR   { $$ = TypeInfo{ DataType::Char, std::nullopt, std::nullopt }; }
-    |   DOUBLE { $$ = TypeInfo{ DataType::Double, std::nullopt, std::nullopt }; }
-    |   VARCHAR { $$ = TypeInfo{ DataType::VarChar, std::nullopt, std::nullopt }; }
-    |   BOOLEAN { $$ = TypeInfo{ DataType::Bool, std::nullopt, std::nullopt }; }
-    |   BOOL    { $$ = TypeInfo{ DataType::Bool, std::nullopt, std::nullopt }; }
-    |   NUMERIC { $$ = TypeInfo{ DataType::Numeric, std::nullopt, std::nullopt }; }
-    |   DECIMAL { $$ = TypeInfo{ DataType::Numeric, std::nullopt, std::nullopt }; }
-    |   CHAR '(' int_length ')'    { $$ = TypeInfo{ DataType::Char, $3, std::nullopt }; }
-    |   VARCHAR '(' int_length ')' { $$ = TypeInfo{ DataType::VarChar, $3, std::nullopt }; }
-    |   NUMERIC '(' int_length ')' { $$ = TypeInfo{ DataType::Numeric, $3, std::nullopt }; }
-    |   DECIMAL '(' int_length ')' { $$ = TypeInfo{ DataType::Numeric, $3, std::nullopt }; }
-    |   NUMERIC '(' int_length ',' int_length ')' { $$ = TypeInfo{ DataType::Numeric, $3, $5 }; }
-    |   DECIMAL '(' int_length ',' int_length ')' { $$ = TypeInfo{ DataType::Numeric, $3, $5 }; }
+        plain_type                                  { $$ = TypeInfo{ std::move($1), std::nullopt, std::nullopt }; }
+    |   len_type                                    { $$ = TypeInfo{ std::move($1), std::nullopt, std::nullopt }; }
+    |   len_type '(' int_length ')'                 { $$ = TypeInfo{ std::move($1), $3, std::nullopt }; }
+    |   prec_type                                   { $$ = TypeInfo{ std::move($1), std::nullopt, std::nullopt }; }
+    |   prec_type '(' int_length ')'                { $$ = TypeInfo{ std::move($1), $3, std::nullopt }; }
+    |   prec_type '(' int_length ',' int_length ')' { $$ = TypeInfo{ std::move($1), $3, $5 }; }
+    ;
+
+// 无参数类型名
+plain_type:
+        INT      { $$ = "int"; }
+    |   BIGINT   { $$ = "bigint"; }
+    |   FLOAT    { $$ = "float"; }
+    |   DOUBLE   { $$ = "double"; }
+    |   BOOLEAN  { $$ = "boolean"; }
+    |   BOOL     { $$ = "bool"; }
+    ;
+
+// 可带长度类型名
+len_type:
+        CHAR     { $$ = "char"; }
+    |   VARCHAR  { $$ = "varchar"; }
+    ;
+
+// 可带精度与标度类型名
+prec_type:
+        NUMERIC  { $$ = "numeric"; }
+    |   DECIMAL  { $$ = "decimal"; }
     ;
 
 expression:

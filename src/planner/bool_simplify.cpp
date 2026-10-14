@@ -120,7 +120,7 @@ void simplify_logic(std::unique_ptr<ana::BoundExpr>& e)
     const bool* rb = const_bool(*l.right);
     if (l.op == LogicOp::And) {
         if ((lb != nullptr && !*lb) || (rb != nullptr && !*rb)) {
-            e = std::make_unique<ana::BoundConst>(st::bool_val(false));
+            e = std::make_unique<ana::BoundConst>(st::bool_val(st::kBool, false));
         } else if (lb != nullptr) {  // 此处 lb 必为 true
             e = std::move(l.right);
         } else if (rb != nullptr) {  // 此处 rb 必为 true
@@ -130,7 +130,7 @@ void simplify_logic(std::unique_ptr<ana::BoundExpr>& e)
     }
     // LogicOp 仅 And/Or 两值, 余下为 Or
     if ((lb != nullptr && *lb) || (rb != nullptr && *rb)) {
-        e = std::make_unique<ana::BoundConst>(st::bool_val(true));
+        e = std::make_unique<ana::BoundConst>(st::bool_val(st::kBool, true));
     } else if (lb != nullptr) {  // 此处 lb 必为 false
         e = std::move(l.right);
     } else if (rb != nullptr) {  // 此处 rb 必为 false
@@ -181,7 +181,7 @@ void simplify_cmp(std::unique_ptr<ana::BoundExpr>& e)
     case CmpOp::Lt:
     case CmpOp::Gt:
         if (expr_equal(*c.left, *c.right)) {
-            e = std::make_unique<ana::BoundConst>(st::bool_val(false));
+            e = std::make_unique<ana::BoundConst>(st::bool_val(st::kBool, false));
         }
         return;
     }

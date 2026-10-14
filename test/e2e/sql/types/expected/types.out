@@ -87,3 +87,8 @@ UPDATE t_fd SET f = d WHERE d = 390000000000000000000000000000000000000.0;
 ERROR: 数值超出 numeric 可表示范围
 DROP TABLE t_fd;
 DROP
+-- 非关键字类型名与无参类型带参: 均为语法错(类型名为关键字)
+CREATE TABLE t_bad (x foo);
+ERROR: 2.23-25: syntax error, unexpected IDENTIFIER
+CREATE TABLE t_bad (x int(5));
+ERROR: 1.26: syntax error, unexpected '(', expecting ')' or ','

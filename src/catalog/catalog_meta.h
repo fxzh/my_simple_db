@@ -23,9 +23,11 @@ std::vector<st::ColumnSpec> column_meta_cols();
 std::vector<st::ColumnSpec> schema_meta_cols();
 // db_type 列定义
 std::vector<st::ColumnSpec> type_meta_cols();
-// db_type 种子行: 现役类型各一行, 无别名的行 alias 为 NULL
+// db_type 种子行: 由自举内核生成, 无别名的行 alias 为 NULL
 std::vector<std::vector<st::Value>> type_meta_rows();
-// 生成某表的 db_column 自描述行(ordinal 从 0 起, type/not_null 存枚举值与 0/1,
+// db_type 行解出 TypeRow, 值缺失/非法或属性值不在词表内当场报错
+TypeRow parse_type_row(const std::vector<st::Value>& row);
+// 生成某表的 db_column 自描述行(ordinal 从 0 起, type 存 db_type.type_id, not_null 存 0/1,
 // length/scale 存声明长度/标度)
 std::vector<std::vector<st::Value>> column_meta_rows(uint64_t tid,
                                                      const std::vector<st::ColumnSpec>& cols);
@@ -36,7 +38,8 @@ std::vector<std::vector<st::Value>> column_meta_rows(uint64_t tid,
 int64_t row_int(const std::vector<st::Value>& row, size_t idx);
 // 行内取字符串字段, NULL 或类型不符报元数据行损坏
 const std::string& row_str(const std::vector<st::Value>& row, size_t idx);
-// 收集指定表的列定义(须持锁): 扫 db_column 匹配 tid 并按 ordinal 排序, 无列定义或序号重复报错
+// 收集指定表的列定义(须持锁): 扫 db_column 匹配 tid 并按 ordinal 排序,
+// 列类型经 db_type 行取属性, 无列定义或序号重复报错
 std::vector<st::ColumnSpec> collect_columns(st::Engine& engine, uint64_t tid,
                                             const std::string& name);
 

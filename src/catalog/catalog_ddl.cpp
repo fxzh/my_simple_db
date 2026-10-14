@@ -33,8 +33,8 @@ void Catalog::create_schema(const std::string& name)
     }
     st::RowRef ref;
     engine_.insert_row(kSchemaMetaId, schema_meta_cols(),
-                       {st::bigint_val(static_cast<int64_t>(alloc_schema_id())),
-                        st::str_val(name)}, &ref);
+                       {st::int_val(st::kBigint, static_cast<int64_t>(alloc_schema_id())),
+                        st::str_val(st::kVarChar, name)}, &ref);
 }
 
 uint64_t Catalog::create_table_impl(uint64_t sid, const TableRef& table,
@@ -103,9 +103,10 @@ void Catalog::write_meta_rows(uint64_t sid, uint64_t tid, uint64_t fid, const st
 {
     st::RowRef ref;
     engine_.insert_row(kTableMetaId, table_meta_cols(),
-                       {st::bigint_val(static_cast<int64_t>(tid)), st::str_val(name),
-                        st::bigint_val(static_cast<int64_t>(fid)),
-                        st::bigint_val(static_cast<int64_t>(sid))}, &ref);
+                       {st::int_val(st::kBigint, static_cast<int64_t>(tid)),
+                        st::str_val(st::kVarChar, name),
+                        st::int_val(st::kBigint, static_cast<int64_t>(fid)),
+                        st::int_val(st::kBigint, static_cast<int64_t>(sid))}, &ref);
     for (const std::vector<st::Value>& row : column_meta_rows(tid, cols)) {
         engine_.insert_row(kColumnMetaId, column_meta_cols(), row, &ref);
     }
@@ -128,8 +129,8 @@ void Catalog::bootstrap_meta_tables()
         engine_.insert_row(kTypeMetaId, type_meta_cols(), row, &ref);
     }
     engine_.insert_row(kSchemaMetaId, schema_meta_cols(),
-                       {st::bigint_val(static_cast<int64_t>(kSystemSchemaId)),
-                        st::str_val(std::string{kSystemSchemaName})}, &ref);
+                       {st::int_val(st::kBigint, static_cast<int64_t>(kSystemSchemaId)),
+                        st::str_val(st::kVarChar, std::string{kSystemSchemaName})}, &ref);
 }
 
 // 删除指定表的元数据行(须持锁): 扫两张元数据表, 收集第 0 列等于 tid 的行引用后逐个物理删除
@@ -257,10 +258,10 @@ void Catalog::create_index(const TableHandle& table, const std::string& index, u
     engine_.build_index(meta.file_id, meta.cols, col_ordinal, fid);
     st::RowRef ref;
     engine_.insert_row(kIndexMetaId, index_cols_,
-                       {st::bigint_val(static_cast<int64_t>(meta.table_id)),
-                        st::str_val(index),
-                        st::int_val(static_cast<int64_t>(col_ordinal)),
-                        st::bigint_val(static_cast<int64_t>(fid))}, &ref);
+                       {st::int_val(st::kBigint, static_cast<int64_t>(meta.table_id)),
+                        st::str_val(st::kVarChar, index),
+                        st::int_val(st::kInt, static_cast<int64_t>(col_ordinal)),
+                        st::int_val(st::kBigint, static_cast<int64_t>(fid))}, &ref);
 }
 
 void Catalog::drop_index(const TableHandle& table, const std::string& index)

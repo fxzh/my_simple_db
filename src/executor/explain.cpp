@@ -63,33 +63,19 @@ std::string const_text(const st::Value& v)
     return "NULL";
 }
 
-// 目标类型转文本: 命名与 ast_print.hxx 的 type_to_string 对齐, 长度 0 不带后缀,
-// numeric 声明标度时带 (精度,标度) 后缀
-std::string col_type_text(st::ColType t, uint16_t length, uint8_t scale)
+// 目标类型转文本: 名字取自 db_type 行, 长度 0 不带后缀, numeric 声明标度时带 (精度,标度) 后缀
+std::string col_type_text(ct::Catalog& db, st::TypeAttr t, uint16_t length, uint8_t scale)
 {
-    const char* name = nullptr;
-    switch (t) {
-    case st::ColType::Int: name = "int"; break;
-    case st::ColType::BigInt: name = "bigint"; break;
-    case st::ColType::Float: name = "float"; break;
-    case st::ColType::Double: name = "double"; break;
-    case st::ColType::Char: name = "char"; break;
-    case st::ColType::VarChar: name = "varchar"; break;
-    case st::ColType::Bool: name = "boolean"; break;
-    case st::ColType::Numeric: name = "numeric"; break;
-    case st::ColType::Null: break;
-    }
-    if (name == nullptr) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::EXECUTOR, "explain: 目标类型无名");
-    }
-    if (t == st::ColType::Numeric && length > 0 && scale > 0) {
+    const std::string name = db.find_type_by_id(t.id).name;
+    if (t.rep == st::Rep::Dec && length > 0 && scale > 0) {
         return std::format("{}({},{})", name, length, scale);
     }
     return length > 0 ? std::format("{}({})", name, length) : name;
 }
 
 // 语义分析表达式转文本: 格式与 ast_print.hxx 的 expr_to_string 对齐, 列下标经 names 回填列名
-std::string bound_expr_to_string(const ana::BoundExpr& e, const std::vector<std::string>& names)
+std::string bound_expr_to_string(ct::Catalog& db, const ana::BoundExpr& e,
+                                 const std::vector<std::string>& names)
 {
     switch (e.kind()) {
     case ana::BoundExprKind::Const:
@@ -98,29 +84,30 @@ std::string bound_expr_to_string(const ana::BoundExpr& e, const std::vector<std:
         return names[static_cast<const ana::BoundColRef&>(e).col_idx];
     case ana::BoundExprKind::Arith: {
         const auto& a = static_cast<const ana::BoundArith&>(e);
-        return "(" + bound_expr_to_string(*a.left, names) + " " + a.op + " "
-               + bound_expr_to_string(*a.right, names) + ")";
+        return "(" + bound_expr_to_string(db, *a.left, names) + " " + a.op + " "
+               + bound_expr_to_string(db, *a.right, names) + ")";
     }
     case ana::BoundExprKind::Neg:
-        return "(-" + bound_expr_to_string(*static_cast<const ana::BoundNeg&>(e).operand, names)
+        return "(-" + bound_expr_to_string(db, *static_cast<const ana::BoundNeg&>(e).operand, names)
                + ")";
     case ana::BoundExprKind::Cmp: {
         const auto& c = static_cast<const ana::BoundCmp&>(e);
-        return "(" + bound_expr_to_string(*c.left, names) + " " + cmp_to_string(c.op) + " "
-               + bound_expr_to_string(*c.right, names) + ")";
+        return "(" + bound_expr_to_string(db, *c.left, names) + " " + cmp_to_string(c.op) + " "
+               + bound_expr_to_string(db, *c.right, names) + ")";
     }
     case ana::BoundExprKind::Logic: {
         const auto& l = static_cast<const ana::BoundLogic&>(e);
-        return "(" + bound_expr_to_string(*l.left, names)
+        return "(" + bound_expr_to_string(db, *l.left, names)
                + (l.op == LogicOp::And ? " AND " : " OR ")
-               + bound_expr_to_string(*l.right, names) + ")";
+               + bound_expr_to_string(db, *l.right, names) + ")";
     }
     case ana::BoundExprKind::Not:
-        return "(NOT " + bound_expr_to_string(*static_cast<const ana::BoundNot&>(e).operand, names)
+        return "(NOT " + bound_expr_to_string(db, *static_cast<const ana::BoundNot&>(e).operand,
+                                              names)
                + ")";
     case ana::BoundExprKind::IsNull: {
         const auto& i = static_cast<const ana::BoundIsNull&>(e);
-        return "(" + bound_expr_to_string(*i.operand, names)
+        return "(" + bound_expr_to_string(db, *i.operand, names)
                + (i.negate ? " IS NOT NULL" : " IS NULL") + ")";
     }
     case ana::BoundExprKind::FuncCall: {
@@ -131,14 +118,14 @@ std::string bound_expr_to_string(const ana::BoundExpr& e, const std::vector<std:
             if (i > 0) {
                 s += ", ";
             }
-            s += bound_expr_to_string(*f.args[i], names);
+            s += bound_expr_to_string(db, *f.args[i], names);
         }
         return s + ")";
     }
     case ana::BoundExprKind::Cast: {
         const auto& c = static_cast<const ana::BoundCast&>(e);
-        return "CAST(" + bound_expr_to_string(*c.operand, names) + " AS "
-               + col_type_text(c.type, c.length, c.scale) + ")";
+        return "CAST(" + bound_expr_to_string(db, *c.operand, names) + " AS "
+               + col_type_text(db, c.type, c.length, c.scale) + ")";
     }
     }
     // 不可达: 全部绑定表达式种类已在上方穷尽
@@ -187,7 +174,7 @@ std::vector<std::string> output_names(const pl::PlanNode& node)
 }
 
 // 节点头文本(不含缩进): 按计划种类生成
-std::string node_header(const pl::PlanNode& node)
+std::string node_header(ct::Catalog& db, const pl::PlanNode& node)
 {
     switch (node.kind()) {
     case pl::PlanKind::SeqScan:
@@ -207,7 +194,7 @@ std::string node_header(const pl::PlanNode& node)
     case pl::PlanKind::Filter: {
         const auto& f = static_cast<const pl::FilterPlan&>(node);
         const std::vector<std::string> names = output_names(*f.child);
-        return "Filter: " + bound_expr_to_string(*f.pred, names);
+        return "Filter: " + bound_expr_to_string(db, *f.pred, names);
     }
     case pl::PlanKind::Project:
         return "Project";
@@ -247,7 +234,7 @@ std::string node_header(const pl::PlanNode& node)
 }
 
 // 节点属性行文本(不含缩进): 无属性的节点返回空
-std::vector<std::string> node_props(const pl::PlanNode& node)
+std::vector<std::string> node_props(ct::Catalog& db, const pl::PlanNode& node)
 {
     std::vector<std::string> props;
     switch (node.kind()) {
@@ -289,7 +276,7 @@ std::vector<std::string> node_props(const pl::PlanNode& node)
                 out += ", ";
             }
             out += p.sort_on_output ? names[p.orders[i].out_idx]
-                                    : bound_expr_to_string(*p.orders[i].expr, names);
+                                    : bound_expr_to_string(db, *p.orders[i].expr, names);
             if (p.orders[i].desc) {
                 out += " DESC";
             }
@@ -306,7 +293,7 @@ std::vector<std::string> node_props(const pl::PlanNode& node)
                 set += ", ";
             }
             set += names[p.assigns[i].col_idx] + " = "
-                   + bound_expr_to_string(*p.assigns[i].value, names);
+                   + bound_expr_to_string(db, *p.assigns[i].value, names);
         }
         props.push_back("Set: " + set);
         break;
@@ -319,12 +306,12 @@ std::vector<std::string> node_props(const pl::PlanNode& node)
 
 // 渲染节点子树: 节点行(node_prefix 已含缩进或 "->  " 箭头前缀) + 属性行(缩进 prop_indent)
 // + 子节点("->" 前缀于父属性行缩进处, 子树属性行缩进 +6)
-void render_node(const pl::PlanNode& node, const std::string& node_prefix, size_t prop_indent,
-                 std::vector<std::string>& lines)
+void render_node(ct::Catalog& db, const pl::PlanNode& node, const std::string& node_prefix,
+                 size_t prop_indent, std::vector<std::string>& lines)
 {
-    lines.push_back(node_prefix + node_header(node));
+    lines.push_back(node_prefix + node_header(db, node));
     const std::string prop_pad(prop_indent, ' ');
-    for (const std::string& prop : node_props(node)) {
+    for (const std::string& prop : node_props(db, node)) {
         lines.push_back(prop_pad + prop);
     }
     const pl::PlanNode* child = nullptr;
@@ -345,23 +332,23 @@ void render_node(const pl::PlanNode& node, const std::string& node_prefix, size_
         child = static_cast<const pl::ExplainPlan&>(node).child.get();
     }
     if (child != nullptr) {
-        render_node(*child, prop_pad + "->  ", prop_indent + 6, lines);
+        render_node(db, *child, prop_pad + "->  ", prop_indent + 6, lines);
     }
 }
 
 }  // namespace
 
-ExecResult run_explain(const pl::ExplainPlan& plan)
+ExecResult run_explain(ct::Catalog& db, const pl::ExplainPlan& plan)
 {
     // 顶层 Explain 节点自身不渲染(单层输出即被解释计划), 嵌套 Explain 显示为普通节点
     std::vector<std::string> lines;
-    render_node(*plan.child, "", 2, lines);
+    render_node(db, *plan.child, "", 2, lines);
 
     auto op = std::make_unique<RowsOp>();
     op->rows.reserve(lines.size());
     for (std::string& line : lines) {
         st::Row row;
-        row.values.push_back(st::str_val(std::move(line)));
+        row.values.push_back(st::str_val(st::kVarChar, std::move(line)));
         op->rows.push_back(std::move(row));
     }
     ExecResult r;

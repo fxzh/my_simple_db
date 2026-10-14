@@ -105,28 +105,38 @@ bool encode_row(const std::vector<ColumnSpec>& cols, const std::vector<Value>& v
             out[2 + i / 8] |= static_cast<uint8_t>(1u << (i % 8));
             continue;
         }
-        switch (col.type) {
-            case ColType::Int: {
-                int64_t v = 0;
-                if (!get_int64(values[i], &v) || v < INT32_MIN || v > INT32_MAX) {
-                    return false;
-                }
-                put_u32(out, static_cast<uint32_t>(static_cast<int32_t>(v)));
-                break;
-            }
-            case ColType::BigInt: {
+        switch (col.type.rep) {
+            case Rep::Int64: {
                 int64_t v = 0;
                 if (!get_int64(values[i], &v)) {
                     return false;
                 }
-                put_u32(out, static_cast<uint32_t>(v));
-                put_u32(out, static_cast<uint32_t>(static_cast<uint64_t>(v) >> 32));
+                if (col.type.store != Store::Fixed) {
+                    DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
+                             "encode: 存储形态与值形态不符");
+                }
+                if (col.type.width == 4) {
+                    if (v < INT32_MIN || v > INT32_MAX) {
+                        return false;
+                    }
+                    put_u32(out, static_cast<uint32_t>(static_cast<int32_t>(v)));
+                } else if (col.type.width == 8) {
+                    put_u32(out, static_cast<uint32_t>(v));
+                    put_u32(out, static_cast<uint32_t>(static_cast<uint64_t>(v) >> 32));
+                } else {
+                    DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
+                             "encode: 定宽字节数不在词表内: {}", col.type.width);
+                }
                 break;
             }
-            case ColType::Double: {
+            case Rep::Double: {
                 double v = 0.0;
-                if (!get_double(values[i], &v)) {
-                    return false;
+                if (!get_double(values[i], &v) || !std::isfinite(v)) {
+                    return false;  // 形态不匹配或非有限值
+                }
+                if (col.type.store != Store::Fixed || col.type.width != 8) {
+                    DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
+                             "encode: 属性组合不在词表内");
                 }
                 uint64_t bits = 0;
                 std::memcpy(&bits, &v, sizeof(bits));
@@ -134,56 +144,67 @@ bool encode_row(const std::vector<ColumnSpec>& cols, const std::vector<Value>& v
                 put_u32(out, static_cast<uint32_t>(bits >> 32));
                 break;
             }
-            case ColType::VarChar: {
+            case Rep::Str: {
                 std::string v;
                 if (!get_string(values[i], &v)) {
                     return false;
                 }
-                if (v.size() > UINT16_MAX) {
-                    return false;
+                if (col.type.store == Store::VarLen) {
+                    if (v.size() > UINT16_MAX) {
+                        return false;
+                    }
+                    if (col.length > 0 && v.size() > col.length) {
+                        return false;  // 超出声明长度拒绝
+                    }
+                    put_u16(out, static_cast<uint16_t>(v.size()));
+                    out.insert(out.end(), v.begin(), v.end());
+                } else if (col.type.store == Store::CharPad) {
+                    const uint16_t n = col.length;
+                    if (v.size() > n) {
+                        return false;  // 超长拒绝
+                    }
+                    out.insert(out.end(), v.begin(), v.end());
+                    out.insert(out.end(), static_cast<size_t>(n) - v.size(), ' ');  // 不足补空格
+                } else {
+                    DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
+                             "encode: 存储形态与值形态不符");
                 }
-                if (col.length > 0 && v.size() > col.length) {
-                    return false;  // 超出声明长度拒绝
-                }
-                put_u16(out, static_cast<uint16_t>(v.size()));
-                out.insert(out.end(), v.begin(), v.end());
                 break;
             }
-            case ColType::Float: {
+            case Rep::Float: {
                 const float* f = std::get_if<float>(&values[i].box);
                 if (f == nullptr || !std::isfinite(*f)) {
                     return false;  // 形态不匹配或非有限值
+                }
+                if (col.type.store != Store::Fixed || col.type.width != 4) {
+                    DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
+                             "encode: 属性组合不在词表内");
                 }
                 uint32_t bits = 0;
                 std::memcpy(&bits, f, sizeof(bits));
                 put_u32(out, bits);
                 break;
             }
-            case ColType::Char: {
-                std::string v;
-                if (!get_string(values[i], &v)) {
-                    return false;
-                }
-                const uint16_t n = col.length;
-                if (v.size() > n) {
-                    return false;  // 超长拒绝
-                }
-                out.insert(out.end(), v.begin(), v.end());
-                out.insert(out.end(), static_cast<size_t>(n) - v.size(), ' ');  // 不足补空格
-                break;
-            }
-            case ColType::Bool: {
+            case Rep::Bool: {
                 bool v = false;
                 if (!get_bool(values[i], &v)) {
                     return false;
                 }
+                if (col.type.store != Store::Fixed || col.type.width != 1) {
+                    DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
+                             "encode: 属性组合不在词表内");
+                }
                 out.push_back(static_cast<uint8_t>(v ? 1 : 0));
                 break;
             }
-            case ColType::Numeric: {
+            case Rep::Dec: {
                 const DecimalVal* d = std::get_if<DecimalVal>(&values[i].box);
                 if (d == nullptr || mp::abs(d->unscaled) >= kNumericUnscaledMax) {
                     return false;
+                }
+                if (col.type.store != Store::Decimal) {
+                    DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
+                             "encode: 属性组合不在词表内");
                 }
                 // 16B 小端补码 unscaled + 1B scale
                 const mp::uint256_t mag = static_cast<mp::uint256_t>(mp::abs(d->unscaled));
@@ -206,9 +227,9 @@ bool encode_row(const std::vector<ColumnSpec>& cols, const std::vector<Value>& v
                 out.push_back(d->scale);
                 break;
             }
-            case ColType::Null:
+            case Rep::None:
                 DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
-                         "encode: 列类型域不含 Null");
+                         "encode: 列无类型");
         }
     }
 
@@ -243,27 +264,30 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
             out.push_back(typed_null(col.type));  // NULL: 携带列类型
             continue;
         }
-        switch (col.type) {
-            case ColType::Int: {
-                if (pos + 4 > len) {
-                    return false;
+        switch (col.type.rep) {
+            case Rep::Int64: {
+                if (col.type.width == 4) {
+                    if (pos + 4 > len) {
+                        return false;
+                    }
+                    const int32_t v = static_cast<int32_t>(read_u32(data + pos));
+                    out.push_back(int_val(col.type, static_cast<int64_t>(v)));
+                    pos += 4;
+                } else if (col.type.width == 8) {
+                    if (pos + 8 > len) {
+                        return false;
+                    }
+                    const uint64_t lo = read_u32(data + pos);
+                    const uint64_t hi = read_u32(data + pos + 4);
+                    out.push_back(int_val(col.type, static_cast<int64_t>(lo | (hi << 32))));
+                    pos += 8;
+                } else {
+                    DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
+                             "decode: 定宽字节数不在词表内: {}", col.type.width);
                 }
-                const int32_t v = static_cast<int32_t>(read_u32(data + pos));
-                out.push_back(int_val(static_cast<int64_t>(v)));
-                pos += 4;
                 break;
             }
-            case ColType::BigInt: {
-                if (pos + 8 > len) {
-                    return false;
-                }
-                const uint64_t lo = read_u32(data + pos);
-                const uint64_t hi = read_u32(data + pos + 4);
-                out.push_back(bigint_val(static_cast<int64_t>(lo | (hi << 32))));
-                pos += 8;
-                break;
-            }
-            case ColType::Double: {
+            case Rep::Double: {
                 if (pos + 8 > len) {
                     return false;
                 }
@@ -271,44 +295,50 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
                                         (static_cast<uint64_t>(read_u32(data + pos + 4)) << 32);
                 double v = 0.0;
                 std::memcpy(&v, &bits, sizeof(v));
-                out.push_back(double_val(v));
+                out.push_back(double_val(col.type, v));
                 pos += 8;
                 break;
             }
-            case ColType::VarChar: {
-                if (pos + 2 > len) {
-                    return false;
+            case Rep::Str: {
+                if (col.type.store == Store::VarLen) {
+                    if (pos + 2 > len) {
+                        return false;
+                    }
+                    const uint16_t slen = read_u16(data + pos);
+                    pos += 2;
+                    if (pos + slen > len) {
+                        return false;
+                    }
+                    out.push_back(str_val(col.type,
+                                          std::string(reinterpret_cast<const char*>(data + pos),
+                                                      slen)));
+                    pos += slen;
+                } else if (col.type.store == Store::CharPad) {
+                    if (pos + col.length > len) {
+                        return false;
+                    }
+                    std::string v(reinterpret_cast<const char*>(data + pos), col.length);
+                    pos += col.length;
+                    // 定长读出, 保留尾部填充空格
+                    out.push_back(str_val(col.type, std::move(v)));
+                } else {
+                    DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
+                             "decode: 存储形态与值形态不符");
                 }
-                const uint16_t slen = read_u16(data + pos);
-                pos += 2;
-                if (pos + slen > len) {
-                    return false;
-                }
-                out.push_back(str_val(std::string(reinterpret_cast<const char*>(data + pos), slen)));
-                pos += slen;
                 break;
             }
-            case ColType::Float: {
+            case Rep::Float: {
                 if (pos + 4 > len) {
                     return false;
                 }
                 uint32_t bits = read_u32(data + pos);
                 float f = 0.0f;
                 std::memcpy(&f, &bits, sizeof(f));
-                out.push_back(float_val(f));
+                out.push_back(float_val(col.type, f));
                 pos += 4;
                 break;
             }
-            case ColType::Char: {
-                if (pos + col.length > len) {
-                    return false;
-                }
-                std::string v(reinterpret_cast<const char*>(data + pos), col.length);
-                pos += col.length;
-                out.push_back(char_val(std::move(v)));  // 定长读出, 保留尾部填充空格
-                break;
-            }
-            case ColType::Bool: {
+            case Rep::Bool: {
                 if (pos + 1 > len) {
                     return false;
                 }
@@ -316,11 +346,11 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
                 if (b > 1) {
                     return false;  // 非 0/1 视为损坏
                 }
-                out.push_back(bool_val(b != 0));
+                out.push_back(bool_val(col.type, b != 0));
                 pos += 1;
                 break;
             }
-            case ColType::Numeric: {
+            case Rep::Dec: {
                 if (pos + 17 > len) {
                     return false;
                 }
@@ -339,13 +369,13 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
                 if (mp::abs(u) >= kNumericUnscaledMax) {
                     return false;  // 幅值超 38 位十进制视为损坏
                 }
-                out.push_back(numeric_val(u, data[pos + 16]));
+                out.push_back(numeric_val(col.type, u, data[pos + 16]));
                 pos += 17;
                 break;
             }
-            case ColType::Null:
+            case Rep::None:
                 DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE,
-                         "decode: 列类型域不含 Null");
+                         "decode: 列无类型");
         }
     }
     return true;

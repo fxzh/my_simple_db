@@ -18,87 +18,82 @@ namespace ana {
 
 // ==================== 值与列类型校验 ====================
 
-void check_value_type(const Expr& expr, st::ColType t, const st::ColumnSpec& col)
+void check_value_type(const Expr& expr, st::TypeAttr t, const st::ColumnSpec& col)
 {
     if (may_be_null(expr)) {
         return;  // 恒 NULL 常量树免检(NOT NULL 已在前置检查拦截)
     }
     bool ok = false;
-    switch (col.type) {
-    case st::ColType::Int:
-        // Int 列仅收 Int, 超界字面量已定型 BigInt 在此拒绝
-        ok = t == st::ColType::Int;
-        break;
-    case st::ColType::BigInt:
-        ok = is_int_type(t);
-        break;
-    case st::ColType::Double:
-    case st::ColType::Float: {
-        // 浮点列收 double 与 numeric 值(decimal 字面量定型 numeric)
-        ok = t == st::ColType::Double || t == st::ColType::Numeric;
-        // float 列字面量须可被 float 表示
-        if (ok && col.type == st::ColType::Float
-            && (expr.kind() == ExprKind::Float || expr.kind() == ExprKind::Decimal)) {
-            const std::string& s = expr.kind() == ExprKind::Float
-                                       ? static_cast<const FloatExpr&>(expr).text
-                                       : static_cast<const DecimalExpr&>(expr).text;
-            double d = 0;
-            const auto conv = std::from_chars(s.data(), s.data() + s.size(), d);
-            if (conv.ec != std::errc{} || conv.ptr != s.data() + s.size()) {
-                DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "字面量文本解析失败");
+    switch (col.type.rep) {
+        case st::Rep::Int64:
+            // int 列仅收 int(超界字面量已定型 bigint 在此拒绝), bigint 列收整型
+            ok = col.type.width == 4 ? t.id == col.type.id : is_int_type(t);
+            break;
+        case st::Rep::Float:
+        case st::Rep::Double: {
+            // 浮点列收 double 与 numeric 值(decimal 字面量定型 numeric)
+            ok = t.rep == st::Rep::Double || t.rep == st::Rep::Dec;
+            // float 列字面量须可被 float 表示
+            if (ok && col.type.rep == st::Rep::Float
+                && (expr.kind() == ExprKind::Float || expr.kind() == ExprKind::Decimal)) {
+                const std::string& s = expr.kind() == ExprKind::Float
+                                           ? static_cast<const FloatExpr&>(expr).text
+                                           : static_cast<const DecimalExpr&>(expr).text;
+                double d = 0;
+                const auto conv = std::from_chars(s.data(), s.data() + s.size(), d);
+                if (conv.ec != std::errc{} || conv.ptr != s.data() + s.size()) {
+                    DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "字面量文本解析失败");
+                }
+                ok = !std::isfinite(d) || std::isfinite(static_cast<float>(d));
             }
-            ok = !std::isfinite(d) || std::isfinite(static_cast<float>(d));
+            break;
         }
-        break;
-    }
-    case st::ColType::Char:
-    case st::ColType::VarChar:
-        ok = t == st::ColType::VarChar;
-        // 字面量长度当场校验, 非字面量文本常量(如 CAST 产物)长度由存储编码检查
-        if (ok && expr.kind() == ExprKind::String) {
-            const std::string& s = static_cast<const StringExpr&>(expr).value;
-            ok = col.length == 0 || s.size() <= col.length;
-        }
-        break;
-    case st::ColType::Bool:
-        ok = t == st::ColType::Bool;
-        break;
-    case st::ColType::Numeric:
-        // numeric 列收整型与 numeric 值(家族宽化), 浮点字面量拒绝
-        ok = is_int_type(t) || t == st::ColType::Numeric;
-        break;
-    case st::ColType::Null:
-        DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "列类型域不含 Null");
+        case st::Rep::Str:
+            // 文本列仅收 varchar 值
+            ok = t.rep == st::Rep::Str && t.store == st::Store::VarLen;
+            // 字面量长度当场校验, 非字面量文本常量(如 CAST 产物)长度由存储编码检查
+            if (ok && expr.kind() == ExprKind::String) {
+                const std::string& s = static_cast<const StringExpr&>(expr).value;
+                ok = col.length == 0 || s.size() <= col.length;
+            }
+            break;
+        case st::Rep::Bool:
+            ok = t.rep == st::Rep::Bool;
+            break;
+        case st::Rep::Dec:
+            // numeric 列收整型与 numeric 值(家族宽化), 浮点字面量拒绝
+            ok = is_int_type(t) || t.rep == st::Rep::Dec;
+            break;
+        case st::Rep::None:
+            DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "列无类型");
     }
     if (!ok) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "值与列类型不匹配");
     }
 }
 
-void check_update_type(st::ColType t, const st::ColumnSpec& col)
+void check_update_type(st::TypeAttr t, const st::ColumnSpec& col)
 {
     bool ok = false;
-    switch (col.type) {
-    case st::ColType::Int:
-    case st::ColType::BigInt:
-        ok = is_int_type(t) || t == st::ColType::Null;
-        break;
-    case st::ColType::Float:
-    case st::ColType::Double:
-        ok = is_float_type(t) || t == st::ColType::Numeric || t == st::ColType::Null;
-        break;
-    case st::ColType::Char:
-    case st::ColType::VarChar:
-        ok = is_text_type(t) || t == st::ColType::Null;
-        break;
-    case st::ColType::Bool:
-        ok = t == st::ColType::Bool || t == st::ColType::Null;
-        break;
-    case st::ColType::Numeric:
-        ok = is_int_type(t) || t == st::ColType::Numeric || t == st::ColType::Null;
-        break;
-    case st::ColType::Null:
-        DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "列类型域不含 Null");
+    switch (col.type.rep) {
+        case st::Rep::Int64:
+            ok = is_int_type(t) || t.id == 0;
+            break;
+        case st::Rep::Float:
+        case st::Rep::Double:
+            ok = is_float_type(t) || t.rep == st::Rep::Dec || t.id == 0;
+            break;
+        case st::Rep::Str:
+            ok = is_text_type(t) || t.id == 0;
+            break;
+        case st::Rep::Bool:
+            ok = t.rep == st::Rep::Bool || t.id == 0;
+            break;
+        case st::Rep::Dec:
+            ok = is_int_type(t) || t.rep == st::Rep::Dec || t.id == 0;
+            break;
+        case st::Rep::None:
+            DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "列无类型");
     }
     if (!ok) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "值与列类型不匹配");
@@ -144,10 +139,10 @@ std::vector<std::unique_ptr<BoundExpr>> bind_insert_row(
     const st::TableMeta& meta, ct::Catalog& db)
 {
     std::vector<std::unique_ptr<BoundExpr>> bound;
-    std::vector<st::ColType> types;
+    std::vector<st::TypeAttr> types;
     types.reserve(values.size());
     for (const auto& v : values) {
-        st::ColType type;
+        st::TypeAttr type;
         bound.push_back(bind_expr(*v, nullptr, db, type));  // 常量上下文: 禁止引用列
         types.push_back(type);
     }

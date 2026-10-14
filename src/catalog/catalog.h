@@ -81,8 +81,19 @@ struct IndexEntry {
     st::RowRef row_ref;
 };
 
+// db_type 行解析产物: 热属性 + 名称与声明长度/标度校验规则, 供语法定型与元数据校验
+struct TypeRow {
+    st::TypeAttr attr;
+    std::string name;
+    std::string alias;         // 空串为无
+    bool len_allowed = false;
+    uint16_t len_default = 0;
+    uint16_t len_max = 0;
+    bool scale_allowed = false;
+};
+
 // 数据目录门面: 打开/关闭, 建表/删表/插入/删除/更新/全表扫描
-// 元数据以 db_table/db_column/db_schema 三张表为唯一事实来源, 查找实时扫描, 无目录文件与内存缓存
+// 元数据以 db_table/db_column/db_schema/db_type 四张表为唯一事实来源, 查找实时扫描, 无目录文件与内存缓存
 // 名字只经 create_table 与 table_meta 进入, DML 门面按绑定层一次解析的元数据进入
 class Catalog {
 public:
@@ -145,6 +156,12 @@ public:
     size_t row_count(const st::TableMeta& meta);
     // 按限定名取表元数据(实时扫描元数据表), 表不存在当场报错
     st::TableMeta table_meta(const TableRef& table);
+    // 按名查类型(规范名或别名, 实时扫描 db_type), 供 CAST 目标等用户输入, 未命中报 InvalidType
+    TypeRow find_type(const std::string& name);
+    // 按 type_id 查类型(实时扫描 db_type), 供元数据解析与名称渲染, 未命中报 Internal
+    TypeRow find_type_by_id(uint16_t id);
+    // 按名取内部类型属性(实时扫描 db_type), 名为自举保证存在的内部名, 未命中报 Internal
+    st::TypeAttr require_type(const std::string& name);
 
     // bootstrap 模式标志(server --bootstrap 启动时传入): 管 SET 语句门禁等
     bool bootstrap_mode() const { return bootstrap_mode_; }

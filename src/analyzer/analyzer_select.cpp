@@ -22,7 +22,7 @@ namespace {
 // 绑定单个投影项(非 star): 绑定表达式并定输出列名, 列名取别名>列名>表达式文本
 ProjCol bind_proj_item(const SelectItem& item, const RowDesc& row_desc, ct::Catalog& db)
 {
-    st::ColType t;
+    st::TypeAttr t;
     std::unique_ptr<BoundExpr> e = bind_expr(*item.expr, &row_desc, db, t);
     std::string name;
     if (!item.alias.empty()) {
@@ -85,7 +85,7 @@ OrderKey resolve_order_key(const OrderItem& item, const ProjBind& pb, const RowD
                || e.kind() == ExprKind::Null || e.kind() == ExprKind::Bool) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "ORDER BY 不允许非整数常量");
     }
-    st::ColType t;
+    st::TypeAttr t;
     k.expr = bind_expr(e, &row_desc, db, t);
     return k;
 }
@@ -147,7 +147,7 @@ std::vector<BoundOrderItem> bind_orders(const std::vector<OrderItem>& items, con
         if (all_out) {
             o.out_idx = keys[i].out_idx;
         } else if (keys[i].is_out && pb.src[keys[i].out_idx] != nullptr) {
-            st::ColType t;
+            st::TypeAttr t;
             o.expr = bind_expr(*pb.src[keys[i].out_idx], &row_desc, db, t);
         } else if (keys[i].is_out) {
             // star 展开列(仅带 FROM 的 SELECT 存在): 取行内列引用

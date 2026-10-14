@@ -40,24 +40,32 @@ CREATE TABLE system.db_version (id int);
 ERROR: system schema 禁止修改: system.db_version
 CREATE TABLE system.db_func (id int);
 ERROR: system schema 禁止修改: system.db_func
+CREATE TABLE system.db_type (id int);
+ERROR: system schema 禁止修改: system.db_type
 DROP TABLE system.db_index;
 ERROR: system schema 禁止修改: system.db_index
 DROP TABLE system.db_version;
 ERROR: system schema 禁止修改: system.db_version
 DROP TABLE system.db_func;
 ERROR: system schema 禁止修改: system.db_func
+DROP TABLE system.db_type;
+ERROR: system schema 禁止修改: system.db_type
 INSERT INTO system.db_index VALUES (1);
 ERROR: system schema 禁止修改: system.db_index
 INSERT INTO system.db_version VALUES (1);
 ERROR: system schema 禁止修改: system.db_version
 INSERT INTO system.db_func VALUES (1);
 ERROR: system schema 禁止修改: system.db_func
+INSERT INTO system.db_type VALUES (1);
+ERROR: system schema 禁止修改: system.db_type
 DELETE FROM system.db_index;
 ERROR: system schema 禁止修改: system.db_index
 DELETE FROM system.db_version;
 ERROR: system schema 禁止修改: system.db_version
 DELETE FROM system.db_func;
 ERROR: system schema 禁止修改: system.db_func
+DELETE FROM system.db_type;
+ERROR: system schema 禁止修改: system.db_type
 -- system 名下任意表名与 update 同样拦截
 CREATE TABLE system.t_sys (id int);
 ERROR: system schema 禁止修改: system.t_sys
@@ -138,6 +146,18 @@ SELECT * FROM system.db_func;
 ---------+-----------
  1       | abs
 (1 行)
+SELECT type_name FROM system.db_type ORDER BY type_name;
+ type_name
+-----------
+ bigint
+ boolean
+ char
+ double
+ float
+ int
+ numeric
+ varchar
+(8 行)
 DROP TABLE t_reserved;
 DROP
 SELECT table_name FROM system.db_table ORDER BY table_name;

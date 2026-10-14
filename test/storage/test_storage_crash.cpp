@@ -76,10 +76,10 @@ TEST_F(StorageDb, WalRecoverInsertAfterCrash)
 
     run_crashed([](Catalog& db) {
         db.begin_txn();
-        db.create_table({"system", "t"},{{"id", ColType::Int, 0, true}});
+        db.create_table({"system", "t"},{{"id", kInt, 0, true}});
         const TableMeta meta = db.table_meta({"system", "t"});
         for (int i = 1; i <= 50; ++i) {
-            db.insert(meta,{int_val(i)});
+            db.insert(meta,{int_val(kInt, i)});
         }
         db.commit_txn();
     }, dir.path);
@@ -102,8 +102,8 @@ TEST_F(StorageDb, WalRecoverDropAfterCrash)
 
     run_crashed([](Catalog& db) {
         db.begin_txn();
-        db.create_table({"system", "t"},{{"id", ColType::Int, 0, true}});
-        db.insert(db.table_meta({"system", "t"}),{int_val(1)});
+        db.create_table({"system", "t"},{{"id", kInt, 0, true}});
+        db.insert(db.table_meta({"system", "t"}),{int_val(kInt, 1)});
         db.commit_txn();
     }, dir.path);
 
@@ -127,7 +127,7 @@ TEST_F(StorageDb, WalRecoverDropAfterCrash)
 // 压小缓冲池帧数迫使未提交脏页淘汰落盘
 TEST_F(StorageDb, TxnCrashCommittedSurvivesUncommittedUndone)
 {
-    const std::vector<ColumnSpec> cols = {{"id", ColType::Int, 0, true}};
+    const std::vector<ColumnSpec> cols = {{"id", kInt, 0, true}};
     constexpr uint64_t fid = 200;
 
     const size_t frames_saved = config::cfg.buffer_pool_frames;
@@ -138,13 +138,13 @@ TEST_F(StorageDb, TxnCrashCommittedSurvivesUncommittedUndone)
         engine.init_table_file(fid);
         RowRef ref;
         for (int i = 1; i <= 30; ++i) {
-            engine.insert_row(fid, cols, {int_val(i)}, &ref);
+            engine.insert_row(fid, cols, {int_val(kInt, i)}, &ref);
         }
         engine.commit_txn();
         // 事务二(崩溃中止): 同表继续插入, 脏页随缓冲池淘汰落盘形成 steal 残留
         engine.begin_txn();
         for (int i = 31; i <= 1500; ++i) {
-            engine.insert_row(fid, cols, {int_val(i)}, &ref);
+            engine.insert_row(fid, cols, {int_val(kInt, i)}, &ref);
         }
     }, dir.path);
     config::cfg.buffer_pool_frames = frames_saved;
@@ -161,23 +161,23 @@ TEST_F(StorageDb, TxnCrashCommittedSurvivesUncommittedUndone)
 // 后续已提交插入的字节不被回滚事务的 before 覆盖
 TEST_F(StorageDb, TxnAbortedDoesNotClobberLaterCommitted)
 {
-    const std::vector<ColumnSpec> cols = {{"id", ColType::Int, 0, true}};
+    const std::vector<ColumnSpec> cols = {{"id", kInt, 0, true}};
     constexpr uint64_t fid = 210;
     run_crashed_engine([&](Engine& engine) {
         RowRef ref;
         engine.begin_txn();
         engine.init_table_file(fid);
         for (int i = 1; i <= 10; ++i) {
-            engine.insert_row(fid, cols, {int_val(i)}, &ref);
+            engine.insert_row(fid, cols, {int_val(kInt, i)}, &ref);
         }
         engine.commit_txn();
         // 事务二: 插入后回滚, Abort 记录入日志(磁盘已复原)
         engine.begin_txn();
-        engine.insert_row(fid, cols, {int_val(999)}, &ref);
+        engine.insert_row(fid, cols, {int_val(kInt, 999)}, &ref);
         engine.rollback_txn();
         // 事务三: 同页插入并提交, Commit 的 fsync 一并固化前面的 Abort 记录
         engine.begin_txn();
-        engine.insert_row(fid, cols, {int_val(777)}, &ref);
+        engine.insert_row(fid, cols, {int_val(kInt, 777)}, &ref);
         engine.commit_txn();
     }, dir.path);
 
@@ -202,14 +202,14 @@ TEST_F(StorageDb, TxnAbortedDoesNotClobberLaterCommitted)
 // 未提交的删文件事务崩溃后文件与内容复原(延迟 unlink + 未提交 DropFile 跳过)
 TEST_F(StorageDb, TxnUncommittedDropKeepsFile)
 {
-    const std::vector<ColumnSpec> cols = {{"id", ColType::Int, 0, true}};
+    const std::vector<ColumnSpec> cols = {{"id", kInt, 0, true}};
     constexpr uint64_t fid = 220;
     run_crashed_engine([&](Engine& engine) {
         RowRef ref;
         engine.begin_txn();
         engine.init_table_file(fid);
         for (int i = 1; i <= 10; ++i) {
-            engine.insert_row(fid, cols, {int_val(i)}, &ref);
+            engine.insert_row(fid, cols, {int_val(kInt, i)}, &ref);
         }
         engine.commit_txn();
         engine.begin_txn();

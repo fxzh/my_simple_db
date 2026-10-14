@@ -247,38 +247,38 @@ IndexKey double_key(double x)
 
 }  // namespace
 
-IndexKey encode_key(ColType type, const Value& v)
+IndexKey encode_key(TypeAttr type, const Value& v)
 {
     constexpr uint64_t sign_flip = 0x8000'0000'0000'0000ULL;
     if (std::holds_alternative<std::monostate>(v.box)) {
         // NULL 入索引且排最大, 键值部分无意义置 0
         return IndexKey{0, true};
     }
-    if (type == ColType::Numeric) {
+    if (type.rep == Rep::Dec) {
         DB_RAISE(db::ErrCode::NotImplemented, LogModule::STORAGE, "numeric 列暂不支持索引");
     }
     if (const bool* b = std::get_if<bool>(&v.box)) {
-        if (type != ColType::Bool) {
+        if (type.rep != Rep::Bool) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "索引键值与列类型不匹配");
         }
         // false=0/true=1, 键序即 false < true
         return IndexKey{static_cast<uint64_t>(*b ? 1 : 0), false};
     }
     if (const int64_t* i = std::get_if<int64_t>(&v.box)) {
-        if (type != ColType::Int && type != ColType::BigInt) {
+        if (type.rep != Rep::Int64) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "索引键值与列类型不匹配");
         }
         // 最高符号位翻转, 无符号序即有符号数值序
         return IndexKey{static_cast<uint64_t>(*i) ^ sign_flip, false};
     }
     if (const double* d = std::get_if<double>(&v.box)) {
-        if (type != ColType::Double) {
+        if (type.rep != Rep::Double) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "索引键值与列类型不匹配");
         }
         return double_key(*d);
     }
     if (const float* f = std::get_if<float>(&v.box)) {
-        if (type != ColType::Float) {
+        if (type.rep != Rep::Float) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "索引键值与列类型不匹配");
         }
         return double_key(static_cast<double>(*f));

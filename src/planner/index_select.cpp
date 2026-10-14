@@ -100,40 +100,41 @@ std::vector<IndexRange> cmp_ranges(CmpOp op, const st::IndexKey& k)
     DB_RAISE(db::ErrCode::Internal, LogModule::PLANNER, "index_select: 未知比较种类");
 }
 
-// 常量与列同族才可入键: int64↔Int/BigInt, double↔Double/Float, float↔Float, bool↔Bool,
-// numeric↔Double/Float; double 常量对 Float 列为跨类型探测: 键按 double 域编码,
+// 常量与列同族才可入键: int64↔int/bigint, double↔double/float, float↔float, bool↔boolean,
+// numeric↔double/float; double 常量对 float 列为跨类型探测: 键按 double 域编码,
 // float 条目键宽化后同域, 比较即 double 域精确比较; numeric 常量经求值同款转换
-// (提 double)后同 double 常量处理
-bool key_of(const st::ColumnSpec& col, const st::Value& v, st::IndexKey& out)
+// (提 double)后同 double 常量处理; double_attr 为 double 类型的 db_type 属性
+bool key_of(const st::ColumnSpec& col, const st::Value& v, const st::TypeAttr& double_attr,
+            st::IndexKey& out)
 {
     if (st::value_is_null(v)) {
         return false;
     }
     st::Value key_val = v;  // 键编码值
-    st::ColType key_type = col.type;  // 键编码域, Float 列收 double/numeric 常量时抬到 Double
+    st::TypeAttr key_type = col.type;  // 键编码域, float 列收 double/numeric 常量时抬到 double
     if (std::get_if<int64_t>(&v.box) != nullptr) {
-        if (col.type != st::ColType::Int && col.type != st::ColType::BigInt) {
+        if (col.type.rep != st::Rep::Int64) {
             return false;
         }
     } else if (std::get_if<double>(&v.box) != nullptr) {
-        if (col.type != st::ColType::Double && col.type != st::ColType::Float) {
+        if (col.type.rep != st::Rep::Double && col.type.rep != st::Rep::Float) {
             return false;
         }
-        key_type = st::ColType::Double;
+        key_type = double_attr;
     } else if (std::get_if<float>(&v.box) != nullptr) {
-        if (col.type != st::ColType::Float) {
+        if (col.type.rep != st::Rep::Float) {
             return false;
         }
     } else if (std::get_if<bool>(&v.box) != nullptr) {
-        if (col.type != st::ColType::Bool) {
+        if (col.type.rep != st::Rep::Bool) {
             return false;
         }
     } else if (std::get_if<st::DecimalVal>(&v.box) != nullptr) {
-        if (col.type != st::ColType::Double && col.type != st::ColType::Float) {
+        if (col.type.rep != st::Rep::Double && col.type.rep != st::Rep::Float) {
             return false;
         }
-        key_val = st::cast_value(v, st::ColType::Double);
-        key_type = st::ColType::Double;
+        key_val = st::cast_value(v, double_attr);
+        key_type = double_attr;
     } else {
         return false;
     }
@@ -170,7 +171,7 @@ struct Hit {
 
 // 合取项对索引列命中: 形态(ColRef <op> Const 含镜像 / IS [NOT] NULL)与常量族均符才命中
 bool match_hit(const ana::BoundExpr& e, const st::ColumnSpec& col, uint16_t ordinal, size_t conj,
-               Hit& out)
+               const st::TypeAttr& double_attr, Hit& out)
 {
     if (e.kind() == ana::BoundExprKind::Cmp) {
         const auto& c = static_cast<const ana::BoundCmp&>(e);
@@ -198,7 +199,7 @@ bool match_hit(const ana::BoundExpr& e, const st::ColumnSpec& col, uint16_t ordi
             return false;
         }
         st::IndexKey k;
-        if (!key_of(col, cst->value, k)) {
+        if (!key_of(col, cst->value, double_attr, k)) {
             return false;
         }
         out.conj = conj;
@@ -276,6 +277,7 @@ void rewrite_scan(ct::Catalog& db, std::unique_ptr<PlanNode>& plan)
     }
     std::vector<const ana::BoundExpr*> conj;
     flatten_view(f.pred.get(), conj);
+    const st::TypeAttr double_attr = db.require_type("double");
 
     // 选索引: 等值命中优先, 同级取列序号小者, 再取元数据序
     const ct::IndexEntry* best = nullptr;
@@ -288,7 +290,8 @@ void rewrite_scan(ct::Catalog& db, std::unique_ptr<PlanNode>& plan)
         std::vector<Hit> hits;
         for (size_t i = 0; i < conj.size(); ++i) {
             Hit h;
-            if (match_hit(*conj[i], scan.table.meta.cols[ent.col_ordinal], ent.col_ordinal, i, h)) {
+            if (match_hit(*conj[i], scan.table.meta.cols[ent.col_ordinal], ent.col_ordinal, i,
+                          double_attr, h)) {
                 hits.push_back(std::move(h));
             }
         }

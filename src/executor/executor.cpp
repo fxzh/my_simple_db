@@ -29,7 +29,7 @@ ExecResult tag_result(proto::CommandTag tag, uint64_t count)
     return r;
 }
 
-// 写入列的值经 cast 分派表按列域归一: 恒等/同盒换域/Float 列收窄, NULL 原样;
+// 写入列的值经 cast 分派表按列域归一: 恒等/同盒换域/float 列收窄, NULL 原样;
 // 声明 (精度,标度) 的 numeric 列走标度归一, 裸 numeric 仅域归一(标度随值);
 // 收窄不可表示由表项报错, 无转换项即 Internal(值域合法性由语义层保证)
 st::Value coerce_col_value(const st::ColumnSpec& col, st::Value v)
@@ -37,11 +37,11 @@ st::Value coerce_col_value(const st::ColumnSpec& col, st::Value v)
     if (st::value_is_null(v)) {
         return v;
     }
-    if (col.type == st::ColType::Numeric) {
+    if (col.type.rep == st::Rep::Dec) {
         if (col.length == 0) {
             return st::cast_value(v, col.type);
         }
-        return st::coerce_numeric(v, col.length, col.scale);
+        return st::coerce_numeric(v, col.type, col.length, col.scale);
     }
     return st::cast_value(v, col.type);
 }
@@ -179,7 +179,7 @@ ExecResult execute(ct::Catalog& db, const SQLStatement& stmt, const std::string&
     case pl::PlanKind::Sort:
         return run_select(db, std::move(plan));
     case pl::PlanKind::Explain:
-        return run_explain(static_cast<const pl::ExplainPlan&>(*plan));
+        return run_explain(db, static_cast<const pl::ExplainPlan&>(*plan));
     case pl::PlanKind::Set: {
         const auto& p = static_cast<const pl::SetPlan&>(*plan);
         switch (p.var) {
