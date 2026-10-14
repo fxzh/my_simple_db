@@ -13,6 +13,7 @@
 #include "catalog.h"
 #include "common/err.h"
 #include "log/log.h"
+#include "storage/cast.h"
 
 namespace pl {
 
@@ -99,14 +100,17 @@ std::vector<IndexRange> cmp_ranges(CmpOp op, const st::IndexKey& k)
     DB_RAISE(db::ErrCode::Internal, LogModule::PLANNER, "index_select: 未知比较种类");
 }
 
-// 常量与列同族才可入键: int64↔Int/BigInt, double↔Double/Float, float↔Float, bool↔Bool;
-// double 常量对 Float 列为跨类型探测: 键按 double 域编码, float 条目键宽化后同域, 比较即 double 域精确比较
+// 常量与列同族才可入键: int64↔Int/BigInt, double↔Double/Float, float↔Float, bool↔Bool,
+// numeric↔Double/Float; double 常量对 Float 列为跨类型探测: 键按 double 域编码,
+// float 条目键宽化后同域, 比较即 double 域精确比较; numeric 常量经求值同款转换
+// (提 double)后同 double 常量处理
 bool key_of(const st::ColumnSpec& col, const st::Value& v, st::IndexKey& out)
 {
     if (st::value_is_null(v)) {
         return false;
     }
-    st::ColType key_type = col.type;  // 键编码域, Float 列收 double 常量时抬到 Double
+    st::Value key_val = v;  // 键编码值
+    st::ColType key_type = col.type;  // 键编码域, Float 列收 double/numeric 常量时抬到 Double
     if (std::get_if<int64_t>(&v.box) != nullptr) {
         if (col.type != st::ColType::Int && col.type != st::ColType::BigInt) {
             return false;
@@ -124,10 +128,16 @@ bool key_of(const st::ColumnSpec& col, const st::Value& v, st::IndexKey& out)
         if (col.type != st::ColType::Bool) {
             return false;
         }
+    } else if (std::get_if<st::DecimalVal>(&v.box) != nullptr) {
+        if (col.type != st::ColType::Double && col.type != st::ColType::Float) {
+            return false;
+        }
+        key_val = st::cast_value(v, st::ColType::Double);
+        key_type = st::ColType::Double;
     } else {
         return false;
     }
-    out = st::encode_key(key_type, v);
+    out = st::encode_key(key_type, key_val);
     return true;
 }
 

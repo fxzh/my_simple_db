@@ -115,6 +115,31 @@ void send_notice(int sock, LogLevel session_level, LogLevel msg_level, const std
                       proto::encode_notice(static_cast<uint8_t>(msg_level), message));
 }
 
+// DecimalVal 转协议定点单元格: unscaled 16B 大端补码 + 标度
+proto::DecimalCell dec_cell(const st::DecimalVal& d)
+{
+    namespace mp = boost::multiprecision;
+    mp::uint256_t mag = static_cast<mp::uint256_t>(mp::abs(d.unscaled));
+    proto::DecimalCell c;
+    for (int i = 15; i >= 0; --i) {
+        c.bytes[i] = static_cast<uint8_t>((mag & 0xff).convert_to<unsigned>());
+        mag >>= 8;
+    }
+    if (d.unscaled < 0) {
+        // 模 2^128 取负: 逐字节取反加一
+        bool carry = true;
+        for (int i = 15; i >= 0; --i) {
+            c.bytes[i] = static_cast<uint8_t>(~c.bytes[i]);
+            if (carry) {
+                ++c.bytes[i];
+                carry = c.bytes[i] == 0;
+            }
+        }
+    }
+    c.scale = d.scale;
+    return c;
+}
+
 // st::Value 按语义类型分派为协议单元格: 判空先行
 proto::CellVal to_cell(const st::Value& v)
 {
@@ -135,7 +160,7 @@ proto::CellVal to_cell(const st::Value& v)
     case st::ColType::VarChar:
         return std::get<std::string>(v.box);
     case st::ColType::Numeric:
-        DB_RAISE(db::ErrCode::NotImplemented, EXECUTOR, "numeric 结果显示未支持");
+        return dec_cell(std::get<st::DecimalVal>(v.box));
     case st::ColType::Null:
         break;
     }

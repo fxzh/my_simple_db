@@ -328,10 +328,10 @@ bool decode_row(const std::vector<ColumnSpec>& cols, const uint8_t* data,
                 for (size_t k = 16; k-- > 0;) {
                     mag = (mag << 8) | static_cast<unsigned>(data[pos + k]);
                 }
-                // 最高位为符号位, 取反加一(模 2^256)得幅值
+                // 128 位补码: 符号位为第 127 位, 取负(模 2^128)得幅值
                 mp::int256_t u = 0;
-                if ((mag >> 255).convert_to<unsigned>() != 0) {
-                    mag = mp::uint256_t(0) - mag;
+                if ((mag >> 127).convert_to<unsigned>() != 0) {
+                    mag = (mp::uint256_t(1) << 128) - mag;
                     u = -static_cast<mp::int256_t>(mag);
                 } else {
                     u = static_cast<mp::int256_t>(mag);

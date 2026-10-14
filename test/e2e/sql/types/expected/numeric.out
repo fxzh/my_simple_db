@@ -7,20 +7,141 @@ CREATE TABLE t_num_p (a numeric(5));
 CREATE
 DROP TABLE t_num_p;
 DROP
+-- 声明 (精度,标度) 列: 赋值按标度舍入, 超精度拒绝
 CREATE TABLE t_num_ps (a numeric(5, 2), b decimal(10, 4));
 CREATE
 INSERT INTO t_num_ps (a) VALUES (5);
 INSERT 1
 INSERT INTO t_num_ps (a) VALUES (1.5);
-ERROR: 值与列类型不匹配
-UPDATE t_num_ps SET a = 2;
-UPDATE 1
-UPDATE t_num_ps SET a = 1.5;
-ERROR: 值与列类型不匹配
+INSERT 1
+INSERT INTO t_num_ps (a) VALUES (1.555);
+INSERT 1
+INSERT INTO t_num_ps (a) VALUES (1234.5);
+ERROR: numeric 值超出声明精度
 SELECT * FROM t_num_ps;
-ERROR: numeric 结果显示未支持
+  a   |  b
+------+------
+ 5.00 | NULL
+ 1.50 | NULL
+ 1.56 | NULL
+(3 行)
+UPDATE t_num_ps SET a = 2.005 WHERE a = 1.56;
+UPDATE 1
+UPDATE t_num_ps SET b = a;
+UPDATE 3
+SELECT * FROM t_num_ps;
+  a   |   b
+------+--------
+ 5.00 | 5.0000
+ 1.50 | 1.5000
+ 2.01 | 2.0100
+(3 行)
 DROP TABLE t_num_ps;
 DROP
+-- 裸 numeric: 标度随值, 尾零保留
+CREATE TABLE t_num_scale (a numeric);
+CREATE
+INSERT INTO t_num_scale VALUES (1.5), (1.50), (100), (-0.125);
+INSERT 4
+SELECT * FROM t_num_scale;
+   a
+--------
+ 1.5
+ 1.50
+ 100
+ -0.125
+(4 行)
+SELECT a + 0.000 FROM t_num_scale;
+ (a + 0.000)
+-------------
+ 1.500
+ 1.500
+ 100.000
+ -0.125
+(4 行)
+DROP TABLE t_num_scale;
+DROP
+-- 算术: 纯 numeric 精确, 除法按推导标度舍入, 整型除法不受影响
+SELECT 0.1 + 0.2, 1.50 + 1.5, 1.5 * 1.5, 10.00 / 4;
+ (0.1 + 0.2) | (1.50 + 1.5) | (1.5 * 1.5) | (10.00 / 4)
+-------------+--------------+-------------+-------------
+ 0.3         | 3.00         | 2.25        | 2.500000
+(1 行)
+SELECT CAST(1 AS numeric) / 3, 7 / 2;
+ (CAST(1 AS numeric) / 3) | (7 / 2)
+--------------------------+---------
+ 0.3333                   | 3
+(1 行)
+CREATE TABLE t_num_arith (a numeric(10, 4), b numeric(6, 2));
+CREATE
+INSERT INTO t_num_arith VALUES (10.0000, 3.00);
+INSERT 1
+SELECT a + b, a * b, a / b FROM t_num_arith;
+ (a + b) |  (a * b)  |  (a / b)
+---------+-----------+------------
+ 13.0000 | 30.000000 | 3.33333333
+(1 行)
+DROP TABLE t_num_arith;
+DROP
+-- 混合: 整型保持 numeric, 浮点提升 Double(近似)
+SELECT 1 + 0.5, 1e1 + 0.5, CAST(0.1 AS double) + 0.2;
+ (1 + 0.5) | (1e1 + 0.5) | (CAST(0.1 AS double) + 0.2)
+-----------+-------------+-----------------------------
+ 1.5       | 10.5        | 0.30000000000000004
+(1 行)
+-- 溢出与除零
+SELECT 9999999999999999999999999999999999999.9 * 10.0;
+ERROR: numeric 算术结果超界
+SELECT 1.0 / 0.0;
+ERROR: numeric 除零
+-- 比较: numeric/整型精确路径
+SELECT 0.1 + 0.2 = 0.3, 1.0 = 1, 1.50 < 1.5;
+ ((0.1 + 0.2) = 0.3) | (1.0 = 1) | (1.50 < 1.5)
+---------------------+-----------+--------------
+ true                | true      | false
+(1 行)
+CREATE TABLE t_num_cmp (v numeric(10, 2));
+CREATE
+INSERT INTO t_num_cmp VALUES (1.50), (2.50), (NULL);
+INSERT 3
+SELECT v FROM t_num_cmp WHERE v > 1.5 ORDER BY v;
+  v
+------
+ 2.50
+(1 行)
+SELECT v FROM t_num_cmp WHERE v BETWEEN 1.0 AND 2.0 ORDER BY v;
+  v
+------
+ 1.50
+(1 行)
+SELECT v FROM t_num_cmp ORDER BY v;
+  v
+------
+ 1.50
+ 2.50
+ NULL
+(3 行)
+DROP TABLE t_num_cmp;
+DROP
+-- 负号/abs/NULL 传播
+SELECT -1.50, abs(-1.50), abs(1.5 + NULL);
+ (-1.50) | abs((-1.50)) | abs((1.5 + NULL))
+---------+--------------+-------------------
+ -1.50   | 1.50         | NULL
+(1 行)
+-- 显式转换: numeric 目标舍入, 整型目标四舍五入
+SELECT CAST(1 AS numeric(5, 2)), CAST('1.555' AS numeric(5, 2)), CAST(999.99 AS numeric(4, 2));
+ERROR: numeric 值超出声明精度
+SELECT CAST(1.5 AS int), CAST(1.4 AS int), CAST(-1.5 AS int), CAST(2.5 AS bigint);
+ CAST(1.5 AS int) | CAST(1.4 AS int) | CAST((-1.5) AS int) | CAST(2.5 AS bigint)
+------------------+------------------+---------------------+---------------------
+ 2                | 1                | -2                  | 3
+(1 行)
+SELECT CAST(1.23456 AS double), CAST(0.1 AS varchar), CAST('1.5' AS double);
+ CAST(1.23456 AS double) | CAST(0.1 AS varchar) | CAST('1.5' AS double)
+-------------------------+----------------------+-----------------------
+ 1.23456                 | 0.1                  | 1.5
+(1 行)
 -- 精度/标度域校验: 超上限/标度超精度/精度为零
 CREATE TABLE t_num_bad (a numeric(39));
 ERROR: numeric 精度非法: 39
@@ -28,11 +149,6 @@ CREATE TABLE t_num_bad (a numeric(5, 6));
 ERROR: numeric 标度非法: 6
 CREATE TABLE t_num_bad (a numeric(0));
 ERROR: numeric 精度非法: 0
--- cast 目标为 numeric/decimal
-SELECT CAST(1 AS numeric(5, 2));
-ERROR: numeric 结果显示未支持
-SELECT CAST('1.5' AS decimal);
-ERROR: numeric 结果显示未支持
 -- 非法参数形态为语法错误: 空参数/三参数/负数
 CREATE TABLE t_numeric (a numeric());
 ERROR: 2.35: syntax error, unexpected ')', expecting INTEGER

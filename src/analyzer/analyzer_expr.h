@@ -20,7 +20,6 @@ using ColMap = std::unordered_map<std::string, size_t>;
 struct RowDesc {
     ColMap cols;                         // 列名 → 行内下标
     std::vector<st::ColType> col_types;  // 列静态类型, 与行内下标对应
-    std::vector<uint8_t> col_scales;     // 列声明标度, 与行内下标对应
 };
 
 // 绑定行结构: 列名定位表 + 列静态类型

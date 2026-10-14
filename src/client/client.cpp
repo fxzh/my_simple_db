@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cstring>
 #include <format>
 #include <fstream>
 #include <iostream>
@@ -65,7 +67,61 @@ void print_notice(uint8_t level, const std::string& text)
     std::cout << levelToString(static_cast<LogLevel>(level)) << ": " << text << std::endl;
 }
 
-// 单元格显示文本: NULL 显示 NULL, 整数十进制, 浮点最短表示, 字符串原样, 布尔 true/false
+// 定点十进制渲染: 16B 大端补码转十进制, 按 scale 插入小数点, 尾零保留
+std::string decimal_text(const proto::DecimalCell& c)
+{
+    uint8_t b[16];
+    std::memcpy(b, c.bytes, sizeof(b));
+    bool neg = (b[0] & 0x80) != 0;
+    if (neg) {
+        // 模 2^128 取负: 逐字节取反加一
+        bool carry = true;
+        for (int i = 15; i >= 0; --i) {
+            b[i] = static_cast<uint8_t>(~b[i]);
+            if (carry) {
+                ++b[i];
+                carry = b[i] == 0;
+            }
+        }
+    }
+    std::string digits;  // 逐位除 10 自低位收集
+    bool any = false;
+    for (int i = 0; i < 16; ++i) {
+        any = any || b[i] != 0;
+    }
+    while (any) {
+        uint32_t carry = 0;
+        any = false;
+        for (int i = 0; i < 16; ++i) {
+            const uint32_t cur = carry * 256 + b[i];
+            b[i] = static_cast<uint8_t>(cur / 10);
+            carry = cur % 10;
+            any = any || b[i] != 0;
+        }
+        digits += static_cast<char>('0' + carry);
+    }
+    if (digits.empty()) {
+        digits = "0";
+    }
+    std::reverse(digits.begin(), digits.end());
+    if (c.scale == 0) {
+        return neg ? "-" + digits : digits;
+    }
+    if (digits.size() <= c.scale) {
+        digits.insert(0, static_cast<size_t>(c.scale) - digits.size() + 1, '0');
+    }
+    std::string out;
+    if (neg) {
+        out += '-';
+    }
+    out.append(digits, 0, digits.size() - static_cast<size_t>(c.scale));
+    out += '.';
+    out.append(digits, digits.size() - static_cast<size_t>(c.scale));
+    return out;
+}
+
+// 单元格显示文本: NULL 显示 NULL, 整数十进制, 浮点最短表示, 定点十进制按标度,
+// 字符串原样, 布尔 true/false
 std::string cell_text(const proto::CellVal& cell)
 {
     if (const auto* i = std::get_if<int64_t>(&cell)) {
@@ -79,6 +135,9 @@ std::string cell_text(const proto::CellVal& cell)
     }
     if (const auto* s = std::get_if<std::string>(&cell)) {
         return *s;
+    }
+    if (const auto* dc = std::get_if<proto::DecimalCell>(&cell)) {
+        return decimal_text(*dc);
     }
     if (const auto* b = std::get_if<bool>(&cell)) {
         return *b ? "true" : "false";

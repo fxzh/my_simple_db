@@ -16,6 +16,7 @@
 #include "log/log.h"
 #include "operator.h"
 #include "plan.h"
+#include "storage/cast.h"
 
 namespace exec {
 
@@ -56,8 +57,8 @@ std::string const_text(const st::Value& v)
     if (const auto* b = std::get_if<bool>(&v.box)) {
         return *b ? "true" : "false";
     }
-    if (std::get_if<st::DecimalVal>(&v.box) != nullptr) {
-        DB_RAISE(db::ErrCode::NotImplemented, LogModule::EXECUTOR, "numeric 显示未支持");
+    if (const auto* d = std::get_if<st::DecimalVal>(&v.box)) {
+        return st::decimal_to_text(*d);
     }
     return "NULL";
 }

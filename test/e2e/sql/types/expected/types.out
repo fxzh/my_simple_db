@@ -24,7 +24,7 @@ INSERT 4
 INSERT INTO t_fd VALUES (1, 2.0);
 ERROR: 值与列类型不匹配
 INSERT INTO t_fd VALUES (390000000000000000000000000000000000000.0, 1.0);
-ERROR: 值与列类型不匹配
+ERROR: 数值超出 numeric 可表示范围
 SELECT * FROM t_fd ORDER BY f;
   f   |  d
 ------+------
@@ -71,7 +71,7 @@ SELECT f + d FROM t_fd WHERE f < 0.5 ORDER BY f;
 (2 行)
 -- UPDATE 写入 float 列: 字面量静态拒绝
 UPDATE t_fd SET f = 390000000000000000000000000000000000000.0 WHERE f = 1.0;
-ERROR: 值与列类型不匹配
+ERROR: 数值超出 numeric 可表示范围
 -- UPDATE 从 double 表达式取值写入 float 列: 运行期收窄
 UPDATE t_fd SET f = d + 1.5 WHERE f = 1.0;
 UPDATE 1
@@ -82,8 +82,8 @@ SELECT * FROM t_fd WHERE f = 2.5;
 (1 行)
 -- 运行期收窄越出 float 可表示范围报错
 INSERT INTO t_fd VALUES (NULL, 390000000000000000000000000000000000000.0);
-INSERT 1
+ERROR: 数值超出 numeric 可表示范围
 UPDATE t_fd SET f = d WHERE d = 390000000000000000000000000000000000000.0;
-ERROR: 浮点值超出 float 可表示范围
+ERROR: 数值超出 numeric 可表示范围
 DROP TABLE t_fd;
 DROP

@@ -58,7 +58,7 @@ SELECT CAST(true AS INT), CAST(false AS BIGINT), CAST(true AS DOUBLE);
 SELECT CAST(1.9 AS INT), CAST(-1.9 AS INT), CAST(2.5 AS BIGINT);
  CAST(1.9 AS int) | CAST((-1.9) AS int) | CAST(2.5 AS bigint)
 ------------------+---------------------+---------------------
- 1                | -1                  | 2
+ 2                | -2                  | 3
 (1 行)
 SELECT CAST(5000000000 AS INT);
 ERROR: 整型值超出 int 可表示范围

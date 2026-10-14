@@ -12,7 +12,7 @@ SELECT 1 + 2 * 3, 'hi', 7.5;
 SELECT NULL, true, 7 / 2, 1.0 + 1, 1 + NULL;
  NULL | true | (7 / 2) | (1.0 + 1) | (1 + NULL)
 ------+------+---------+-----------+------------
- NULL | true | 3       | 2         | NULL
+ NULL | true | 3       | 2.0       | NULL
 (1 行)
 SELECT 1 AS one, 2 + 2 AS four;
  one | four

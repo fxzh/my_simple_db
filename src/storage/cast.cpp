@@ -12,9 +12,10 @@
 
 namespace st {
 
+namespace mp = boost::multiprecision;
+
 namespace {
 
-namespace mp = boost::multiprecision;
 // 转换函数: 入参非 NULL, 源域即 v.type(由入口按表分派)
 using CastFn = Value (*)(const Value& v);
 
@@ -197,104 +198,6 @@ double parse_f64(std::string_view s)
     if (s.empty() || conv.ec != std::errc{} || conv.ptr != e || !std::isfinite(out)) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "字符串转数值失败");
     }
-    return out;
-}
-
-// 文本解析为定点十进制: [+/-]数字[.数字][eE[+/-]数字], 全串参与, 尾零保留;
-// unscaled 幅值达 10^38、scale 超 255 或指数超 1000 当场报错
-DecimalVal parse_decimal(std::string_view s)
-{
-    bool neg = false;
-    size_t i = 0;
-    if (i < s.size() && (s[i] == '+' || s[i] == '-')) {
-        neg = s[i] == '-';
-        ++i;
-    }
-    mp::int256_t u = 0;
-    long long scale = 0;
-    bool any = false;
-    auto take_digits = [&](bool frac) {
-        for (; i < s.size() && s[i] >= '0' && s[i] <= '9'; ++i) {
-            u = u * 10 + (s[i] - '0');
-            any = true;
-            if (frac) {
-                ++scale;
-            }
-            if (u >= kNumericUnscaledMax) {
-                DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE,
-                         "数值超出 numeric 可表示范围");
-            }
-        }
-    };
-    take_digits(false);
-    if (i < s.size() && s[i] == '.') {
-        ++i;
-        take_digits(true);
-    }
-    if (!any) {
-        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "字符串转数值失败");
-    }
-    long long exp = 0;
-    if (i < s.size() && (s[i] == 'e' || s[i] == 'E')) {
-        ++i;
-        bool eneg = false;
-        if (i < s.size() && (s[i] == '+' || s[i] == '-')) {
-            eneg = s[i] == '-';
-            ++i;
-        }
-        bool eany = false;
-        for (; i < s.size() && s[i] >= '0' && s[i] <= '9'; ++i) {
-            exp = exp * 10 + (s[i] - '0');
-            eany = true;
-            if (exp > 1000) {
-                DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE,
-                         "数值超出 numeric 可表示范围");
-            }
-        }
-        if (!eany) {
-            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "字符串转数值失败");
-        }
-        exp = eneg ? -exp : exp;
-    }
-    if (i != s.size()) {
-        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "字符串转数值失败");
-    }
-    scale -= exp;
-    if (scale < 0) {
-        for (long long k = 0; k < -scale; ++k) {
-            u *= 10;
-            if (u >= kNumericUnscaledMax) {
-                DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE,
-                         "数值超出 numeric 可表示范围");
-            }
-        }
-        scale = 0;
-    }
-    if (scale > 255) {
-        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "数值超出 numeric 可表示范围");
-    }
-    return DecimalVal{neg ? -u : u, static_cast<uint8_t>(scale)};
-}
-
-// 定点十进制转文本: 按 scale 定点展开, 尾零保留
-std::string decimal_to_string(const DecimalVal& d)
-{
-    const bool neg = d.unscaled < 0;
-    std::string digits = mp::abs(d.unscaled).convert_to<std::string>();
-    if (d.scale == 0) {
-        return neg ? "-" + digits : digits;
-    }
-    if (digits.size() <= d.scale) {
-        digits.insert(0, static_cast<size_t>(d.scale) - digits.size() + 1, '0');
-    }
-    std::string out;
-    if (neg) {
-        out += '-';
-    }
-    out.append(digits, 0, digits.size() - d.scale);
-    out += '.';
-    out.append(digits, digits.size() - static_cast<size_t>(d.scale),
-               static_cast<size_t>(d.scale));
     return out;
 }
 
@@ -516,28 +419,28 @@ Value bool_to_numeric(const Value& v)
 // double 转定点十进制: 最短往返十进制文本再精确解析
 Value double_to_numeric(const Value& v)
 {
-    const DecimalVal d = parse_decimal(std::format("{}", get_f64(v)));
+    const DecimalVal d = parse_decimal_text(std::format("{}", get_f64(v)));
     return numeric_val(d.unscaled, d.scale);
 }
 
 // float 转定点十进制: 最短往返十进制文本再精确解析
 Value float_to_numeric(const Value& v)
 {
-    const DecimalVal d = parse_decimal(std::format("{}", get_f32(v)));
+    const DecimalVal d = parse_decimal_text(std::format("{}", get_f32(v)));
     return numeric_val(d.unscaled, d.scale);
 }
 
 // 文本转定点十进制: VarChar 源
 Value text_to_numeric(const Value& v)
 {
-    const DecimalVal d = parse_decimal(get_str_view(v));
+    const DecimalVal d = parse_decimal_text(get_str_view(v));
     return numeric_val(d.unscaled, d.scale);
 }
 
 // Char 源文本转定点十进制: 去 pad 后按 VarChar 源同样规则解析
 Value char_to_numeric(const Value& v)
 {
-    const DecimalVal d = parse_decimal(get_char_view(v));
+    const DecimalVal d = parse_decimal_text(get_char_view(v));
     return numeric_val(d.unscaled, d.scale);
 }
 
@@ -554,7 +457,7 @@ Value numeric_to_bigint(const Value& v)
 // 定点十进制转 double: 定点文本经 from_chars 舍入
 Value numeric_to_double(const Value& v)
 {
-    return double_val(parse_f64(decimal_to_string(get_dec(v))));
+    return double_val(parse_f64(decimal_to_text(get_dec(v))));
 }
 
 // 定点十进制转 float: 经 double 中转收窄, 不可表示由收窄报错
@@ -566,11 +469,11 @@ Value numeric_to_float(const Value& v)
 // 定点十进制转文本
 Value numeric_to_varchar(const Value& v)
 {
-    return str_val(decimal_to_string(get_dec(v)));
+    return str_val(decimal_to_text(get_dec(v)));
 }
 Value numeric_to_char(const Value& v)
 {
-    return char_val(decimal_to_string(get_dec(v)));
+    return char_val(decimal_to_text(get_dec(v)));
 }
 
 // 定点十进制转 Bool: 仅精确 0/1
@@ -620,7 +523,8 @@ constexpr CastEntry kCastTable[9][9] = {
                    {bool_to_varchar}, {bool_to_float}, {bool_to_char}, {cast_id, true},
                    {bool_to_numeric}},
     /* Numeric */ {{}, {numeric_to_int}, {numeric_to_bigint}, {numeric_to_double, true},
-                   {numeric_to_varchar}, {numeric_to_float}, {numeric_to_char}, {numeric_to_bool},
+                   {numeric_to_varchar}, {numeric_to_float, true}, {numeric_to_char},
+                   {numeric_to_bool},
                    {cast_id, true}},
 };
 
@@ -637,6 +541,141 @@ Value cast_value(const Value& v, ColType to, CastMode mode)
                  static_cast<int>(v.type), static_cast<int>(to));
     }
     return e.fn(v);
+}
+
+// 文本解析为定点十进制: [+/-]数字[.数字][eE[+/-]数字], 全串参与, 尾零保留;
+// unscaled 幅值达 10^38、scale 超 255 或指数超 1000 当场报错
+DecimalVal parse_decimal_text(std::string_view s)
+{
+    bool neg = false;
+    size_t i = 0;
+    if (i < s.size() && (s[i] == '+' || s[i] == '-')) {
+        neg = s[i] == '-';
+        ++i;
+    }
+    mp::int256_t u = 0;
+    long long scale = 0;
+    bool any = false;
+    auto take_digits = [&](bool frac) {
+        for (; i < s.size() && s[i] >= '0' && s[i] <= '9'; ++i) {
+            u = u * 10 + (s[i] - '0');
+            any = true;
+            if (frac) {
+                ++scale;
+            }
+            if (u >= kNumericUnscaledMax) {
+                DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE,
+                         "数值超出 numeric 可表示范围");
+            }
+        }
+    };
+    take_digits(false);
+    if (i < s.size() && s[i] == '.') {
+        ++i;
+        take_digits(true);
+    }
+    if (!any) {
+        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "字符串转数值失败");
+    }
+    long long exp = 0;
+    if (i < s.size() && (s[i] == 'e' || s[i] == 'E')) {
+        ++i;
+        bool eneg = false;
+        if (i < s.size() && (s[i] == '+' || s[i] == '-')) {
+            eneg = s[i] == '-';
+            ++i;
+        }
+        bool eany = false;
+        for (; i < s.size() && s[i] >= '0' && s[i] <= '9'; ++i) {
+            exp = exp * 10 + (s[i] - '0');
+            eany = true;
+            if (exp > 1000) {
+                DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE,
+                         "数值超出 numeric 可表示范围");
+            }
+        }
+        if (!eany) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "字符串转数值失败");
+        }
+        exp = eneg ? -exp : exp;
+    }
+    if (i != s.size()) {
+        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "字符串转数值失败");
+    }
+    scale -= exp;
+    if (scale < 0) {
+        for (long long k = 0; k < -scale; ++k) {
+            u *= 10;
+            if (u >= kNumericUnscaledMax) {
+                DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE,
+                         "数值超出 numeric 可表示范围");
+            }
+        }
+        scale = 0;
+    }
+    if (scale > 255) {
+        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "数值超出 numeric 可表示范围");
+    }
+    return DecimalVal{neg ? -u : u, static_cast<uint8_t>(scale)};
+}
+
+// 定点十进制转文本: 按 scale 定点展开, 尾零保留
+std::string decimal_to_text(const DecimalVal& d)
+{
+    const bool neg = d.unscaled < 0;
+    std::string digits = mp::abs(d.unscaled).convert_to<std::string>();
+    if (d.scale == 0) {
+        return neg ? "-" + digits : digits;
+    }
+    if (digits.size() <= d.scale) {
+        digits.insert(0, static_cast<size_t>(d.scale) - digits.size() + 1, '0');
+    }
+    std::string out;
+    if (neg) {
+        out += '-';
+    }
+    out.append(digits, 0, digits.size() - d.scale);
+    out += '.';
+    out.append(digits, digits.size() - static_cast<size_t>(d.scale),
+               static_cast<size_t>(d.scale));
+    return out;
+}
+
+// numeric 目标归一: 先经分派表转 Numeric 域, 再四舍五入(远离零)到目标标度;
+// 精度非 0 时校验结果十进制位数, 放大超界/超精度当场报错
+Value coerce_numeric(const Value& v, uint16_t precision, uint8_t scale)
+{
+    const Value n = cast_value(v, ColType::Numeric, CastMode::Explicit);
+    const DecimalVal d = get_dec(n);
+    mp::int256_t u = d.unscaled;
+    if (d.scale > scale) {
+        const mp::int256_t p = pow10(d.scale - scale);
+        const mp::int256_t r = u % p;  // 与 u 同号
+        u /= p;
+        if (mp::abs(r) * 2 >= p) {
+            u += u < 0 ? -1 : 1;  // 余数达半即远离零进位
+        }
+    } else {
+        for (int i = d.scale; i < scale; ++i) {
+            u *= 10;
+            if (u != 0 && mp::abs(u) >= kNumericUnscaledMax) {
+                DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE,
+                         "数值超出 numeric 可表示范围");
+            }
+        }
+    }
+    if (precision > 0) {
+        mp::int256_t mag = mp::abs(u);
+        int digits = 0;
+        while (mag > 0) {
+            mag /= 10;
+            ++digits;
+        }
+        if (digits > precision) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "numeric 值超出声明精度");
+        }
+    }
+    return numeric_val(u, scale);
 }
 
 }  // namespace st

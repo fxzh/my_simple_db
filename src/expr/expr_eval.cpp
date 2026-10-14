@@ -1,6 +1,7 @@
 // expr_eval.cpp: 表达式求值器实现
 #include "expr_eval.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <iterator>
@@ -11,6 +12,8 @@
 #include "storage/cast.h"
 
 namespace expr {
+
+namespace mp = boost::multiprecision;
 
 namespace {
 
@@ -32,6 +35,22 @@ float to_float(const st::Value& v)
 int64_t get_int(const st::Value& v, st::ColType domain)
 {
     return std::get<int64_t>(st::cast_value(v, domain).box);
+}
+
+// 取 DecimalVal 盒值, 形态不符当场报错
+const st::DecimalVal& get_dec(const st::Value& v)
+{
+    const st::DecimalVal* d = std::get_if<st::DecimalVal>(&v.box);
+    if (d == nullptr) {
+        DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 值形态与数值域不符");
+    }
+    return *d;
+}
+
+// 数值转 numeric 域: 经 cast 分派表转换后取盒值, 非数值源域由表入口报错
+st::DecimalVal to_numeric(const st::Value& v)
+{
+    return std::get<st::DecimalVal>(st::cast_value(v, st::ColType::Numeric).box);
 }
 
 // 值是否 NULL(仅看 box)
@@ -59,6 +78,155 @@ std::string_view rtrim_space(std::string_view s)
         s.remove_suffix(1);
     }
     return s;
+}
+
+// unscaled 对齐放大到目标标度(须不低于当前标度): 逐位乘 10, 幅值达 38 位十进制报错
+mp::int256_t dec_align(mp::int256_t u, uint8_t from, uint8_t to)
+{
+    for (int i = from; i < to; ++i) {
+        u *= 10;
+        if (u != 0 && mp::abs(u) >= st::kNumericUnscaledMax) {
+            DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "numeric 算术结果超界");
+        }
+    }
+    return u;
+}
+
+// numeric 除法: 逐位长除到目标标度并四舍五入(远离零), 每步幅值 < 10^39;
+// 除零与结果达 38 位十进制当场报错, 返回商的 unscaled
+mp::int256_t dec_div(const st::DecimalVal& l, const st::DecimalVal& r, uint8_t rscale)
+{
+    if (r.unscaled == 0) {
+        DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "numeric 除零");
+    }
+    const bool neg = (l.unscaled < 0) != (r.unscaled < 0);
+    const mp::int256_t ua = mp::abs(l.unscaled);
+    const mp::int256_t ub = mp::abs(r.unscaled);
+    // 商 = ua/ub × 10^t, t = 目标标度 + 右标度 - 左标度(推导保证非负)
+    const long long t = static_cast<long long>(rscale) + r.scale - l.scale;
+    if (t < 0) {
+        DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: numeric 除法标度推导违约");
+    }
+    const mp::int256_t gate = st::kNumericUnscaledMax / 10;  // 10^37, 再放大必超 38 位
+    mp::int256_t q = ua / ub;
+    mp::int256_t rem = ua % ub;
+    for (long long i = 0; i < t; ++i) {
+        if (q >= gate) {
+            DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "numeric 算术结果超界");
+        }
+        q = q * 10 + rem * 10 / ub;
+        rem = rem * 10 % ub;
+    }
+    if (rem * 2 >= ub) {
+        ++q;  // 余数达半即远离零进位
+    }
+    if (q >= st::kNumericUnscaledMax) {
+        DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "numeric 算术结果超界");
+    }
+    return neg ? -q : q;
+}
+
+// numeric 结果标度按操作数值标度推导: 加减取大, 乘取和(超 255 报错),
+// 除取大加 4(封顶 255); 裸 numeric 列值标度不可静态知, 故在求值期推导
+uint8_t dec_result_scale(char op, const st::DecimalVal& l, const st::DecimalVal& r)
+{
+    const int hi = l.scale > r.scale ? l.scale : r.scale;
+    int s = 0;
+    if (op == '+' || op == '-') {
+        s = hi;
+    } else if (op == '*') {
+        s = static_cast<int>(l.scale) + r.scale;
+    } else {
+        s = std::min(hi + 4, 255);
+    }
+    if (s > 255) {
+        DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "numeric 乘法标度超界");
+    }
+    return static_cast<uint8_t>(s);
+}
+
+// numeric 四则: 加减对齐到目标标度后加减(幅值 < 2×10^38), 乘直乘(幅值 < 10^76),
+// 除走长除; 结果达 38 位十进制当场报错, 返回结果 unscaled(标度即目标标度)
+mp::int256_t dec_arith(char op, const st::DecimalVal& l, const st::DecimalVal& r,
+                       uint8_t rscale)
+{
+    mp::int256_t out = 0;
+    switch (op) {
+    case '+':
+    case '-': {
+        const mp::int256_t lu = dec_align(l.unscaled, l.scale, rscale);
+        const mp::int256_t ru = dec_align(r.unscaled, r.scale, rscale);
+        out = op == '+' ? lu + ru : lu - ru;
+        break;
+    }
+    case '*':
+        out = l.unscaled * r.unscaled;
+        break;
+    case '/':
+        return dec_div(l, r, rscale);
+    }
+    if (mp::abs(out) >= st::kNumericUnscaledMax) {
+        DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "numeric 算术结果超界");
+    }
+    return out;
+}
+
+// 幅值十进制位数(u 须非负)
+int dec_digits(const mp::int256_t& u)
+{
+    int n = 0;
+    mp::int256_t t = u;
+    while (t > 0) {
+        t /= 10;
+        ++n;
+    }
+    return n;
+}
+
+// numeric 精确三向比较: 零值先行, 符号次之, 幅值按(位数-标度)定位阶,
+// 同阶低位侧放大对齐后比较(位数差即标度差, 对齐侧幅值 < 10^38)
+int dec_cmp(const st::DecimalVal& a, const st::DecimalVal& b)
+{
+    const bool an = a.unscaled < 0;
+    const bool bn = b.unscaled < 0;
+    const bool az = a.unscaled == 0;
+    const bool bz = b.unscaled == 0;
+    if (az || bz) {
+        if (az && bz) {
+            return 0;
+        }
+        if (az) {
+            return bn ? 1 : -1;
+        }
+        return an ? -1 : 1;
+    }
+    if (an != bn) {
+        return an ? -1 : 1;
+    }
+    const mp::int256_t ua = mp::abs(a.unscaled);
+    const mp::int256_t ub = mp::abs(b.unscaled);
+    const long long ea = dec_digits(ua) - a.scale;
+    const long long eb = dec_digits(ub) - b.scale;
+    if (ea != eb) {
+        const bool a_smaller = ea < eb;
+        return (an ? !a_smaller : a_smaller) ? -1 : 1;
+    }
+    mp::int256_t ma = ua;
+    mp::int256_t mb = ub;
+    if (a.scale > b.scale) {
+        for (int i = b.scale; i < a.scale; ++i) {
+            mb *= 10;
+        }
+    } else {
+        for (int i = a.scale; i < b.scale; ++i) {
+            ma *= 10;
+        }
+    }
+    if (ma == mb) {
+        return 0;
+    }
+    const bool m_smaller = ma < mb;
+    return (an ? !m_smaller : m_smaller) ? -1 : 1;
 }
 
 // 值家族: 数值/文本/布尔, 供比较分派; 值无语义类型时归 None
@@ -93,6 +261,10 @@ st::Value eval_neg(const ana::BoundNeg& e, const st::Row* row)
     if (e.type == st::ColType::Double) {
         return st::double_val(-to_double(v));  // 有限值取反仍有限
     }
+    if (e.type == st::ColType::Numeric) {
+        const st::DecimalVal& d = get_dec(v);
+        return st::numeric_val(-d.unscaled, d.scale);  // 幅值不变
+    }
     const int64_t i = get_int(v, e.type);
     if (i == INT64_MIN || (e.type == st::ColType::Int && i == INT32_MIN)) {
         DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "整型取反溢出");
@@ -109,6 +281,13 @@ st::Value eval_binary(const ana::BoundArith& e, const st::Row* row)
     const st::Value rv = eval_bound(*e.right, row);
     if (is_null(lv) || is_null(rv)) {
         return st::Value{};  // NULL 传播, 短路于除零/溢出检查
+    }
+    if (e.type == st::ColType::Numeric) {
+        // 操作数转 numeric 域, 结果标度按操作数值标度推导
+        const st::DecimalVal l = to_numeric(lv);
+        const st::DecimalVal r = to_numeric(rv);
+        const uint8_t rs = dec_result_scale(e.op, l, r);
+        return st::numeric_val(dec_arith(e.op, l, r, rs), rs);
     }
     if (e.type == st::ColType::Float) {
         // 单精度域逐运算舍入
@@ -257,6 +436,10 @@ st::Value eval_abs(const std::vector<st::Value>& args, st::ColType ret)
     if (ret == st::ColType::Double) {
         return st::double_val(std::fabs(to_double(v)));
     }
+    if (ret == st::ColType::Numeric) {
+        const st::DecimalVal& d = get_dec(v);
+        return st::numeric_val(d.unscaled < 0 ? -d.unscaled : d.unscaled, d.scale);
+    }
     const int64_t i = get_int(v, ret);
     if (i == INT64_MIN || (ret == st::ColType::Int && i == INT32_MIN)) {
         DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "整型绝对值溢出");
@@ -291,13 +474,16 @@ st::Value eval_func_call(const ana::BoundFuncCall& e, const st::Row* row)
     return kFuncTable[idx](argv, e.type);
 }
 
-// CAST: NULL 传播; 转换经 cast 分派表显式模式执行, Int 目标超 int32 域与
-// 文本目标超声明长度(仅文本目标 length 非 0)当场报错
+// CAST: NULL 传播; 转换经 cast 分派表显式模式执行, numeric 声明目标走标度归一;
+// Int 目标超 int32 域与文本目标超声明长度(仅文本目标 length 非 0)当场报错
 st::Value eval_cast(const ana::BoundCast& e, const st::Row* row)
 {
     const st::Value v = eval_bound(*e.operand, row);
     if (is_null(v)) {
         return v;  // NULL 传播
+    }
+    if (e.type == st::ColType::Numeric && e.length > 0) {
+        return st::coerce_numeric(v, e.length, e.scale);
     }
     const st::Value out = st::cast_value(v, e.type, st::CastMode::Explicit);
     if (e.type == st::ColType::Int) {
@@ -375,7 +561,8 @@ st::Value eval_row(const ana::BoundExpr& e, const st::Row& row)
 }
 
 // 值三向比较(排序/去重共享): NULL 最大, 双 NULL 相等; 布尔 false<true; 整型按 int64;
-// 数值家族混合提升 double; 字符串字典序且仅 Char 侧去尾随空格; 家族不可比报 Internal
+// 数值家族中整型与 numeric 间走精确比较, 浮点参与提升 double; 字符串字典序且仅 Char 侧
+// 去尾随空格; 家族不可比报 Internal
 int value_cmp(const st::Value& a, const st::Value& b)
 {
     const bool an = is_null(a);
@@ -393,7 +580,19 @@ int value_cmp(const st::Value& a, const st::Value& b)
         if (li != nullptr && ri != nullptr) {
             return *li < *ri ? -1 : (*li > *ri ? 1 : 0);  // 纯整型精确比较
         }
-        const double l = to_double(a);  // 数值混合提升 double
+        const st::DecimalVal* ld = std::get_if<st::DecimalVal>(&a.box);
+        const st::DecimalVal* rd = std::get_if<st::DecimalVal>(&b.box);
+        if (ld != nullptr && rd != nullptr) {
+            return dec_cmp(*ld, *rd);  // 纯 numeric 精确比较
+        }
+        // numeric 与整型互比: 整型侧按标度 0 转 numeric 后精确比较
+        if (ld != nullptr && ri != nullptr) {
+            return dec_cmp(*ld, st::DecimalVal{mp::int256_t(*ri), 0});
+        }
+        if (li != nullptr && rd != nullptr) {
+            return dec_cmp(st::DecimalVal{mp::int256_t(*li), 0}, *rd);
+        }
+        const double l = to_double(a);  // 浮点参与的混合比较提升 double
         const double r = to_double(b);
         return l < r ? -1 : (l > r ? 1 : 0);
     }

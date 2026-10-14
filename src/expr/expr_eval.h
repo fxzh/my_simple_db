@@ -16,7 +16,7 @@ st::Value eval_const(const ana::BoundExpr& e);
 st::Value eval_row(const ana::BoundExpr& e, const st::Row& row);
 
 // 值三向比较(排序/去重共享): NULL 最大, 双 NULL 相等; 布尔 false<true; 整型按 int64;
-// 数值家族混合提升 double; 字符串字典序且仅 Char 侧去尾随空格; 家族不可比报 Internal
+// 数值家族中整型与 numeric 间走精确比较, 浮点参与提升 double; 家族不可比报 Internal
 int value_cmp(const st::Value& a, const st::Value& b);
 
 // WHERE 条件判定: NULL(UNKNOWN) 视为不满足, bool 由语义层保证

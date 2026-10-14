@@ -39,7 +39,8 @@ struct BoundColRef : BoundExpr {
     BoundExprKind kind() const override { return BoundExprKind::ColRef; }
 };
 
-// 算术运算: + - * /; type 为绑定期推导的结果域, 求值按域装配与检查
+// 算术运算: + - * /; type 为绑定期推导的结果域, 求值按域装配与检查;
+// numeric 结果标度在求值期按操作数值标度推导(裸 numeric 列值标度不可静态知)
 struct BoundArith : BoundExpr {
     char op;
     st::ColType type = st::ColType::Null;

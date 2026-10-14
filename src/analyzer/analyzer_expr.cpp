@@ -13,19 +13,21 @@
 #include "catalog.h"
 #include "common/err.h"
 #include "log/log.h"
+#include "storage/cast.h"
 
 namespace ana {
 
 namespace {
 
-// 数值类域等级: Int<BigInt<Float<Double, 非数值为 0(Null 单独判)
+// 数值类域等级: Int<BigInt<Numeric<Float<Double, 非数值为 0(Null 单独判)
 int num_rank(st::ColType t)
 {
     switch (t) {
     case st::ColType::Int: return 1;
     case st::ColType::BigInt: return 2;
-    case st::ColType::Float: return 3;
-    case st::ColType::Double: return 4;
+    case st::ColType::Numeric: return 3;
+    case st::ColType::Float: return 4;
+    case st::ColType::Double: return 5;
     default: return 0;
     }
 }
@@ -204,15 +206,11 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const RowDesc* row_desc, 
         return std::make_unique<BoundConst>(st::double_val(v));
     }
     case ExprKind::Decimal: {
-        // 无指数小数字面量解析为 double, 定型 Double
-        const std::string& s = static_cast<const DecimalExpr&>(expr).text;
-        double v = 0;
-        const auto conv = std::from_chars(s.data(), s.data() + s.size(), v);
-        if (conv.ec != std::errc{} || conv.ptr != s.data() + s.size()) {
-            DB_RAISE(db::ErrCode::ArithError, LogModule::ANALYZER, "浮点字面量超出可表示范围");
-        }
-        type = st::ColType::Double;
-        return std::make_unique<BoundConst>(st::double_val(v));
+        // 无指数小数字面量解析为定点十进制, 定型 Numeric, 标度随字面量
+        const st::DecimalVal d =
+            st::parse_decimal_text(static_cast<const DecimalExpr&>(expr).text);
+        type = st::ColType::Numeric;
+        return std::make_unique<BoundConst>(st::numeric_val(d.unscaled, d.scale));
     }
     case ExprKind::String:
         type = st::ColType::VarChar;
@@ -247,8 +245,13 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const RowDesc* row_desc, 
             || (!is_num_type(rt) && rt != st::ColType::Null)) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "算术运算操作数不是数值");
         }
-        // 结果取两侧较高数值域
-        type = num_rank(lt) >= num_rank(rt) ? lt : rt;
+        // 结果域: 按秩取较高侧, numeric 与 Float 组合抬到 Double
+        if ((lt == st::ColType::Numeric && rt == st::ColType::Float)
+            || (lt == st::ColType::Float && rt == st::ColType::Numeric)) {
+            type = st::ColType::Double;
+        } else {
+            type = num_rank(lt) >= num_rank(rt) ? lt : rt;
+        }
         return std::make_unique<BoundArith>(e.op, std::move(l), std::move(r), type);
     }
     case ExprKind::UnaryOp: {
@@ -462,11 +465,9 @@ RowDesc build_row_desc(const st::TableMeta& meta)
 {
     RowDesc row_desc;
     row_desc.col_types.reserve(meta.cols.size());
-    row_desc.col_scales.reserve(meta.cols.size());
     for (size_t i = 0; i < meta.cols.size(); ++i) {
         row_desc.cols.emplace(meta.cols[i].name, i);
         row_desc.col_types.push_back(meta.cols[i].type);
-        row_desc.col_scales.push_back(meta.cols[i].scale);
     }
     return row_desc;
 }

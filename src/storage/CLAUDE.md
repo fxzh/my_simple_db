@@ -3,3 +3,4 @@
 
 - 完整设计见 docs/storage-design.md
 - 值级转换统一入口为 cast.h 的 st::cast_value，按 (源域,目标域,模式) 分派内置转换函数；隐式模式仅同族提升/收窄(求值提升与写列归一)，显式模式含跨族转换(CAST)，各模块的值转换经它执行
+- numeric 值的声明目标(p,s)归一走 cast.h 的 st::coerce_numeric(四舍五入远离零)；幅值上界 38 位十进制见 types.h

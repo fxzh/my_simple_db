@@ -100,7 +100,7 @@ EXPLAIN SELECT * FROM ei_t WHERE c > 1.0;
 -------------------------------------
  Project
    Output: a, b, c
-   ->  Filter: (c > 1)
+   ->  Filter: (c > 1.0)
          ->  Seq Scan on public.ei_t
 (4 行)
 -- between 展开两比较同列命中, 区间交
@@ -154,7 +154,7 @@ EXPLAIN UPDATE ei_t SET c = 0.0 WHERE a = 1;
                     QUERY PLAN
 --------------------------------------------------
  Update on public.ei_t
-   Set: c = 0
+   Set: c = 0.0
    ->  Fetch on public.ei_t
          ->  Index Scan using ei_a on public.ei_t
                Index Cond: (a = 1)

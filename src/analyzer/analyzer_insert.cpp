@@ -34,7 +34,8 @@ void check_value_type(const Expr& expr, st::ColType t, const st::ColumnSpec& col
         break;
     case st::ColType::Double:
     case st::ColType::Float: {
-        ok = t == st::ColType::Double;
+        // 浮点列收 double 与 numeric 值(decimal 字面量定型 numeric)
+        ok = t == st::ColType::Double || t == st::ColType::Numeric;
         // float 列字面量须可被 float 表示
         if (ok && col.type == st::ColType::Float
             && (expr.kind() == ExprKind::Float || expr.kind() == ExprKind::Decimal)) {
@@ -84,7 +85,7 @@ void check_update_type(st::ColType t, const st::ColumnSpec& col)
         break;
     case st::ColType::Float:
     case st::ColType::Double:
-        ok = is_float_type(t) || t == st::ColType::Null;
+        ok = is_float_type(t) || t == st::ColType::Numeric || t == st::ColType::Null;
         break;
     case st::ColType::Char:
     case st::ColType::VarChar:
