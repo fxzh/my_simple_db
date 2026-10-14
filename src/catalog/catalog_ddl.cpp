@@ -113,16 +113,20 @@ void Catalog::write_meta_rows(uint64_t sid, uint64_t tid, uint64_t fid, const st
 
 void Catalog::bootstrap_meta_tables()
 {
+    engine_.init_table_file(kTypeMetaId);
     engine_.init_table_file(kTableMetaId);
     engine_.init_table_file(kColumnMetaId);
     engine_.init_table_file(kSchemaMetaId);
-    write_meta_rows(kSystemSchemaId, kTableMetaId, kTableMetaId, kTableMetaName,
-                    table_meta_cols());
+    write_meta_rows(kSystemSchemaId, kTypeMetaId, kTypeMetaId, kTypeMetaName, type_meta_cols());
+    write_meta_rows(kSystemSchemaId, kTableMetaId, kTableMetaId, kTableMetaName, table_meta_cols());
     write_meta_rows(kSystemSchemaId, kColumnMetaId, kColumnMetaId, kColumnMetaName,
                     column_meta_cols());
     write_meta_rows(kSystemSchemaId, kSchemaMetaId, kSchemaMetaId, kSchemaMetaName,
                     schema_meta_cols());
     st::RowRef ref;
+    for (const std::vector<st::Value>& row : type_meta_rows()) {
+        engine_.insert_row(kTypeMetaId, type_meta_cols(), row, &ref);
+    }
     engine_.insert_row(kSchemaMetaId, schema_meta_cols(),
                        {st::bigint_val(static_cast<int64_t>(kSystemSchemaId)),
                         st::str_val(std::string{kSystemSchemaName})}, &ref);

@@ -19,18 +19,21 @@ namespace ct {
 constexpr uint64_t kReservedMaxTableId = 20000;
 constexpr uint64_t kFirstUserTableId = 20001;
 
-// 元数据表(保留段固定 id): db_table 记表名, db_column 记列定义, db_schema 记 schema, 引导期 schema 硬编码
+// 元数据表(保留段固定 id): db_table 记表名, db_column 记列定义, db_schema 记 schema,
+// db_type 记类型, 引导期 schema 硬编码
 constexpr uint64_t kTableMetaId = 1;
 constexpr uint64_t kColumnMetaId = 2;
 constexpr uint64_t kSchemaMetaId = 3;
+constexpr uint64_t kTypeMetaId = 4;
 constexpr const char* kTableMetaName = "db_table";
 constexpr const char* kColumnMetaName = "db_column";
 constexpr const char* kSchemaMetaName = "db_schema";
+constexpr const char* kTypeMetaName = "db_type";
 
 // bootstrap.sql 创建的系统表(文档性 id 与文件内 set table_id 值一致), 列定义唯一事实来源在 bootstrap.sql
-constexpr uint64_t kIndexMetaId = 4;
+constexpr uint64_t kIndexMetaId = 5;
 constexpr const char* kIndexMetaName = "db_index";
-constexpr uint64_t kFuncMetaId = 5;
+constexpr uint64_t kFuncMetaId = 6;
 constexpr const char* kFuncMetaName = "db_func";
 
 // bootstrap.sql 末尾创建的完成标记表: 行存在即代表初始化全程成功, 正常模式 open() 按名检查
@@ -90,7 +93,7 @@ public:
 
     // 初始化数据目录: 引导两张元数据表, 目录须已存在且未初始化, 不进入打开状态
     void create();
-    // 打开已初始化的数据目录, 缺失当场报错: 正常模式按名检查 db_version 完成标记, bootstrap 模式检查三张自举表文件
+    // 打开已初始化的数据目录, 缺失当场报错: 正常模式按名检查 db_version 完成标记, bootstrap 模式检查自举表文件
     void open();
     // 刷盘并关闭
     void close();

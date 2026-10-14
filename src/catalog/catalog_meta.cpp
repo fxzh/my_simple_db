@@ -39,6 +39,65 @@ std::vector<st::ColumnSpec> schema_meta_cols()
             {"schema_name", st::ColType::VarChar, kMetaNameLen, true}};
 }
 
+// db_type 列定义
+std::vector<st::ColumnSpec> type_meta_cols()
+{
+    return {{"type_id", st::ColType::Int, 0, true},
+            {"type_name", st::ColType::VarChar, kMetaNameLen, true},
+            {"alias", st::ColType::VarChar, kMetaNameLen, false},
+            {"family", st::ColType::Int, 0, true},
+            {"rank", st::ColType::Int, 0, true},
+            {"len_allowed", st::ColType::Int, 0, true},
+            {"len_default", st::ColType::Int, 0, true},
+            {"len_max", st::ColType::Int, 0, true},
+            {"scale_allowed", st::ColType::Int, 0, true},
+            {"rep", st::ColType::Int, 0, true},
+            {"store", st::ColType::Int, 0, true},
+            {"width", st::ColType::Int, 0, true}};
+}
+
+// db_type 种子行: 现役类型各一行, 无别名的行 alias 为 NULL;
+// 属性列含义: family 值族(1 数值 2 文本 3 布尔), rank 数值提升等级,
+// len_allowed/len_default/len_max 声明长度规则, scale_allowed 声明标度规则,
+// rep 值形态, store 存储形态(1 定宽 2 定长补空格 3 变长前缀 4 定点十进制), width 定宽字节数
+std::vector<std::vector<st::Value>> type_meta_rows()
+{
+    struct TypeSeed {
+        int id;
+        const char* name;
+        const char* alias;  // nullptr 表示无别名
+        int family;
+        int rank;
+        int len_allowed;
+        int len_default;
+        int len_max;
+        int scale_allowed;
+        int rep;
+        int store;
+        int width;
+    };
+    constexpr TypeSeed seeds[] = {
+            {1, "int", nullptr, 1, 1, 0, 0, 0, 0, 1, 1, 4},
+            {2, "bigint", nullptr, 1, 2, 0, 0, 0, 0, 1, 1, 8},
+            {3, "double", nullptr, 1, 5, 0, 0, 0, 0, 3, 1, 8},
+            {4, "varchar", nullptr, 2, 0, 1, 0, 65535, 0, 4, 3, 0},
+            {5, "float", nullptr, 1, 4, 0, 0, 0, 0, 2, 1, 4},
+            {6, "char", nullptr, 2, 0, 1, 1, 65535, 0, 4, 2, 0},
+            {7, "boolean", "bool", 3, 0, 0, 0, 0, 0, 5, 1, 1},
+            {8, "numeric", "decimal", 1, 3, 1, 0, 38, 1, 6, 4, 0},
+    };
+    std::vector<std::vector<st::Value>> rows;
+    for (const TypeSeed& s : seeds) {
+        rows.push_back({st::int_val(s.id), st::str_val(s.name),
+                        s.alias == nullptr ? st::Value{} : st::str_val(s.alias),
+                        st::int_val(s.family), st::int_val(s.rank),
+                        st::int_val(s.len_allowed), st::int_val(s.len_default),
+                        st::int_val(s.len_max), st::int_val(s.scale_allowed),
+                        st::int_val(s.rep), st::int_val(s.store), st::int_val(s.width)});
+    }
+    return rows;
+}
+
 // 生成某表的 db_column 自描述行(ordinal 从 0 起, type/not_null 存枚举值与 0/1,
 // length/scale 存声明长度/标度)
 std::vector<std::vector<st::Value>> column_meta_rows(uint64_t tid,

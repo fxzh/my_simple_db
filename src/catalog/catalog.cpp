@@ -32,9 +32,10 @@ void Catalog::create()
 void Catalog::open()
 {
     if (bootstrap_mode_) {
-        // bootstrap 模式: 目录刚由 initdb 引导, 检查三张自举表文件存在
+        // bootstrap 模式: 目录刚由 initdb 引导, 检查自举表文件存在
         if (!engine_.table_file_exists(kTableMetaId) || !engine_.table_file_exists(kColumnMetaId)
-            || !engine_.table_file_exists(kSchemaMetaId)) {
+            || !engine_.table_file_exists(kSchemaMetaId)
+            || !engine_.table_file_exists(kTypeMetaId)) {
             DB_RAISE(db::ErrCode::CatalogMissing, LogModule::CATALOG, "数据目录未初始化: {}", dir_);
         }
     } else if (!engine_.table_file_exists(kTableMetaId)) {

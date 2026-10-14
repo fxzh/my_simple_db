@@ -21,6 +21,10 @@ std::vector<st::ColumnSpec> table_meta_cols();
 std::vector<st::ColumnSpec> column_meta_cols();
 // db_schema 列定义
 std::vector<st::ColumnSpec> schema_meta_cols();
+// db_type 列定义
+std::vector<st::ColumnSpec> type_meta_cols();
+// db_type 种子行: 现役类型各一行, 无别名的行 alias 为 NULL
+std::vector<std::vector<st::Value>> type_meta_rows();
 // 生成某表的 db_column 自描述行(ordinal 从 0 起, type/not_null 存枚举值与 0/1,
 // length/scale 存声明长度/标度)
 std::vector<std::vector<st::Value>> column_meta_rows(uint64_t tid,

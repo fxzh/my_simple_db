@@ -1,4 +1,4 @@
-// initdb: 初始化工具, 在 -D 指定的数据目录内生成默认配置文件 db.conf 与元数据表 db_table/db_column/db_schema,
+// initdb: 初始化工具, 在 -D 指定的数据目录内生成默认配置文件 db.conf 与部分元数据表
 // 再拉起同目录 server --bootstrap, 经 client 执行伴生 bootstrap.sql 建系统表后经控制通道关闭
 #include <cerrno>
 #include <charconv>
@@ -337,7 +337,7 @@ int main(int argc, char* argv[])
         std::cerr << error << std::endl;
         return 1;
     }
-    // 生成两张元数据表(自描述行), 兜 std::exception(目录不可写时 Logger 构造亦抛异常)
+    // 生成四张元数据表(自描述行), 兜 std::exception(目录不可写时 Logger 构造亦抛异常)
     try {
         ct::Catalog db(dir);
         db.create();

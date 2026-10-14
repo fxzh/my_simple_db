@@ -16,9 +16,10 @@ SELECT table_name FROM system.db_table ORDER BY table_name;
  db_index
  db_schema
  db_table
+ db_type
  db_version
  t_ctl
-(7 行)
+(8 行)
 BEGIN;
 BEGIN
 SET x = 1;
