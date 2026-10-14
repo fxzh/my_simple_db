@@ -30,7 +30,7 @@ src/catalog(静态库 catalog)
    ▼
 src/storage(静态库 storage)
    ├── engine.h/.cpp   文件引擎入口(Engine, 原语须持锁), 只依赖 types.h
-   ├── types.h         ColType/ColumnSpec/Value/TableMeta/RowId/Row/RowRef
+   ├── types.h         类型词表(TypeAttr/Family/Rep/Store/自举内核 kTypeSeeds)/ColumnSpec/Value/TableMeta/RowId/Row/RowRef
    ├── codec.h/.cpp    行序列化/反序列化
    ├── page.h          页头与槽(Slot)内存布局
    ├── file_manager    每表/每索引文件的读写原语(pread/pwrite)
@@ -40,7 +40,7 @@ src/storage(静态库 storage)
    └── recovery        启动时崩溃恢复
 ```
 
-依赖关系：parser → analyzer → planner → executor → catalog → storage 单向；`catalog` 与 `storage` 均不依赖 `parser`。storage 用自己的 `ColumnSpec`/`Value` 类型（types.h），analyzer 负责把 AST 的 `ColumnDef`（语义类型枚举 + 长度）映射为 `st::ColumnSpec`；求值产物即 `st::Value`（携带语义类型标签，含 bool/float 备选），无第二套值域。
+依赖关系：parser → analyzer → planner → executor → catalog → storage 单向；`catalog` 与 `storage` 均不依赖 `parser`。storage 用自己的 `ColumnSpec`/`Value` 类型（types.h），analyzer 负责把 AST 的 `ColumnDef`（类型名字符串 + 长度/标度）经 catalog 查 db_type 定型为 `st::TypeAttr` 再组装 `st::ColumnSpec`；求值产物即 `st::Value`（携带类型属性 TypeAttr），无第二套值域。
 
 > 格式演化约定：不做版本与迁移，各结构体字段只放当前里程碑实际用到的；后续里程碑需要新字段时直接增删改，不保留旧格式。
 
@@ -75,6 +75,11 @@ public:
     bool read_row(const st::RowRef&, const std::vector<st::ColumnSpec>&, st::Row*);
     size_t row_count(const st::TableMeta&);
     st::TableMeta table_meta(const TableRef&);
+
+    // 类型: 按名(规范名或别名)/按 type_id 查 db_type 行 / 按内部名取属性
+    TypeRow find_type(const std::string& name);
+    TypeRow find_type_by_id(uint16_t id);
+    st::TypeAttr require_type(const std::string& name);
 };
 ```
 
@@ -82,7 +87,7 @@ public:
 
 ## 3. 文件布局
 
-数据目录（运行时参数指定，如 `./data`）：元数据表文件 t_1~t_5.dat（db_table/db_column/db_schema 引导期直建，db_index/db_version 由 bootstrap.sql 经 bootstrap 模式创建，见 §6）、每表/每索引一个数据文件 t_<file_id>.dat（4KB 页流，页号从 0 起、文件内偏移 = 页号 × 页大小，第 0 页为文件头页）、wal.log（M4 已实现，所有表与索引共享）。表文件与索引文件同构：表文件头页存 rowid 计数器，索引文件头页存 B+ 树根页号（§8）。文件级读写原语已实现（src/storage/file_manager.h）。
+数据目录（运行时参数指定，如 `./data`）：元数据表文件 t_1~t_6.dat（db_table/db_column/db_schema/db_type 引导期直建，db_index/db_func/db_version 由 bootstrap.sql 经 bootstrap 模式创建，见 §6）、每表/每索引一个数据文件 t_<file_id>.dat（4KB 页流，页号从 0 起、文件内偏移 = 页号 × 页大小，第 0 页为文件头页）、wal.log（M4 已实现，所有表与索引共享）。表文件与索引文件同构：表文件头页存 rowid 计数器，索引文件头页存 B+ 树根页号（§8）。文件级读写原语已实现（src/storage/file_manager.h）。
 
 **每表/每索引独立文件**：DROP = 记 DropFile 并延迟到事务提交后 unlink（见 §9）；页分配为文件尾追加，尾页由引擎内存跟踪（tail_pages_，打开时从磁盘最高页向下跳过全零页定尾，页分配回滚可恢复）。空闲页链表（释放页标记 FREE 挂回链表、链头记录在文件头页）为后续设计，接入后删除空间才可按页回收；单文件设计（SQLite/InnoDB tablespace）留给将来可选。
 
@@ -92,7 +97,9 @@ public:
 
 ## 5. 行格式与类型
 
-列类型与记录编解码已实现（src/storage/codec.h）：int/bigint/float/double/char/varchar/bool 七类，记录 = [长度 u16][NULL 位图][列数据区]（NULL 不占字节，char 定长补空格，varchar 长度前缀），单行约 4KB 上限不跨页，NOT NULL 列拒绝 NULL；其他类型（date/datetime）后续按需加。
+类型体系已元数据化（types.h）：类型身份为 db_type.type_id（§6），热属性内联为 st::TypeAttr（family 值族、rank 数值提升等级、rep 值形态、store 存储形态、width 定宽字节数）随 ColumnSpec/Value 携带，各层按属性分派，无 ColType 枚举；属性词表（Family/Rep/Store）与自举内核 kTypeSeeds（int/bigint/double/varchar/float/char/boolean/numeric 八类，含别名与声明长度/标度规则）见 types.h，新增类型在内核加行、引导写入 db_type，语法关键字与各层行为分派另行同步。
+
+记录编解码已实现（src/storage/codec.h）：记录 = [长度 u16][NULL 位图][列数据区]（NULL 不占字节），编解码按列属性分派，rep 定值形态、store/width 定字节形态：Int64 按 width 定宽 4B（int）/8B（bigint）小端补码，Float/Double 定宽 4B/8B IEEE754 位模式（非有限值拒绝），Str 按 store 取变长（varchar：长度前缀 u16 + 字节）或定长补空格（char，读回保留填充空格），Bool 1B，Dec（numeric）16B 小端补码 unscaled + 1B scale；值的属性可与列属性不同（同族宽化合法，如 int 值入 bigint 列），形态不匹配/越界/NOT NULL 列为 NULL 返回 false，属性组合不在词表内视为内部错误；解码产物携带列属性。单行约 4KB 上限不跨页；其他类型（date/datetime）后续在自举内核加行即可。
 
 - 页内定位用 `(page_id, slot_index)`，即 `RowRef`；二级索引条目以 `(列值编码, RowRef)` 定位行，回表按 RowRef 直读堆页（见 §8）
 
@@ -100,7 +107,7 @@ rowid：表内自增 int64，由表文件头页计数器分配并随 insert 返�
 
 ## 6. 目录（元数据表）
 
-目录不是独立文件, 而是保留段元数据表, 引导期 schema 硬编码, 不存于自身; 目录逻辑位于 src/catalog(ct::Catalog), 存储引擎只提供须持锁的按 file_id 原语。db_table(table_id, table_name, file_id, schema_id) 与 db_column(table_id, col_name, ordinal, type, length, not_null) 已实现: 元数据行为唯一事实来源, 无内存缓存, 查找实时全扫; create_table 先建数据文件再写元数据行, drop_table 反向; 引导与 open 校验见 catalog。db_schema(schema_id, schema_name) 引导写入 system 行(id=1), public schema 由 bootstrap.sql 经正常路径创建。schema 功能已完整接入: create/drop schema(非空拒绝删除), 未限定名解析到会话变量 current_schema(缺省 public), 限定名 schema.table 全链路支持。open 校验: 正常模式扫 db_table 按名检查 db_version 完成标记表(bootstrap.sql 末尾创建, 行存在即初始化全程成功), bootstrap 模式检查三张自举表文件存在。
+目录不是独立文件, 而是保留段元数据表, 引导期 schema 硬编码, 不存于自身; 目录逻辑位于 src/catalog(ct::Catalog), 存储引擎只提供须持锁的按 file_id 原语。db_table(table_id, table_name, file_id, schema_id)、db_column(table_id, col_name, ordinal, type, length, scale, not_null) 与 db_type(type_id, type_name, alias, family, rank, len_allowed, len_default, len_max, scale_allowed, rep, store, width) 已实现: 元数据行为唯一事实来源, 无内存缓存, 查找实时全扫; create_table 先建数据文件再写元数据行, drop_table 反向; 引导与 open 校验见 catalog。类型已元数据化: db_type 每类型一行, 种子行由自举内核 kTypeSeeds(types.h) 在 Catalog::create 引导写入; db_column.type 存 type_id, 读回列定义时逐行匹配 db_type 取属性内联为 st::TypeAttr(行值非法或属性不在词表内当场报错); 按名查类型(规范名或别名, 供 DDL 定型与 CAST 目标)走 find_type, 按 id 查类型(名称渲染)走 find_type_by_id, 按内部名取属性走 require_type。db_schema(schema_id, schema_name) 引导写入 system 行(id=1), public schema 由 bootstrap.sql 经正常路径创建。schema 功能已完整接入: create/drop schema(非空拒绝删除), 未限定名解析到会话变量 current_schema(缺省 public), 限定名 schema.table 全链路支持。open 校验: 正常模式扫 db_table 按名检查 db_version 完成标记表(bootstrap.sql 末尾创建, 行存在即初始化全程成功), bootstrap 模式检查四张自举表文件存在。
 
 M3 新增 db_index(table_id, index_name, col_ordinal, file_id): 每索引一行, 单列索引, col_ordinal 指向 db_column, 索引名表内唯一(跨表可同名)。DDL 规则(已实现): create_index 先建索引文件并全表回填再写元数据行, drop_index 与 drop_table(连带删该表全部索引)反向; insert 对该表全部索引双写条目; open 扫 db_table 与 db_index 取 file_id 分配起点(bootstrap 模式 db_index 由 bootstrap.sql 在 open 后创建, 缺失跳过; 正常模式缺失即元数据损坏)。
 
@@ -120,13 +127,13 @@ M4 已接入 WAL：帧增加 before 基线快照（页内容最近一次与"已�
 - 全序 = 先按键序（非 NULL 按值序，NULL 排最大，PG 行为），同键按 RowRef 数值序；(键, RowRef) 全局唯一（堆槽不复用，RowRef 不撞键），插入无键冲突
 - 路由与分裂按完整复合序，分隔键取右页首条目的复合键，同键多行跨分隔键不丢失
 
-键编码（定长列 int/bigint/float/double/bool，编码后统一 8B 值 + 1B NULL 标志）：
+键编码（按列属性 rep 分派，定长列 int/bigint/float/double/bool，编码后统一 8B 值 + 1B NULL 标志）：
 
 - 整型：最高符号位翻转，无符号字节序即有符号数值序
 - 浮点：IEEE754 正数翻符号位、负数按位取反，字节序即数值序；-0.0 归一为 +0.0，两零编码一致；float 先宽化为 double 再变换
 - 布尔：false/true 编码为 0/1
 - NULL：入索引且排最大（PG 行为），标志位置 1、键值部分无意义置 0
-- char/varchar 变长键延后（M6）：届时叶/内节点改单元格布局或做键前缀截断
+- char/varchar 变长键与 numeric 列暂不支持：语义层按 rep 拒绝 Str/Dec，encode_key 对 Dec 兜底报错；变长键延后（M6），届时叶/内节点改单元格布局或做键前缀截断
 
 页布局与插入/分裂/范围扫描已在 src/storage/btree.cpp 实现二级索引形态：叶子单元格 [键值 8B][NULL 标志 1B][RowRef 6B]、内节点分隔项步长 15B、(键, RowRef) 复合全序（NULL 排最大）并放开同键去重；槽序即 (键, RowRef) 序，`next_page` 单向成链，分裂（分隔项上提）与根增高流程不变。内节点路由语义：c_0 子树 < k_0；c_i 子树 ∈ [k_{i-1}, k_i)；c_m 子树 ≥ k_{m-1}。键序保持编码 encode_key（含 NULL 键与 bool 键）与回表原语 Engine::read_row 已实现；engine/catalog 接入已完成：索引文件生命周期（init_index_file/remove_index_file，unlink 延迟到提交后）、insert/update 新行全量双写该表全部索引、create_index 全表回填（Engine::build_index）。
 
@@ -224,7 +231,7 @@ Commit(提交) / Abort(中止): 空 payload
 ## 13. 简化项与已知限制
 
 - 超长行（>约 4000B）不支持，varchar(n) 需 n ≤ 4000
-- 索引键限 int/bigint/float/double/bool 定长编码，char/varchar 变长键 M6
+- 索引键限 int/bigint/float/double/bool 定长编码，char/varchar 变长键 M6；numeric 列暂不支持索引
 - 索引条目删除未实现：DELETE/UPDATE 旧行只做堆墓碑（UPDATE 新行双写新条目），旧条目滞留靠回表校验过滤；物理清理与下溢合并 M6
 - M4（WAL）之前堆与索引双写无崩溃原子性：崩溃可致索引缺条目（等值查询漏行，堆链全表扫描不受影响）或悬空条目（回表按页损坏报错），重建索引可修复；M4 起补丁统一覆盖堆页与树页，双写崩溃一致性由重放保证
 - 运行期检查点在 commit_txn 内触发（锁内、事务记录结束之后）：跨阈值事务的 Ok 前顺带刷盘，单个大事务（如建索引回填）期间 WAL 可超阈值无上限
