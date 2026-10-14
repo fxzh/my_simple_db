@@ -16,6 +16,7 @@ enum ScannerState {
 
 extern ScannerState scanner_state;
 extern std::string sql_buffer;
+extern int sock;  // 服务器连接 socket
 
 void reset_sql_buffer();
 void append_to_sql(const char* text, std::size_t len);
