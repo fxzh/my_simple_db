@@ -263,6 +263,53 @@ std::unique_ptr<ana::BoundExpr> join_and(std::vector<std::unique_ptr<ana::BoundE
     return cur;
 }
 
+// 选索引: 等值命中优先, 同级取列序号小者, 再取元数据序; 命中经 best/best_hits 输出, 无命中返回 false
+bool pick_index(const std::vector<ct::IndexEntry>& idxs, const st::TableMeta& meta,
+                const std::vector<const ana::BoundExpr*>& conj, const st::TypeAttr& double_attr,
+                const ct::IndexEntry*& best, std::vector<Hit>& best_hits)
+{
+    best = nullptr;
+    bool best_eq = false;
+    for (const ct::IndexEntry& ent : idxs) {
+        if (ent.col_ordinal >= meta.cols.size()) {
+            DB_CRITICAL(LogModule::PLANNER, "索引列序号越界: {}", ent.name);
+        }
+        std::vector<Hit> hits;
+        for (size_t i = 0; i < conj.size(); ++i) {
+            Hit h;
+            if (match_hit(*conj[i], meta.cols[ent.col_ordinal], ent.col_ordinal, i, double_attr,
+                          h)) {
+                hits.push_back(std::move(h));
+            }
+        }
+        if (hits.empty()) {
+            continue;
+        }
+        const bool has_eq = std::any_of(hits.begin(), hits.end(), [](const Hit& h) { return h.eq; });
+        if (best != nullptr && !(has_eq && !best_eq) && !(has_eq == best_eq
+                                                          && ent.col_ordinal < best->col_ordinal)) {
+            continue;
+        }
+        best = &ent;
+        best_eq = has_eq;
+        best_hits = std::move(hits);
+    }
+    return best != nullptr;
+}
+
+// 命中区间求交: 交空返回空集
+std::vector<IndexRange> intersect_ranges(const std::vector<Hit>& hits)
+{
+    std::vector<IndexRange> ranges = {{}};
+    for (const Hit& h : hits) {
+        ranges = ranges_meet(ranges, h.ranges);
+        if (ranges.empty()) {
+            break;
+        }
+    }
+    return ranges;
+}
+
 // Filter(SeqScan) 的索引改写: 命中则整棵替换, 交空剪成空结果节点, 未命中保持原树
 void rewrite_scan(ct::Catalog& db, std::unique_ptr<PlanNode>& plan)
 {
@@ -279,46 +326,13 @@ void rewrite_scan(ct::Catalog& db, std::unique_ptr<PlanNode>& plan)
     flatten_view(f.pred.get(), conj);
     const st::TypeAttr double_attr = db.require_type("double");
 
-    // 选索引: 等值命中优先, 同级取列序号小者, 再取元数据序
     const ct::IndexEntry* best = nullptr;
-    bool best_eq = false;
     std::vector<Hit> best_hits;
-    for (const ct::IndexEntry& ent : idxs) {
-        if (ent.col_ordinal >= scan.table.meta.cols.size()) {
-            DB_CRITICAL(LogModule::PLANNER, "索引列序号越界: {}", ent.name);
-        }
-        std::vector<Hit> hits;
-        for (size_t i = 0; i < conj.size(); ++i) {
-            Hit h;
-            if (match_hit(*conj[i], scan.table.meta.cols[ent.col_ordinal], ent.col_ordinal, i,
-                          double_attr, h)) {
-                hits.push_back(std::move(h));
-            }
-        }
-        if (hits.empty()) {
-            continue;
-        }
-        const bool has_eq = std::any_of(hits.begin(), hits.end(), [](const Hit& h) { return h.eq; });
-        if (best != nullptr && !(has_eq && !best_eq) && !(has_eq == best_eq
-                                                          && ent.col_ordinal < best->col_ordinal)) {
-            continue;
-        }
-        best = &ent;
-        best_eq = has_eq;
-        best_hits = std::move(hits);
-    }
-    if (best == nullptr) {
+    if (!pick_index(idxs, scan.table.meta, conj, double_attr, best, best_hits)) {
         return;
     }
 
-    // 命中区间求交, 交空剪成空结果节点
-    std::vector<IndexRange> ranges = {{}};
-    for (const Hit& h : best_hits) {
-        ranges = ranges_meet(ranges, h.ranges);
-        if (ranges.empty()) {
-            break;
-        }
-    }
+    std::vector<IndexRange> ranges = intersect_ranges(best_hits);
     if (ranges.empty()) {
         auto empty = std::make_unique<EmptyPlan>();
         empty->table = scan.table.display;

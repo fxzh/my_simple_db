@@ -50,6 +50,70 @@ bool write_pid_file(int pid_fd, pid_t pid)
     return ftruncate(pid_fd, 0) == 0 && pwrite(pid_fd, pid_str.data(), pid_str.size(), 0) >= 0;
 }
 
+// daemon 父进程: 写 pidfile(子进程 pid) 后读握手(≤5s), 各路径直接 _exit, 永不返回
+void run_daemon_parent(int pid_fd, pid_t daemon_pid, int notify_rd, int notify_wr,
+                       const std::string& pidfile, const std::string& log_path)
+{
+    if (!write_pid_file(pid_fd, daemon_pid)) {
+        kill(daemon_pid, SIGTERM);  // 终止刚 fork 的 daemon, 避免留下孤儿进程
+        DB_CRITICAL(SYSTEM, "写入 pidfile 失败: {}", std::strerror(errno));
+    }
+    close(notify_wr);
+    // 读握手(≤5s): R=就绪, F+消息=失败, EOF=子进程未通知即退出, 超时交 serverctl 轮询
+    pollfd npfd{notify_rd, POLLIN, 0};
+    int pret = poll(&npfd, 1, 5000);
+    char tag = 0;
+    ssize_t n = -1;
+    if (pret > 0) {
+        do {
+            n = read(notify_rd, &tag, 1);
+        } while (n < 0 && errno == EINTR);
+    }
+    if (n == 1 && tag == 'R') {
+        _exit(0);
+    }
+    if (n == 1 && tag == 'F') {
+        std::string msg;
+        char buf[512];
+        while ((n = read(notify_rd, buf, sizeof(buf))) > 0) {
+            msg.append(buf, static_cast<size_t>(n));
+        }
+        std::cerr << msg << std::endl;  // 原因行, 结论行由 serverctl 输出
+        unlink(pidfile.c_str());
+        _exit(1);
+    }
+    if (n == 0) {
+        std::cerr << "daemon 进程异常退出, 原因见日志: " << log_path << std::endl;
+        unlink(pidfile.c_str());
+        _exit(1);
+    }
+    if (pret == 0 || (n < 0 && errno == EINTR) || (pret < 0 && errno == EINTR)) {
+        _exit(0);  // 超时/被打断: daemon 仍在启动(如长恢复), 交 serverctl 轮询
+    }
+    kill(daemon_pid, SIGTERM);  // 握手通道异常, daemon 状态未知, 终止防孤儿
+    std::cerr << "读握手失败: " << std::strerror(errno) << std::endl;
+    unlink(pidfile.c_str());
+    _exit(1);
+}
+
+// daemon 子进程: 关握手读端, 脱离会话与控制终端, 重定向标准输入/输出/错误, 返回握手写端
+int detach_daemon_child(int notify_rd, int notify_wr)
+{
+    close(notify_rd);
+    if (setsid() < 0) {
+        DB_CRITICAL(SYSTEM, "setsid 失败");
+    }
+    // 标准输入/输出/错误重定向, 不再依赖启动终端
+    int devnull = open("/dev/null", O_RDWR);
+    if (devnull >= 0) {
+        dup2(devnull, STDIN_FILENO);
+        dup2(devnull, STDOUT_FILENO);
+        dup2(devnull, STDERR_FILENO);
+        close(devnull);
+    }
+    return notify_wr;
+}
+
 // daemon 握手写入: 接收端(中间父进程)超时退出后 EPIPE 属预期, 忽略写入结果
 void daemon_notify(int fd, char tag, const std::string& msg)
 {
@@ -182,62 +246,10 @@ int main(int argc, char* argv[])
             DB_CRITICAL(SYSTEM, "daemon fork 失败");
         }
         if (daemon_pid > 0) {
-            // 父进程: 写 pidfile(子进程 pid) 后读握手结果
-            if (!write_pid_file(pid_fd, daemon_pid)) {
-                kill(daemon_pid, SIGTERM);  // 终止刚 fork 的 daemon, 避免留下孤儿进程
-                DB_CRITICAL(SYSTEM, "写入 pidfile 失败: {}", std::strerror(errno));
-            }
-            close(notify_pipe[1]);
-            // 读握手(≤5s): R=就绪, F+消息=失败, EOF=子进程未通知即退出, 超时交 serverctl 轮询
-            pollfd npfd{notify_pipe[0], POLLIN, 0};
-            int pret = poll(&npfd, 1, 5000);
-            char tag = 0;
-            ssize_t n = -1;
-            if (pret > 0) {
-                do {
-                    n = read(notify_pipe[0], &tag, 1);
-                } while (n < 0 && errno == EINTR);
-            }
-            if (n == 1 && tag == 'R') {
-                _exit(0);
-            }
-            if (n == 1 && tag == 'F') {
-                std::string msg;
-                char buf[512];
-                while ((n = read(notify_pipe[0], buf, sizeof(buf))) > 0) {
-                    msg.append(buf, static_cast<size_t>(n));
-                }
-                std::cerr << msg << std::endl;  // 原因行, 结论行由 serverctl 输出
-                unlink(pidfile.c_str());
-                _exit(1);
-            }
-            if (n == 0) {
-                std::cerr << "daemon 进程异常退出, 原因见日志: " << log_path << std::endl;
-                unlink(pidfile.c_str());
-                _exit(1);
-            }
-            if (pret == 0 || (n < 0 && errno == EINTR) || (pret < 0 && errno == EINTR)) {
-                _exit(0);  // 超时/被打断: daemon 仍在启动(如长恢复), 交 serverctl 轮询
-            }
-            kill(daemon_pid, SIGTERM);  // 握手通道异常, daemon 状态未知, 终止防孤儿
-            std::cerr << "读握手失败: " << std::strerror(errno) << std::endl;
-            unlink(pidfile.c_str());
-            _exit(1);
+            run_daemon_parent(pid_fd, daemon_pid, notify_pipe[0], notify_pipe[1], pidfile,
+                              log_path);
         }
-        // 子进程(daemon): 关读端, 脱离会话与控制终端
-        close(notify_pipe[0]);
-        daemon_notify_fd = notify_pipe[1];
-        if (setsid() < 0) {
-            DB_CRITICAL(SYSTEM, "setsid 失败");
-        }
-        // 标准输入/输出/错误重定向, 不再依赖启动终端
-        int devnull = open("/dev/null", O_RDWR);
-        if (devnull >= 0) {
-            dup2(devnull, STDIN_FILENO);
-            dup2(devnull, STDOUT_FILENO);
-            dup2(devnull, STDERR_FILENO);
-            close(devnull);
-        }
+        daemon_notify_fd = detach_daemon_child(notify_pipe[0], notify_pipe[1]);
     } else {
         // 前台: 写 pidfile(自身 pid)
         if (!write_pid_file(pid_fd, getpid())) {
