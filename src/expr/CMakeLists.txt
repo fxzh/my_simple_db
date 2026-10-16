@@ -1,6 +1,9 @@
 # 表达式求值
 add_library(expr STATIC
     expr_eval.cpp
+    expr_func.cpp
+    expr_func_math.cpp
+    expr_value.cpp
 )
 
 target_include_directories(expr PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})

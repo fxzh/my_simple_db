@@ -1,10 +1,11 @@
 // expr_eval.cpp: 表达式求值器实现
 #include "expr_eval.h"
+#include "expr_func.h"
+#include "expr_value.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
-#include <iterator>
 #include <string_view>
 
 #include "common/err.h"
@@ -18,85 +19,6 @@ namespace mp = boost::multiprecision;
 namespace {
 
 st::Value eval_bound(const ana::BoundExpr& expr, const st::Row* row);
-
-// 数值转 double: 经 cast 分派表提升到目标域(目标须为 double 形态), 非数值源域由表入口报错
-double to_double(const st::Value& v, st::TypeAttr to)
-{
-    return std::get<double>(st::cast_value(v, to).box);
-}
-
-// 数值转 float: 经 cast 分派表转到目标域(目标须为 float 形态, 整型单次舍入),
-// 非数值源域由表入口报错
-float to_float(const st::Value& v, st::TypeAttr to)
-{
-    return std::get<float>(st::cast_value(v, to).box);
-}
-
-// 整型取值: 经 cast 分派表归一到目标整域(int/bigint 同盒)后取盒值
-int64_t get_int(const st::Value& v, st::TypeAttr domain)
-{
-    return std::get<int64_t>(st::cast_value(v, domain).box);
-}
-
-// 取 DecimalVal 盒值, 表示不符当场报错
-const st::DecimalVal& get_dec(const st::Value& v)
-{
-    const st::DecimalVal* d = std::get_if<st::DecimalVal>(&v.box);
-    if (d == nullptr) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 值表示与数值域不符");
-    }
-    return *d;
-}
-
-// 取整型盒值(int/bigint 同盒), 表示不符当场报错
-int64_t get_i64(const st::Value& v)
-{
-    const int64_t* i = std::get_if<int64_t>(&v.box);
-    if (i == nullptr) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 值表示与数值域不符");
-    }
-    return *i;
-}
-
-// 取 float 盒值, 表示不符当场报错
-float get_f32(const st::Value& v)
-{
-    const float* f = std::get_if<float>(&v.box);
-    if (f == nullptr) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 值表示与数值域不符");
-    }
-    return *f;
-}
-
-// 取 double 盒值, 表示不符当场报错
-double get_f64(const st::Value& v)
-{
-    const double* d = std::get_if<double>(&v.box);
-    if (d == nullptr) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 值表示与数值域不符");
-    }
-    return *d;
-}
-
-// 数值盒值提升 double: 经 cast 分派表转 double 域(double 属性取自内置类型种子数据),
-// 供无目标域上下文的比较提升
-double box_f64(const st::Value& v)
-{
-    return std::get<double>(st::cast_value(v, st::kDouble).box);
-}
-
-// 数值转 numeric 域: 经 cast 分派表转换后取盒值(目标须为定点十进制形态),
-// 非数值源域由表入口报错
-st::DecimalVal to_numeric(const st::Value& v, st::TypeAttr to)
-{
-    return std::get<st::DecimalVal>(st::cast_value(v, to).box);
-}
-
-// 值是否 NULL(仅看 box)
-bool is_null(const st::Value& v)
-{
-    return std::holds_alternative<std::monostate>(v.box);
-}
 
 // 整型域结果溢出文案(随运算符)
 const char* arith_overflow_msg(char op)
@@ -448,60 +370,6 @@ st::Value eval_is_null(const ana::BoundIsNull& e, const st::Row* row)
     return st::bool_val(st::kBool, e.negate ? !is_null(v) : is_null(v));
 }
 
-// 内建函数求值签名: args 已求值, 严格重载无 NULL 实参, 非严格重载实参可含 NULL 由实现
-// 判空; ret 为绑定期固定的结果域属性
-using FuncEval = st::Value (*)(const std::vector<st::Value>& args, st::TypeAttr ret);
-
-// abs(int) 求值: 取绝对值, 下界溢出报错
-st::Value eval_abs_int(const std::vector<st::Value>& args, st::TypeAttr ret)
-{
-    const int64_t i = get_i64(args[0]);
-    if (i == INT32_MIN) {
-        DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "整型绝对值溢出");
-    }
-    return st::int_val(ret, i < 0 ? -i : i);
-}
-
-// abs(bigint) 求值: 取绝对值, 下界溢出报错
-st::Value eval_abs_bigint(const std::vector<st::Value>& args, st::TypeAttr ret)
-{
-    const int64_t i = get_i64(args[0]);
-    if (i == INT64_MIN) {
-        DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "整型绝对值溢出");
-    }
-    return st::int_val(ret, i < 0 ? -i : i);
-}
-
-// abs(double) 求值: 取绝对值
-st::Value eval_abs_double(const std::vector<st::Value>& args, st::TypeAttr ret)
-{
-    return st::double_val(ret, std::fabs(get_f64(args[0])));
-}
-
-// abs(float) 求值: 取绝对值
-st::Value eval_abs_float(const std::vector<st::Value>& args, st::TypeAttr ret)
-{
-    return st::float_val(ret, std::fabs(get_f32(args[0])));
-}
-
-// abs(numeric) 求值: unscaled 取绝对值, 标度不变
-st::Value eval_abs_numeric(const std::vector<st::Value>& args, st::TypeAttr ret)
-{
-    const st::DecimalVal& d = get_dec(args[0]);
-    return st::numeric_val(ret, d.unscaled < 0 ? -d.unscaled : d.unscaled, d.scale);
-}
-
-// 内建函数求值表: 下标即 db_func.func_id(从 1 起, 0 号槽占位), 每个重载各对应一个实现,
-// 增改函数须同步 bootstrap.sql
-constexpr FuncEval kFuncTable[] = {
-    nullptr,
-    eval_abs_int,      // 1: abs(int)
-    eval_abs_bigint,   // 2: abs(bigint)
-    eval_abs_double,   // 3: abs(double)
-    eval_abs_float,    // 4: abs(float)
-    eval_abs_numeric,  // 5: abs(numeric)
-};
-
 // 函数调用: 严格重载任一实参为 NULL 即原样传布, 非严格重载 NULL 实参照常传入实现;
 // 其余经求值表按绑定期固定域计算并构造, 整型溢出当场报错; 实参个数与类型由语义层保证
 st::Value eval_func_call(const ana::BoundFuncCall& e, const st::Row* row)
@@ -518,11 +386,7 @@ st::Value eval_func_call(const ana::BoundFuncCall& e, const st::Row* row)
             }
         }
     }
-    const size_t idx = static_cast<size_t>(e.func);
-    if (idx >= std::size(kFuncTable) || kFuncTable[idx] == nullptr) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 未知内建函数");
-    }
-    return kFuncTable[idx](argv, e.type);
+    return eval_builtin(e.func, argv, e.type);
 }
 
 // CAST: NULL 传播; 转换经 cast 分派表显式模式执行, numeric 声明目标走标度归一;
