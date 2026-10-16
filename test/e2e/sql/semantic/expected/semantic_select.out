@@ -86,17 +86,17 @@ ERROR: 函数不存在: nosuch
 SELECT f() FROM t_sf;
 ERROR: 函数不存在: f
 SELECT abs();
-ERROR: 函数参数个数不符: abs 须 1 个实参
+ERROR: 函数实参个数或类型不符: abs
 SELECT abs(i, 1) FROM t_sf;
-ERROR: 函数参数个数不符: abs 须 1 个实参
+ERROR: 函数实参个数或类型不符: abs
 SELECT abs(s) FROM t_sf;
-ERROR: 函数实参类型不符: abs 须为数值
+ERROR: 函数实参个数或类型不符: abs
 SELECT abs('x');
-ERROR: 函数实参类型不符: abs 须为数值
+ERROR: 函数实参个数或类型不符: abs
 SELECT abs(true);
-ERROR: 函数实参类型不符: abs 须为数值
+ERROR: 函数实参个数或类型不符: abs
 SELECT abs(NULL);
-ERROR: 函数实参类型未知, 无法推导结果域: abs
+ERROR: 函数实参个数或类型不符: abs
 SELECT i FROM t_sf WHERE abs(i);
 ERROR: WHERE 条件不是布尔表达式
 DROP TABLE t_sf;

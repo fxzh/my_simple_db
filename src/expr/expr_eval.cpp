@@ -418,7 +418,8 @@ st::Value eval_is_null(const ana::BoundIsNull& e, const st::Row* row)
     return st::bool_val(st::kBool, e.negate ? !is_null(v) : is_null(v));
 }
 
-// 内建函数求值签名: args 已求值且无 NULL, ret 为绑定期固定的结果域属性
+// 内建函数求值签名: args 已求值, 严格重载无 NULL 实参, 非严格重载实参可含 NULL 由实现
+// 判空; ret 为绑定期固定的结果域属性
 using FuncEval = st::Value (*)(const std::vector<st::Value>& args, st::TypeAttr ret);
 
 // abs 求值: 按绑定期固定域构造, 整型域下界取绝对值溢出报错
@@ -442,24 +443,32 @@ st::Value eval_abs(const std::vector<st::Value>& args, st::TypeAttr ret)
     return st::int_val(ret, i < 0 ? -i : i);
 }
 
-// 内建函数求值表: 下标即 FuncId 取值(从 1 起, 0 号槽占位), 增改函数须同步 analyzer 注册表
+// 内建函数求值表: 下标即 db_func.func_id(从 1 起, 0 号槽占位), abs 五个重载共用同一实现,
+// 增改函数须同步 bootstrap.sql
 constexpr FuncEval kFuncTable[] = {
     nullptr,
-    eval_abs,
+    eval_abs,  // 1: abs(int)
+    eval_abs,  // 2: abs(bigint)
+    eval_abs,  // 3: abs(double)
+    eval_abs,  // 4: abs(float)
+    eval_abs,  // 5: abs(numeric)
 };
 
-// 函数调用: 任一实参为 NULL 即原样传布, 其余经求值表按绑定期固定域计算并构造,
-// 整型溢出当场报错; 实参个数与类型由语义层保证
+// 函数调用: 严格重载任一实参为 NULL 即原样传布, 非严格重载 NULL 实参照常传入实现;
+// 其余经求值表按绑定期固定域计算并构造, 整型溢出当场报错; 实参个数与类型由语义层保证
 st::Value eval_func_call(const ana::BoundFuncCall& e, const st::Row* row)
 {
     std::vector<st::Value> argv;
     argv.reserve(e.args.size());
     for (const std::unique_ptr<ana::BoundExpr>& a : e.args) {
-        const st::Value v = eval_bound(*a, row);
-        if (is_null(v)) {
-            return v;  // NULL 严格传布
+        argv.push_back(eval_bound(*a, row));
+    }
+    if (e.strict_null) {
+        for (const st::Value& v : argv) {
+            if (is_null(v)) {
+                return v;  // NULL 严格传布
+            }
         }
-        argv.push_back(v);
     }
     const size_t idx = static_cast<size_t>(e.func);
     if (idx >= std::size(kFuncTable) || kFuncTable[idx] == nullptr) {

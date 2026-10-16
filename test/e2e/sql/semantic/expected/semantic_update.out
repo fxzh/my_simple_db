@@ -28,7 +28,7 @@ CREATE
 INSERT INTO t_suf VALUES (1, 'a');
 INSERT 1
 UPDATE t_suf SET i = abs('x');
-ERROR: 函数实参类型不符: abs 须为数值
+ERROR: 函数实参个数或类型不符: abs
 UPDATE t_suf SET s = abs(1);
 ERROR: 值与列类型不匹配
 DROP TABLE t_suf;

@@ -42,7 +42,7 @@ DROP
 CREATE TABLE t_sif (i int, s char(3));
 CREATE
 INSERT INTO t_sif VALUES (abs('x'));
-ERROR: 函数实参类型不符: abs 须为数值
+ERROR: 函数实参个数或类型不符: abs
 INSERT INTO t_sif (s) VALUES (abs(1));
 ERROR: 值与列类型不匹配
 DROP TABLE t_sif;

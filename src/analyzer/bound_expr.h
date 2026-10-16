@@ -97,25 +97,18 @@ struct BoundIsNull : BoundExpr {
     BoundExprKind kind() const override { return BoundExprKind::IsNull; }
 };
 
-// 内建函数种类: 取值与 db_func.func_id 数据行一致, 增改函数须同步 bootstrap.sql
-enum class FuncId : uint8_t { Abs = 1 };
-
-// 函数名(渲染与报错用)
-inline const char* func_name(FuncId f)
-{
-    switch (f) {
-    case FuncId::Abs: return "abs";
-    }
-    return "";
-}
-
-// 函数调用: func 为绑定期按名解析的内建函数, type 为绑定期推导的结果域属性, 实参已绑定
+// 函数调用: func 为绑定期选定的重载版本 id(db_func.func_id), name 为函数名,
+// strict_null 为该重载的 NULL 严格性(严格即任一实参 NULL 则结果 NULL),
+// type 为绑定期推导的结果域属性, 实参已绑定
 struct BoundFuncCall : BoundExpr {
-    FuncId func = FuncId::Abs;
+    uint64_t func = 0;
+    std::string name;
+    bool strict_null = true;
     st::TypeAttr type;
     std::vector<std::unique_ptr<BoundExpr>> args;
-    BoundFuncCall(FuncId f, std::vector<std::unique_ptr<BoundExpr>> a, st::TypeAttr t)
-        : func(f), type(t), args(std::move(a)) {}
+    BoundFuncCall(uint64_t f, std::string n, bool strict, std::vector<std::unique_ptr<BoundExpr>> a,
+                  st::TypeAttr t)
+        : func(f), name(std::move(n)), strict_null(strict), type(t), args(std::move(a)) {}
     BoundExprKind kind() const override { return BoundExprKind::FuncCall; }
 };
 

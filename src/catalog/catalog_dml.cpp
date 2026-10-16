@@ -86,21 +86,6 @@ std::vector<IndexEntry> Catalog::indexes(const st::TableMeta& meta)
     return table_indexes(engine_, index_cols_, meta.table_id);
 }
 
-std::optional<uint64_t> Catalog::func_id(const std::string& name)
-{
-    std::lock_guard<std::recursive_mutex> lock(mutex_);
-    for (const std::vector<st::Value>& row : engine_.read_rows(kFuncMetaId, func_cols_)) {
-        if (row_str(row, 1) == name) {
-            const int64_t id = row_int(row, 0);
-            if (id <= 0) {
-                DB_CRITICAL(LogModule::CATALOG, "db_func 函数 id 非法: {}", id);
-            }
-            return static_cast<uint64_t>(id);
-        }
-    }
-    return std::nullopt;
-}
-
 // 按名查内建函数全部重载: 扫 db_func 匹配名并逐行解析
 std::vector<FuncRow> Catalog::funcs(const std::string& name)
 {

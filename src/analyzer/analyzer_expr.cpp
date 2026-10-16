@@ -34,56 +34,14 @@ void check_comparable(st::TypeAttr lt, st::TypeAttr rt)
     }
 }
 
-// 内建函数绑定注册表项: id 与 FuncId 取值及 db_func.func_id 一致,
-// derive 校验实参表示并推导结果域(表示不符当场报错)
-struct FuncSpec {
-    uint64_t id;
-    size_t arity;
-    st::TypeAttr (*derive)(const std::vector<st::TypeAttr>& arg_types, std::string_view fname);
-};
-
-// abs 结果域推导: 实参须为数值, 结果域镜像实参域
-st::TypeAttr derive_abs(const std::vector<st::TypeAttr>& arg_types, std::string_view fname)
-{
-    if (arg_types[0].family != st::Family::Num) {
-        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
-                 "函数实参类型不符: {} 须为数值", fname);
-    }
-    return arg_types[0];
-}
-
-// 内建函数绑定注册表, 增改函数须同步 FuncId 枚举与 bootstrap.sql
-constexpr FuncSpec kFuncSpecs[] = {
-    {1, 1, derive_abs},  // abs
-};
-
-// 按 db_func 函数 id 查绑定注册表, 未命中返回空
-const FuncSpec* find_func_spec(uint64_t id)
-{
-    for (const FuncSpec& s : kFuncSpecs) {
-        if (s.id == id) {
-            return &s;
-        }
-    }
-    return nullptr;
-}
-
-// 函数调用绑定: db_func 按名解析为内建函数, 实参递归绑定后按注册表校验个数并推导结果域
+// 函数调用绑定: db_func 按名取全部重载, 实参递归绑定后按元数相等且实参 type_id 逐位
+// 相等精确匹配, 命中以该行结果域构造; 名下无行报函数不存在, 未匹配报实参不符
 std::unique_ptr<BoundExpr> bind_func_call(const FuncCallExpr& f, const RowDesc* row_desc,
                                           ct::Catalog& db, st::TypeAttr& type)
 {
-    const std::optional<uint64_t> fid = db.func_id(f.name);
-    if (!fid.has_value()) {
+    const std::vector<ct::FuncRow> overloads = db.funcs(f.name);
+    if (overloads.empty()) {
         DB_RAISE(db::ErrCode::UnknownFunction, LogModule::ANALYZER, "函数不存在: {}", f.name);
-    }
-    // db_func 数据行与内建函数清单一致, id 未注册即内部错误
-    const FuncSpec* spec = find_func_spec(*fid);
-    if (spec == nullptr) {
-        DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "db_func 函数 id 未注册: {}", *fid);
-    }
-    if (f.args.size() != spec->arity) {
-        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
-                 "函数参数个数不符: {} 须 {} 个实参", f.name, spec->arity);
     }
     std::vector<std::unique_ptr<BoundExpr>> args;
     std::vector<st::TypeAttr> arg_types;
@@ -91,14 +49,26 @@ std::unique_ptr<BoundExpr> bind_func_call(const FuncCallExpr& f, const RowDesc* 
     for (const std::unique_ptr<Expr>& a : f.args) {
         st::TypeAttr at;
         args.push_back(bind_expr(*a, row_desc, db, at));
-        if (at.id == 0) {
-            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
-                     "函数实参类型未知, 无法推导结果域: {}", f.name);
-        }
         arg_types.push_back(at);
     }
-    type = spec->derive(arg_types, f.name);
-    return std::make_unique<BoundFuncCall>(static_cast<FuncId>(spec->id), std::move(args), type);
+    const ct::FuncRow* hit = nullptr;
+    for (const ct::FuncRow& row : overloads) {
+        bool match = row.args.size() == arg_types.size();
+        for (size_t i = 0; match && i < arg_types.size(); ++i) {
+            match = row.args[i].id == arg_types[i].id;
+        }
+        if (match) {
+            hit = &row;
+            break;
+        }
+    }
+    if (hit == nullptr) {
+        DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
+                 "函数实参个数或类型不符: {}", f.name);
+    }
+    type = hit->ret;
+    return std::make_unique<BoundFuncCall>(hit->id, f.name, hit->strict_null, std::move(args),
+                                           type);
 }
 
 }  // namespace
@@ -317,7 +287,7 @@ std::unique_ptr<BoundExpr> bind_where(const Expr& where, const RowDesc& row_desc
 
 // ==================== AST 走查 ====================
 
-bool may_be_null(const Expr& expr)
+bool may_be_null(const Expr& expr, ct::Catalog& db)
 {
     switch (expr.kind()) {
     case ExprKind::Null: return true;
@@ -330,37 +300,46 @@ bool may_be_null(const Expr& expr)
         return false;
     case ExprKind::BinaryOp: {
         const auto& e = static_cast<const BinaryOpExpr&>(expr);
-        return may_be_null(*e.left) || may_be_null(*e.right);
+        return may_be_null(*e.left, db) || may_be_null(*e.right, db);
     }
     case ExprKind::UnaryOp:
-        return may_be_null(*static_cast<const UnaryOpExpr&>(expr).operand);
+        return may_be_null(*static_cast<const UnaryOpExpr&>(expr).operand, db);
     case ExprKind::Compare: {
         const auto& e = static_cast<const CompareExpr&>(expr);
-        return may_be_null(*e.left) || may_be_null(*e.right);
+        return may_be_null(*e.left, db) || may_be_null(*e.right, db);
     }
     case ExprKind::Logic: {
         const auto& e = static_cast<const LogicExpr&>(expr);
-        return may_be_null(*e.left) || may_be_null(*e.right);
+        return may_be_null(*e.left, db) || may_be_null(*e.right, db);
     }
     case ExprKind::Not:
-        return may_be_null(*static_cast<const NotExpr&>(expr).operand);
+        return may_be_null(*static_cast<const NotExpr&>(expr).operand, db);
     case ExprKind::IsNull:
         return false;
     case ExprKind::Between: {
         const auto& e = static_cast<const BetweenExpr&>(expr);
-        return may_be_null(*e.expr) || may_be_null(*e.lo) || may_be_null(*e.hi);
+        return may_be_null(*e.expr, db) || may_be_null(*e.lo, db) || may_be_null(*e.hi, db);
     }
     case ExprKind::FuncCall: {
         const auto& f = static_cast<const FuncCallExpr&>(expr);
+        const std::vector<ct::FuncRow> overloads = db.funcs(f.name);
+        if (overloads.empty()) {
+            DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "db_func 函数名未注册: {}",
+                     f.name);
+        }
+        // 非严格重载的结果是否 NULL 由实现决定, 静态不可断定
+        if (!overloads[0].strict_null) {
+            return false;
+        }
         for (const auto& arg : f.args) {
-            if (may_be_null(*arg)) {
+            if (may_be_null(*arg, db)) {
                 return true;
             }
         }
         return false;
     }
     case ExprKind::Cast:
-        return may_be_null(*static_cast<const CastExpr&>(expr).operand);
+        return may_be_null(*static_cast<const CastExpr&>(expr).operand, db);
     }
     // 不可达: 全部表达式种类已在上方穷尽
     DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知表达式节点");

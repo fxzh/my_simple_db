@@ -17,7 +17,7 @@ namespace ana {
 // 值类型与列规格匹配(常量上下文): 恒 NULL 常量树免检(NOT NULL 已在前置检查拦截),
 // 家族内匹配, 字面量范围/长度随类型一并校验; 非字面量常量(如 CAST 产物)的范围/长度
 // 由存储编码与 cast 收窄检查
-void check_value_type(const Expr& expr, st::TypeAttr t, const st::ColumnSpec& col);
+void check_value_type(const Expr& expr, st::TypeAttr t, const st::ColumnSpec& col, ct::Catalog& db);
 // 行上下文右值与列的静态类型匹配: 家族内匹配, 无类型放行, 空值/长度/范围留待执行期
 void check_update_type(st::TypeAttr t, const st::ColumnSpec& col);
 

@@ -153,8 +153,6 @@ public:
     std::unique_ptr<st::Scanner> scan(const st::TableMeta& meta);
     // 该表全部索引(按绑定层元数据): 扫 db_index 匹配 table_id, 供计划层选择索引
     std::vector<IndexEntry> indexes(const st::TableMeta& meta);
-    // 按名查内建函数 id: 扫 db_func, 未命中返回空
-    std::optional<uint64_t> func_id(const std::string& name);
     // 按名查内建函数全部重载: 扫 db_func 匹配名并逐行解析, 名下无行返回空
     std::vector<FuncRow> funcs(const std::string& name);
     // 按索引文件 id 开范围扫描, 边界缺省为最左/无上界; 游标不持锁(仅持页 pin),

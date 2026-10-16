@@ -112,7 +112,7 @@ std::string bound_expr_to_string(ct::Catalog& db, const ana::BoundExpr& e,
     }
     case ana::BoundExprKind::FuncCall: {
         const auto& f = static_cast<const ana::BoundFuncCall&>(e);
-        std::string s = func_name(f.func);
+        std::string s = f.name;
         s += "(";
         for (size_t i = 0; i < f.args.size(); ++i) {
             if (i > 0) {
