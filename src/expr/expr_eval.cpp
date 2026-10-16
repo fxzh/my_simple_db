@@ -48,6 +48,36 @@ const st::DecimalVal& get_dec(const st::Value& v)
     return *d;
 }
 
+// 取整型盒值(int/bigint 同盒), 表示不符当场报错
+int64_t get_i64(const st::Value& v)
+{
+    const int64_t* i = std::get_if<int64_t>(&v.box);
+    if (i == nullptr) {
+        DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 值表示与数值域不符");
+    }
+    return *i;
+}
+
+// 取 float 盒值, 表示不符当场报错
+float get_f32(const st::Value& v)
+{
+    const float* f = std::get_if<float>(&v.box);
+    if (f == nullptr) {
+        DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 值表示与数值域不符");
+    }
+    return *f;
+}
+
+// 取 double 盒值, 表示不符当场报错
+double get_f64(const st::Value& v)
+{
+    const double* d = std::get_if<double>(&v.box);
+    if (d == nullptr) {
+        DB_RAISE(db::ErrCode::Internal, LogModule::EXPR, "expr: 值表示与数值域不符");
+    }
+    return *d;
+}
+
 // 数值盒值提升 double: 经 cast 分派表转 double 域(double 属性取自内置类型种子数据),
 // 供无目标域上下文的比较提升
 double box_f64(const st::Value& v)
@@ -422,36 +452,54 @@ st::Value eval_is_null(const ana::BoundIsNull& e, const st::Row* row)
 // 判空; ret 为绑定期固定的结果域属性
 using FuncEval = st::Value (*)(const std::vector<st::Value>& args, st::TypeAttr ret);
 
-// abs 求值: 按绑定期固定域构造, 整型域下界取绝对值溢出报错
-st::Value eval_abs(const std::vector<st::Value>& args, st::TypeAttr ret)
+// abs(int) 求值: 取绝对值, 下界溢出报错
+st::Value eval_abs_int(const std::vector<st::Value>& args, st::TypeAttr ret)
 {
-    const st::Value& v = args[0];
-    if (ret.rep == st::Rep::Float) {
-        return st::float_val(ret, std::fabs(to_float(v, ret)));
-    }
-    if (ret.rep == st::Rep::Double) {
-        return st::double_val(ret, std::fabs(to_double(v, ret)));
-    }
-    if (ret.rep == st::Rep::Dec) {
-        const st::DecimalVal& d = get_dec(v);
-        return st::numeric_val(ret, d.unscaled < 0 ? -d.unscaled : d.unscaled, d.scale);
-    }
-    const int64_t i = get_int(v, ret);
-    if (i == INT64_MIN || (ret.width == 4 && i == INT32_MIN)) {
+    const int64_t i = get_i64(args[0]);
+    if (i == INT32_MIN) {
         DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "整型绝对值溢出");
     }
     return st::int_val(ret, i < 0 ? -i : i);
 }
 
-// 内建函数求值表: 下标即 db_func.func_id(从 1 起, 0 号槽占位), abs 五个重载共用同一实现,
+// abs(bigint) 求值: 取绝对值, 下界溢出报错
+st::Value eval_abs_bigint(const std::vector<st::Value>& args, st::TypeAttr ret)
+{
+    const int64_t i = get_i64(args[0]);
+    if (i == INT64_MIN) {
+        DB_RAISE(db::ErrCode::ArithError, LogModule::EXPR, "整型绝对值溢出");
+    }
+    return st::int_val(ret, i < 0 ? -i : i);
+}
+
+// abs(double) 求值: 取绝对值
+st::Value eval_abs_double(const std::vector<st::Value>& args, st::TypeAttr ret)
+{
+    return st::double_val(ret, std::fabs(get_f64(args[0])));
+}
+
+// abs(float) 求值: 取绝对值
+st::Value eval_abs_float(const std::vector<st::Value>& args, st::TypeAttr ret)
+{
+    return st::float_val(ret, std::fabs(get_f32(args[0])));
+}
+
+// abs(numeric) 求值: unscaled 取绝对值, 标度不变
+st::Value eval_abs_numeric(const std::vector<st::Value>& args, st::TypeAttr ret)
+{
+    const st::DecimalVal& d = get_dec(args[0]);
+    return st::numeric_val(ret, d.unscaled < 0 ? -d.unscaled : d.unscaled, d.scale);
+}
+
+// 内建函数求值表: 下标即 db_func.func_id(从 1 起, 0 号槽占位), 每个重载各对应一个实现,
 // 增改函数须同步 bootstrap.sql
 constexpr FuncEval kFuncTable[] = {
     nullptr,
-    eval_abs,  // 1: abs(int)
-    eval_abs,  // 2: abs(bigint)
-    eval_abs,  // 3: abs(double)
-    eval_abs,  // 4: abs(float)
-    eval_abs,  // 5: abs(numeric)
+    eval_abs_int,      // 1: abs(int)
+    eval_abs_bigint,   // 2: abs(bigint)
+    eval_abs_double,   // 3: abs(double)
+    eval_abs_float,    // 4: abs(float)
+    eval_abs_numeric,  // 5: abs(numeric)
 };
 
 // 函数调用: 严格重载任一实参为 NULL 即原样传布, 非严格重载 NULL 实参照常传入实现;
