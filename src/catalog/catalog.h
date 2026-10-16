@@ -92,6 +92,15 @@ struct TypeRow {
     bool scale_allowed = false;
 };
 
+// db_func 行解析产物: 重载版本条目, args 长度即元数
+struct FuncRow {
+    uint64_t id = 0;
+    std::string name;
+    bool strict_null = false;
+    std::vector<st::TypeAttr> args;
+    st::TypeAttr ret;
+};
+
 // 数据目录门面: 打开/关闭, 建表/删表/插入/删除/更新/全表扫描
 // 元数据以 db_table/db_column/db_schema/db_type 四张表为唯一事实来源, 查找实时扫描, 无目录文件与内存缓存
 // 名字只经 create_table 与 table_meta 进入, DML 门面按绑定层一次解析的元数据进入
@@ -146,6 +155,8 @@ public:
     std::vector<IndexEntry> indexes(const st::TableMeta& meta);
     // 按名查内建函数 id: 扫 db_func, 未命中返回空
     std::optional<uint64_t> func_id(const std::string& name);
+    // 按名查内建函数全部重载: 扫 db_func 匹配名并逐行解析, 名下无行返回空
+    std::vector<FuncRow> funcs(const std::string& name);
     // 按索引文件 id 开范围扫描, 边界缺省为最左/无上界; 游标不持锁(仅持页 pin),
     // 须在语句事务锁内调用(首开索引文件会写索引树登记表)
     std::unique_ptr<st::BTreeScanner> index_scan(uint64_t index_fid, std::optional<st::ScanBound> lo,

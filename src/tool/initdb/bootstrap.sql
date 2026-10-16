@@ -10,8 +10,18 @@ create table system.db_index(table_id bigint not null,
 
 set table_id = 6;
 create table system.db_func(func_id bigint not null,
-                            func_name varchar(64) not null);
-insert into system.db_func values(1, 'abs');
+                            func_name varchar(64) not null,
+                            arity int not null,
+                            arg_0_type int not null,
+                            arg_1_type int not null,
+                            arg_2_type int not null,
+                            ret_type int not null,
+                            strict_null int not null);
+insert into system.db_func values(1, 'abs', 1, 1, 0, 0, 1, 1);
+insert into system.db_func values(2, 'abs', 1, 2, 0, 0, 2, 1);
+insert into system.db_func values(3, 'abs', 1, 3, 0, 0, 3, 1);
+insert into system.db_func values(4, 'abs', 1, 5, 0, 0, 5, 1);
+insert into system.db_func values(5, 'abs', 1, 8, 0, 0, 8, 1);
 
 -- db_version 完成标记表永远位于文件结尾
 set table_id = 7;

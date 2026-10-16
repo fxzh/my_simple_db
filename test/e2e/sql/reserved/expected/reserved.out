@@ -96,6 +96,10 @@ SELECT col_name, ordinal, type, length, not_null FROM system.db_column ORDER BY 
    col_name    | ordinal | type | length | not_null
 ---------------+---------+------+--------+----------
  alias         | 2       | 4    | 64     | 0
+ arg_0_type    | 3       | 1    | 0      | 1
+ arg_1_type    | 4       | 1    | 0      | 1
+ arg_2_type    | 5       | 1    | 0      | 1
+ arity         | 2       | 1    | 0      | 1
  col_name      | 1       | 4    | 64     | 1
  col_ordinal   | 2       | 1    | 0      | 1
  family        | 3       | 1    | 0      | 1
@@ -113,12 +117,14 @@ SELECT col_name, ordinal, type, length, not_null FROM system.db_column ORDER BY 
  ordinal       | 2       | 1    | 0      | 1
  rank          | 4       | 1    | 0      | 1
  rep           | 9       | 1    | 0      | 1
+ ret_type      | 6       | 1    | 0      | 1
  scale         | 5       | 1    | 0      | 1
  scale_allowed | 8       | 1    | 0      | 1
  schema_id     | 0       | 2    | 0      | 1
  schema_id     | 3       | 2    | 0      | 1
  schema_name   | 1       | 4    | 64     | 1
  store         | 10      | 1    | 0      | 1
+ strict_null   | 7       | 1    | 0      | 1
  table_id      | 0       | 2    | 0      | 1
  table_id      | 0       | 2    | 0      | 1
  table_id      | 0       | 2    | 0      | 1
@@ -128,7 +134,7 @@ SELECT col_name, ordinal, type, length, not_null FROM system.db_column ORDER BY 
  type_name     | 1       | 4    | 64     | 1
  version       | 0       | 2    | 0      | 1
  width         | 11      | 1    | 0      | 1
-(33 行)
+(39 行)
 SELECT schema_name FROM system.db_schema ORDER BY schema_name;
  schema_name
 -------------
@@ -142,10 +148,14 @@ SELECT * FROM system.db_version;
  version
 (0 行)
 SELECT * FROM system.db_func;
- func_id | func_name
----------+-----------
- 1       | abs
-(1 行)
+ func_id | func_name | arity | arg_0_type | arg_1_type | arg_2_type | ret_type | strict_null
+---------+-----------+-------+------------+------------+------------+----------+-------------
+ 1       | abs       | 1     | 1          | 0          | 0          | 1        | 1
+ 2       | abs       | 1     | 2          | 0          | 0          | 2        | 1
+ 3       | abs       | 1     | 3          | 0          | 0          | 3        | 1
+ 4       | abs       | 1     | 5          | 0          | 0          | 5        | 1
+ 5       | abs       | 1     | 8          | 0          | 0          | 8        | 1
+(5 行)
 SELECT type_name FROM system.db_type ORDER BY type_name;
  type_name
 -----------

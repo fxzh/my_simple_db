@@ -27,6 +27,10 @@ std::vector<st::ColumnSpec> type_meta_cols();
 std::vector<std::vector<st::Value>> type_meta_rows();
 // db_type 行解出 TypeRow, 值缺失/非法或属性值不在枚举取值集合内当场报错
 TypeRow parse_type_row(const std::vector<st::Value>& row);
+// db_func 行解出 FuncRow, 实参与结果类型经 db_type 行解析, 值缺失或非法当场报错
+FuncRow parse_func_row(const std::vector<st::Value>& row, const std::vector<TypeRow>& types);
+// 校验 db_func 全量行: func_id 唯一, 同名同实参类型序列唯一, 违约报元数据行损坏
+void validate_func_rows(st::Engine& engine, const std::vector<st::ColumnSpec>& cols);
 // 生成某表的 db_column 自描述行(ordinal 从 0 起, type 存 db_type.type_id, not_null 存 0/1,
 // length/scale 存声明长度/标度)
 std::vector<std::vector<st::Value>> column_meta_rows(uint64_t tid,

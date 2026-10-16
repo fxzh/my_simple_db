@@ -226,6 +226,85 @@ TypeRow parse_type_row(const std::vector<st::Value>& row)
     return out;
 }
 
+// db_func 行解出 FuncRow, 实参与结果类型经 db_type 行解析, 值缺失或非法当场报错
+FuncRow parse_func_row(const std::vector<st::Value>& row, const std::vector<TypeRow>& types)
+{
+    const int64_t id = row_int(row, 0);
+    const int64_t arity = row_int(row, 2);
+    if (id <= 0) {
+        DB_CRITICAL(LogModule::CATALOG, "db_func 函数 id 非法: {}", id);
+    }
+    if (arity < 0 || arity > 3) {
+        DB_CRITICAL(LogModule::CATALOG, "db_func 函数元数非法: {}", arity);
+    }
+    const std::string& name = row_str(row, 1);
+    if (name.empty()) {
+        DB_CRITICAL(LogModule::CATALOG, "db_func 函数名为空");
+    }
+    const int64_t strict = row_int(row, 7);
+    if (strict != 0 && strict != 1) {
+        DB_CRITICAL(LogModule::CATALOG, "db_func NULL 严格性值非法: {}", strict);
+    }
+    FuncRow out;
+    out.id = static_cast<uint64_t>(id);
+    out.name = name;
+    out.strict_null = strict == 1;
+    for (size_t i = 0; i < 3; ++i) {
+        const int64_t tid = row_int(row, 3 + i);
+        if (static_cast<int64_t>(i) < arity) {
+            const TypeRow* tr = nullptr;
+            for (const TypeRow& t : types) {
+                if (t.attr.id == tid) {
+                    tr = &t;
+                    break;
+                }
+            }
+            if (tr == nullptr) {
+                DB_CRITICAL(LogModule::CATALOG, "db_func 实参类型值非法: {}", tid);
+            }
+            out.args.push_back(tr->attr);
+        } else if (tid != 0) {
+            DB_CRITICAL(LogModule::CATALOG, "db_func 空实参槽值非法: {}", tid);
+        }
+    }
+    const int64_t rid = row_int(row, 6);
+    const TypeRow* rr = nullptr;
+    for (const TypeRow& t : types) {
+        if (t.attr.id == rid) {
+            rr = &t;
+            break;
+        }
+    }
+    if (rr == nullptr) {
+        DB_CRITICAL(LogModule::CATALOG, "db_func 结果类型值非法: {}", rid);
+    }
+    out.ret = rr->attr;
+    return out;
+}
+
+// 校验 db_func 全量行: func_id 唯一, 同名同实参类型序列唯一, 违约报元数据行损坏
+void validate_func_rows(st::Engine& engine, const std::vector<st::ColumnSpec>& cols)
+{
+    std::vector<TypeRow> types;
+    for (const std::vector<st::Value>& row : engine.read_rows(kTypeMetaId, type_meta_cols())) {
+        types.push_back(parse_type_row(row));
+    }
+    std::vector<FuncRow> rows;
+    for (const std::vector<st::Value>& row : engine.read_rows(kFuncMetaId, cols)) {
+        rows.push_back(parse_func_row(row, types));
+    }
+    for (size_t i = 0; i < rows.size(); ++i) {
+        for (size_t j = i + 1; j < rows.size(); ++j) {
+            if (rows[i].id == rows[j].id) {
+                DB_CRITICAL(LogModule::CATALOG, "db_func 函数 id 重复: {}", rows[i].id);
+            }
+            if (rows[i].name == rows[j].name && rows[i].args == rows[j].args) {
+                DB_CRITICAL(LogModule::CATALOG, "db_func 重载实参类型序列重复: {}", rows[i].name);
+            }
+        }
+    }
+}
+
 // 收集指定表的列定义(须持锁): 扫 db_column 匹配 tid 并按 ordinal 排序,
 // 列类型经 db_type 行取属性, 无列定义或序号重复报错
 std::vector<st::ColumnSpec> collect_columns(st::Engine& engine, uint64_t tid,

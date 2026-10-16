@@ -6,7 +6,7 @@
 # 远程同步
 代码路径 /home/hz/test
 /home/hz/updatewin.sh 用于增量同步windows代码
-/home/hz/recopywin.sh 用于删除一切后全量同步windows代码（改动包含删除文件时，建议使用此脚本）
+/home/hz/recopywin.sh 用于删除一切后全量同步windows代码（改动包含删除代码文件时，建议使用此脚本）
 /home/hz/win 为windows挂载的共享目录，实际指向当前代码仓库
 远端没有 .git 文件夹
 

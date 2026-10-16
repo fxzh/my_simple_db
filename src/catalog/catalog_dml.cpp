@@ -101,6 +101,23 @@ std::optional<uint64_t> Catalog::func_id(const std::string& name)
     return std::nullopt;
 }
 
+// 按名查内建函数全部重载: 扫 db_func 匹配名并逐行解析
+std::vector<FuncRow> Catalog::funcs(const std::string& name)
+{
+    std::lock_guard<std::recursive_mutex> lock(mutex_);
+    std::vector<TypeRow> types;
+    for (const std::vector<st::Value>& row : engine_.read_rows(kTypeMetaId, type_meta_cols())) {
+        types.push_back(parse_type_row(row));
+    }
+    std::vector<FuncRow> out;
+    for (const std::vector<st::Value>& row : engine_.read_rows(kFuncMetaId, func_cols_)) {
+        if (row_str(row, 1) == name) {
+            out.push_back(parse_func_row(row, types));
+        }
+    }
+    return out;
+}
+
 std::unique_ptr<st::BTreeScanner> Catalog::index_scan(uint64_t index_fid,
                                                       std::optional<st::ScanBound> lo,
                                                       std::optional<st::ScanBound> hi)

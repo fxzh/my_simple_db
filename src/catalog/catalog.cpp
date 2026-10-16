@@ -95,8 +95,8 @@ int64_t Catalog::load_index_meta()
     return max_fid;
 }
 
-// 加载 db_func 列定义入缓存: bootstrap 模式 db_func 由 bootstrap.sql 在 open 之后创建, 缺失直接返回;
-// 正常模式初始化完成后必存在, 缺失即元数据损坏
+// 加载 db_func 列定义入缓存并校验全量行: bootstrap 模式 db_func 由 bootstrap.sql 在
+// open 之后创建, 缺失直接返回; 正常模式初始化完成后必存在, 缺失即元数据损坏
 void Catalog::load_func_meta()
 {
     if (!engine_.table_file_exists(kFuncMetaId)) {
@@ -106,6 +106,7 @@ void Catalog::load_func_meta()
         DB_CRITICAL(LogModule::CATALOG, "db_func 元数据表缺失");
     }
     func_cols_ = collect_columns(engine_, kFuncMetaId, kFuncMetaName);
+    validate_func_rows(engine_, func_cols_);
 }
 
 void Catalog::close()

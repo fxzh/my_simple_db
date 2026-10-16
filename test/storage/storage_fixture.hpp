@@ -39,9 +39,26 @@ inline void bootstrap_version_marker(const std::string& path)
                                          {"file_id", st::kBigint, 0, true}});
     db.set_bootstrap_table_id(6);
     db.create_table({"system", ct::kFuncMetaName}, {{"func_id", st::kBigint, 0, true},
-                                         {"func_name", st::kVarChar, 64, true}});
-    db.insert(db.table_meta({"system", ct::kFuncMetaName}),
-              {st::int_val(st::kBigint, 1), st::str_val(st::kVarChar, "abs")});
+                                         {"func_name", st::kVarChar, 64, true},
+                                         {"arity", st::kInt, 0, true},
+                                         {"arg_0_type", st::kInt, 0, true},
+                                         {"arg_1_type", st::kInt, 0, true},
+                                         {"arg_2_type", st::kInt, 0, true},
+                                         {"ret_type", st::kInt, 0, true},
+                                         {"strict_null", st::kInt, 0, true}});
+    // abs 重载行: 五个数值类型各一行, 实参与结果类型同为该类型
+    const struct
+    {
+        int64_t id;
+        int64_t type;
+    } abs_rows[] = {{1, 1}, {2, 2}, {3, 3}, {4, 5}, {5, 8}};
+    const st::TableMeta func_meta = db.table_meta({"system", ct::kFuncMetaName});
+    for (const auto& r : abs_rows) {
+        db.insert(func_meta, {st::int_val(st::kBigint, r.id), st::str_val(st::kVarChar, "abs"),
+                              st::int_val(st::kInt, 1), st::int_val(st::kInt, r.type),
+                              st::int_val(st::kInt, 0), st::int_val(st::kInt, 0),
+                              st::int_val(st::kInt, r.type), st::int_val(st::kInt, 1)});
+    }
     db.set_bootstrap_table_id(7);
     db.create_table({"system", ct::kVersionMetaName}, {{"version", st::kBigint, 0, true}});
     db.commit_txn();
