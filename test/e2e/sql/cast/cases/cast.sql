@@ -72,6 +72,14 @@ UPDATE t_cast SET i = CAST('66' AS BIGINT), v = CAST(i AS VARCHAR) WHERE id = 1;
 SELECT i, v FROM t_cast WHERE id = 1;
 UPDATE t_cast SET flag = CAST(0 AS BOOLEAN) WHERE id = 1;
 SELECT flag FROM t_cast WHERE id = 1;
+-- float 值经 CAST 产生, 写入 float/double 列与溢出拒绝
+CREATE TABLE t_cf (id int, f float, d double);
+INSERT INTO t_cf VALUES (1, CAST(-1.5 AS FLOAT), CAST(-1.5 AS FLOAT));
+INSERT INTO t_cf (id, f) VALUES (2, CAST(2.5 AS FLOAT));
+UPDATE t_cf SET f = CAST(3.5 AS FLOAT), d = CAST(4.5 AS FLOAT) WHERE id = 1;
+SELECT * FROM t_cf ORDER BY id;
+INSERT INTO t_cf VALUES (3, CAST(1e300 AS FLOAT), 0.0);
+DROP TABLE t_cf;
 -- NOT NULL 列拒绝 CAST NULL
 CREATE TABLE t_nn (i int NOT NULL);
 INSERT INTO t_nn VALUES (CAST(NULL AS INT));

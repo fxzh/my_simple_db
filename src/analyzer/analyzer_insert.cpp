@@ -31,8 +31,8 @@ void check_value_type(const Expr& expr, st::TypeAttr t, const st::ColumnSpec& co
             break;
         case st::Rep::Float:
         case st::Rep::Double: {
-            // 浮点列收 double 与 numeric 值(decimal 字面量定型 numeric)
-            ok = t.rep == st::Rep::Double || t.rep == st::Rep::Dec;
+            // 浮点列收 float/double 与 numeric 值(decimal 字面量定型 numeric)
+            ok = is_float_type(t) || t.rep == st::Rep::Dec;
             // float 列字面量须可被 float 表示
             if (ok && col.type.rep == st::Rep::Float
                 && (expr.kind() == ExprKind::Float || expr.kind() == ExprKind::Decimal)) {

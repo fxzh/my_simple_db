@@ -222,6 +222,25 @@ SELECT flag FROM t_cast WHERE id = 1;
 -------
  false
 (1 行)
+-- float 值经 CAST 产生, 写入 float/double 列与溢出拒绝
+CREATE TABLE t_cf (id int, f float, d double);
+CREATE
+INSERT INTO t_cf VALUES (1, CAST(-1.5 AS FLOAT), CAST(-1.5 AS FLOAT));
+INSERT 1
+INSERT INTO t_cf (id, f) VALUES (2, CAST(2.5 AS FLOAT));
+INSERT 1
+UPDATE t_cf SET f = CAST(3.5 AS FLOAT), d = CAST(4.5 AS FLOAT) WHERE id = 1;
+UPDATE 1
+SELECT * FROM t_cf ORDER BY id;
+ id |  f  |  d
+----+-----+------
+ 1  | 3.5 | 4.5
+ 2  | 2.5 | NULL
+(2 行)
+INSERT INTO t_cf VALUES (3, CAST(1e300 AS FLOAT), 0.0);
+ERROR: 浮点值超出 float 可表示范围
+DROP TABLE t_cf;
+DROP
 -- NOT NULL 列拒绝 CAST NULL
 CREATE TABLE t_nn (i int NOT NULL);
 CREATE
