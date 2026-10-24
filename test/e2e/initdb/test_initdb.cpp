@@ -40,9 +40,12 @@ std::string bin(const char* name)
     return (std::filesystem::path(kBinDir) / name).string();
 }
 
-// 元数据行值序列化: 三张元数据表仅含 int/string 值, 其余类型当场判负
+// 元数据行值序列化: NULL 值记为 \N, 其余仅含 int/string 值, 别的类型当场判负
 std::string format_meta_value(const st::Value& v)
 {
+    if (std::get_if<std::monostate>(&v.box) != nullptr) {
+        return "\\N";
+    }
     if (const std::string* s = std::get_if<std::string>(&v.box)) {
         return *s;
     }
@@ -53,17 +56,30 @@ std::string format_meta_value(const st::Value& v)
     return "";
 }
 
-// 采集目录三张元数据表全部行作可比对文本, 行序即堆扫描序
+// 采集目录全部元数据表行作可比对文本, 表清单取自 db_table 注册行, 行序即堆扫描序
 std::string dump_meta_rows(const std::string& dir)
 {
     ct::Catalog db(dir);
     db.open();
+    // 引导目录的 db_table 注册行须全部挂 system schema, 注册行值非法或出现用户表当场判负
+    std::vector<std::string> tables;
+    st::Row row;
+    std::unique_ptr<st::Scanner> registry = db.scan(db.table_meta({"system", ct::kTableMetaName}));
+    while (registry->next(&row)) {
+        const std::string* name = std::get_if<std::string>(&row.values[1].box);
+        const int64_t* sid = std::get_if<int64_t>(&row.values[3].box);
+        if (name == nullptr || sid == nullptr
+                || *sid != static_cast<int64_t>(ct::kSystemSchemaId)) {
+            ADD_FAILURE() << "db_table 注册行值非法或挂非 system schema";
+            return "";
+        }
+        tables.push_back(*name);
+    }
     std::string dump;
-    for (const char* table : {ct::kTableMetaName, ct::kColumnMetaName, ct::kSchemaMetaName}) {
+    for (const std::string& table : tables) {
         dump += table;
         dump += '\n';
         std::unique_ptr<st::Scanner> cursor = db.scan(db.table_meta({"system", table}));
-        st::Row row;
         while (cursor->next(&row)) {
             for (const st::Value& v : row.values) {
                 dump += format_meta_value(v);
