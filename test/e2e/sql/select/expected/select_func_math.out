@@ -1,0 +1,190 @@
+-- round/floor/ceil 执行: 结果域镜像实参域, NULL 严格传布
+CREATE TABLE t_fm1 (i int, b bigint, f float, d double, n numeric(10,4));
+CREATE
+INSERT INTO t_fm1 VALUES (-5, -9000000000, -1.5, -2.25, -123.4567);
+INSERT 1
+INSERT INTO t_fm1 VALUES (3, 7, 1.5, 2.25, 123.4567);
+INSERT 1
+INSERT INTO t_fm1 VALUES (2, NULL, NULL, NULL, NULL);
+INSERT 1
+SELECT round(i), round(b), round(f), round(d), round(n) FROM t_fm1 ORDER BY i;
+ round(i) |  round(b)   | round(f) | round(d) | round(n)
+----------+-------------+----------+----------+----------
+ -5       | -9000000000 | -2       | -2       | -123
+ 2        | NULL        | NULL     | NULL     | NULL
+ 3        | 7           | 2        | 2        | 123
+(3 行)
+SELECT floor(i), floor(b), floor(f), floor(d), floor(n) FROM t_fm1 ORDER BY i;
+ floor(i) |  floor(b)   | floor(f) | floor(d) | floor(n)
+----------+-------------+----------+----------+----------
+ -5       | -9000000000 | -2       | -3       | -124
+ 2        | NULL        | NULL     | NULL     | NULL
+ 3        | 7           | 1        | 2        | 123
+(3 行)
+SELECT ceil(i), ceil(b), ceil(f), ceil(d), ceil(n) FROM t_fm1 ORDER BY i;
+ ceil(i) |   ceil(b)   | ceil(f) | ceil(d) | ceil(n)
+---------+-------------+---------+---------+---------
+ -5      | -9000000000 | -1      | -2      | -123
+ 2       | NULL        | NULL    | NULL    | NULL
+ 3       | 7           | 2       | 3       | 124
+(3 行)
+-- mod 执行: 符号随被除数
+SELECT f, mod(f, CAST(2 AS FLOAT)), d, mod(d, CAST(2 AS DOUBLE)) FROM t_fm1 ORDER BY i;
+  f   | mod(f, CAST(2 AS float)) |   d   | mod(d, CAST(2 AS double))
+------+--------------------------+-------+---------------------------
+ -1.5 | -1.5                     | -2.25 | -0.25
+ NULL | NULL                     | NULL  | NULL
+ 1.5  | 1.5                      | 2.25  | 0.25
+(3 行)
+SELECT mod(7, 3), mod(-7, 3), mod(7, -3), mod(-7, -3);
+ mod(7, 3) | mod((-7), 3) | mod(7, (-3)) | mod((-7), (-3))
+-----------+--------------+--------------+-----------------
+ 1         | -1           | 1            | -1
+(1 行)
+SELECT i, mod(i, 3), b, mod(b, CAST(3 AS BIGINT)) FROM t_fm1 ORDER BY i;
+ i  | mod(i, 3) |      b      | mod(b, CAST(3 AS bigint))
+----+-----------+-------------+---------------------------
+ -5 | -2        | -9000000000 | 0
+ 2  | 2         | NULL        | NULL
+ 3  | 0         | 7           | 1
+(3 行)
+SELECT i FROM t_fm1 WHERE mod(i, 2) = 1 ORDER BY i;
+ i
+---
+ 3
+(1 行)
+-- mod numeric: 结果标度取两操作数标度较大者
+SELECT mod(7.5, 2.0), mod(-7.5, 2.0), mod(10.5, 3.0);
+ mod(7.5, 2.0) | mod((-7.5), 2.0) | mod(10.5, 3.0)
+---------------+------------------+----------------
+ 1.5           | -1.5             | 1.5
+(1 行)
+SELECT n, mod(n, n) FROM t_fm1 ORDER BY i;
+     n     | mod(n, n)
+-----------+-----------
+ -123.4567 | 0.0000
+ NULL      | NULL
+ 123.4567  | 0.0000
+(3 行)
+CREATE TABLE t_fm2 (a numeric(10,4), b numeric(5,2));
+CREATE
+INSERT INTO t_fm2 VALUES (10.5000, 3.00);
+INSERT 1
+SELECT a, b, mod(a, b) FROM t_fm2;
+    a    |  b   | mod(a, b)
+---------+------+-----------
+ 10.5000 | 3.00 | 1.5000
+(1 行)
+DROP TABLE t_fm2;
+DROP
+-- round 双参: 结果标度 n, n 不小于原标度时原值返回, 负 n 舍入到十位
+SELECT n, round(n, 2), round(n, 0), round(n, -1), round(n, 4), round(n, 6) FROM t_fm1 ORDER BY i;
+     n     | round(n, 2) | round(n, 0) | round(n, (-1)) | round(n, 4) | round(n, 6)
+-----------+-------------+-------------+----------------+-------------+-------------
+ -123.4567 | -123.46     | -123        | -120           | -123.4567   | -123.4567
+ NULL      | NULL        | NULL        | NULL           | NULL        | NULL
+ 123.4567  | 123.46      | 123         | 120            | 123.4567    | 123.4567
+(3 行)
+SELECT round(0.5), round(2.5), round(-0.5), round(-2.5), round(1.234, 2), round(1.235, 2);
+ round(0.5) | round(2.5) | round((-0.5)) | round((-2.5)) | round(1.234, 2) | round(1.235, 2)
+------------+------------+---------------+---------------+-----------------+-----------------
+ 1          | 3          | -1            | -3            | 1.23            | 1.24
+(1 行)
+SELECT round(55.0, -1), round(-55.0, -1), round(54.0, -1), round(50.0, -1);
+ round(55.0, (-1)) | round((-55.0), (-1)) | round(54.0, (-1)) | round(50.0, (-1))
+-------------------+----------------------+-------------------+-------------------
+ 60                | -60                  | 50                | 50
+(1 行)
+-- bigint 最小值对 -1 取余数学结果为 0
+CREATE TABLE t_fm3 (b bigint);
+CREATE
+INSERT INTO t_fm3 VALUES (-9223372036854775807 - 1);
+INSERT 1
+SELECT mod(b, CAST(-1 AS BIGINT)), mod(b, CAST(1 AS BIGINT)) FROM t_fm3;
+ mod(b, CAST((-1) AS bigint)) | mod(b, CAST(1 AS bigint))
+------------------------------+---------------------------
+ 0                            | 0
+(1 行)
+DROP TABLE t_fm3;
+DROP
+-- 标度 39 的 numeric 值幅值小于 1: 取整与舍入边界
+SELECT floor(0.0000000000000000000000000000000000000001), ceil(0.0000000000000000000000000000000000000001);
+ floor(0.0000000000000000000000000000000000000001) | ceil(0.0000000000000000000000000000000000000001)
+---------------------------------------------------+--------------------------------------------------
+ 0                                                 | 1
+(1 行)
+SELECT floor(-0.0000000000000000000000000000000000000001), ceil(-0.0000000000000000000000000000000000000001);
+ floor((-0.0000000000000000000000000000000000000001)) | ceil((-0.0000000000000000000000000000000000000001))
+------------------------------------------------------+-----------------------------------------------------
+ -1                                                   | 0
+(1 行)
+SELECT round(0.0000000000000000000000000000000000000001, 0);
+ round(0.0000000000000000000000000000000000000001, 0)
+------------------------------------------------------
+ 0
+(1 行)
+-- 除零: 整型/浮点/numeric 取余除零
+SELECT mod(5, 0);
+ERROR: 整型取余除零
+SELECT mod(CAST(5.5 AS DOUBLE), CAST(0 AS DOUBLE));
+ERROR: 浮点取余除零
+SELECT mod(5.5, 0.0);
+ERROR: numeric 取余除零
+-- 负 n 进位使 numeric 结果达 38 位十进制超界
+SELECT round(99999999999999999999999999999999999999., -1);
+ERROR: numeric 算术结果超界
+-- 绑定失败: 双参 round 仅收 numeric 首参, mod 仅同型配对, ceiling 未注册
+SELECT round(55, -1);
+ERROR: 函数实参个数或类型不符: round
+SELECT round(1.5, 2.5);
+ERROR: 函数实参个数或类型不符: round
+SELECT mod(7, 2.5);
+ERROR: 函数实参个数或类型不符: mod
+SELECT mod(7);
+ERROR: 函数实参个数或类型不符: mod
+SELECT round('x');
+ERROR: 函数实参个数或类型不符: round
+SELECT ceiling(1.5);
+ERROR: 函数不存在: ceiling
+-- 常量调用计划期折叠为常量
+SELECT round(1.5), floor(-1.5), ceil(-1.5), mod(7, 3);
+ round(1.5) | floor((-1.5)) | ceil((-1.5)) | mod(7, 3)
+------------+---------------+--------------+-----------
+ 2          | -2            | -1           | 1
+(1 行)
+EXPLAIN SELECT round(1.5);
+      QUERY PLAN
+----------------------
+ Project
+   Output: round(1.5)
+   ->  Dummy Scan
+(3 行)
+EXPLAIN SELECT n FROM t_fm1 WHERE ceil(n) > 123;
+              QUERY PLAN
+--------------------------------------
+ Project
+   Output: n
+   ->  Filter: (ceil(n) > 123)
+         ->  Seq Scan on public.t_fm1
+(4 行)
+-- 常量上下文求值
+CREATE TABLE t_fm4 (n1 numeric(10,2), n2 numeric(10,2));
+CREATE
+INSERT INTO t_fm4 VALUES (round(1.6), round(1.234, 2));
+INSERT 1
+SELECT * FROM t_fm4;
+  n1  |  n2
+------+------
+ 2.00 | 1.23
+(1 行)
+UPDATE t_fm4 SET n2 = round(n2 * 3.0, 1);
+UPDATE 1
+SELECT * FROM t_fm4;
+  n1  |  n2
+------+------
+ 2.00 | 3.70
+(1 行)
+DROP TABLE t_fm4;
+DROP
+DROP TABLE t_fm1;
+DROP
