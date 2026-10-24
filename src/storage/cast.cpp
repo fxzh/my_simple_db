@@ -1,4 +1,4 @@
-// cast.cpp: 值级转换分派表实现: 隐式仅同族提升/收窄, 显式含跨族转换
+// cast.cpp: 值级转换分派表实现: 隐式为无损提升与精度收窄, 赋值再含值域收窄, 显式含跨族转换
 #include "cast.h"
 
 #include <charconv>
@@ -99,9 +99,21 @@ mp::int256_t pow10(int n)
 // 转换函数: 入参非 NULL, 源值表示即 v.type.rep(由入口按表分派), 产物按 to 定型
 using CastFn = Value (*)(const Value& v, TypeAttr to);
 
-// 同形式换类型属性(值不变, 域界与长度由存储编码或语义层检查)
+// 同形式换类型属性(值不变)
 Value restamp(const Value& v, TypeAttr to)
 {
+    return Value{to, v.box};
+}
+
+// int64 同族换型属性: bigint→int 收窄查 int32 域界, 域外当场报错
+Value i64_restamp(const Value& v, TypeAttr to)
+{
+    if (v.type.width > to.width) {
+        const int64_t i = get_i64(v);
+        if (i < INT32_MIN || i > INT32_MAX) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::STORAGE, "整型值超出 int 可表示范围");
+        }
+    }
     return Value{to, v.box};
 }
 
@@ -409,29 +421,31 @@ Value dec_to_text(const Value& v, TypeAttr to)
     return str_val(to, decimal_to_text(get_dec(v)));
 }
 
-// 转换分派表项: fn 为空表示无转换, implicit 为真时隐式模式可用
+// 转换分派表项: fn 为空表示无转换, tier 为表项档位, 档位不高于调用模式才可用
 struct CastEntry {
     CastFn fn = nullptr;
-    bool implicit = false;
+    CastMode tier = CastMode::Explicit;
 };
 
 // 内置转换分派表: 行源值表示列目标值表示, 下标即 Rep 枚举值
 // (None, Int64, Float, Double, Str, Bool, Dec); 非 None 槽位全填,
-// 空槽与隐式查到仅显式表项均为调用方违约
+// 空槽与表项档位高于调用模式均为调用方违约
 constexpr CastEntry kCastTable[7][7] = {
     /* None */   {{}, {}, {}, {}, {}, {}, {}},
-    /* Int64 */  {{}, {restamp, true}, {i64_to_f32, true}, {i64_to_f64, true},
-                   {i64_to_text}, {i64_to_bool}, {i64_to_dec, true}},
-    /* Float */  {{}, {f32_to_i64}, {restamp, true}, {f32_to_f64, true},
-                   {f32_to_text}, {f32_to_bool}, {f32_to_dec}},
-    /* Double */ {{}, {f64_to_i64}, {f64_to_f32, true}, {restamp, true},
-                   {f64_to_text}, {f64_to_bool}, {f64_to_dec}},
+    /* Int64 */  {{}, {i64_restamp, CastMode::Implicit}, {i64_to_f32, CastMode::Implicit},
+                   {i64_to_f64, CastMode::Implicit}, {i64_to_text}, {i64_to_bool},
+                   {i64_to_dec, CastMode::Implicit}},
+    /* Float */  {{}, {f32_to_i64}, {restamp, CastMode::Implicit},
+                   {f32_to_f64, CastMode::Implicit}, {f32_to_text}, {f32_to_bool}, {f32_to_dec}},
+    /* Double */ {{}, {f64_to_i64}, {f64_to_f32, CastMode::Assignment},
+                   {restamp, CastMode::Implicit}, {f64_to_text}, {f64_to_bool}, {f64_to_dec}},
     /* Str */    {{}, {text_to_i64}, {text_to_f32}, {text_to_f64},
-                   {text_to_text, true}, {text_to_bool}, {text_to_dec}},
+                   {text_to_text, CastMode::Implicit}, {text_to_bool}, {text_to_dec}},
     /* Bool */   {{}, {bool_to_i64}, {bool_to_f32}, {bool_to_f64},
-                   {bool_to_text}, {restamp, true}, {bool_to_dec}},
-    /* Dec */    {{}, {dec_to_i64}, {dec_to_f32, true}, {dec_to_f64, true},
-                   {dec_to_text}, {dec_to_bool}, {restamp, true}},
+                   {bool_to_text}, {restamp, CastMode::Implicit}, {bool_to_dec}},
+    /* Dec */    {{}, {dec_to_i64}, {dec_to_f32, CastMode::Implicit},
+                   {dec_to_f64, CastMode::Implicit}, {dec_to_text}, {dec_to_bool},
+                   {restamp, CastMode::Implicit}},
 };
 
 }  // namespace
@@ -442,7 +456,12 @@ Value cast_value(const Value& v, TypeAttr to, CastMode mode)
         DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 不接受 NULL");
     }
     const CastEntry& e = kCastTable[static_cast<size_t>(v.type.rep)][static_cast<size_t>(to.rep)];
-    if (e.fn == nullptr || (mode == CastMode::Implicit && !e.implicit)) {
+    // Int64 同族槽按方向分档: 源宽于目标(bigint→int)为赋值档
+    CastMode tier = e.tier;
+    if (v.type.rep == Rep::Int64 && to.rep == Rep::Int64 && v.type.width > to.width) {
+        tier = CastMode::Assignment;
+    }
+    if (e.fn == nullptr || tier > mode) {
         DB_RAISE(db::ErrCode::Internal, LogModule::STORAGE, "cast: 无 {}→{} 转换",
                  static_cast<int>(v.type.rep), static_cast<int>(to.rep));
     }

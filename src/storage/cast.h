@@ -9,12 +9,12 @@
 
 namespace st {
 
-// 转换模式: 隐式仅同族提升/收窄, 显式(CAST)含跨族转换
-enum class CastMode : uint8_t { Implicit, Explicit };
+// 转换模式: 隐式为无损提升与精度收窄, 赋值(写列)再含值域收窄, 显式(CAST)含跨族转换
+enum class CastMode : uint8_t { Implicit, Assignment, Explicit };
 
 // 统一 cast 执行入口: 按 (源值表示, 目标值表示, 模式) 查分派表执行内置转换并按目标属性定型;
 // NULL 与空槽(无该转换)当场报 Internal, NULL 传播由调用方先行判空;
-// 隐式模式查到仅显式表项视同空槽; 用户可见报错由表项自带(如字符串解析失败)
+// 表项档位高于调用模式视同空槽; 用户可见报错由表项自带(如字符串解析失败)
 Value cast_value(const Value& v, TypeAttr to, CastMode mode = CastMode::Implicit);
 
 // 文本解析为定点十进制: [+/-]数字[.数字][eE[+/-]数字], 全串参与, 尾零保留;

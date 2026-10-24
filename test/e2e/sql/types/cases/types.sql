@@ -30,6 +30,21 @@ SELECT * FROM t_fd WHERE f = 2.5;
 INSERT INTO t_fd VALUES (NULL, 390000000000000000000000000000000000000.0);
 UPDATE t_fd SET f = d WHERE d = 390000000000000000000000000000000000000.0;
 DROP TABLE t_fd;
+-- int 列收 bigint 值: 域内成功, 超界运行期报错
+CREATE TABLE t_ib (i int, b bigint);
+INSERT INTO t_ib VALUES (1, 20000000000);
+UPDATE t_ib SET i = b;
+UPDATE t_ib SET i = b / 1000000000;
+SELECT * FROM t_ib;
+DROP TABLE t_ib;
+-- float 列收 numeric 值与 double 值运行期收窄越界
+CREATE TABLE t_fn (f float, n numeric);
+INSERT INTO t_fn VALUES (CAST(2.5 AS NUMERIC), 4);
+UPDATE t_fn SET f = n;
+SELECT * FROM t_fn;
+UPDATE t_fn SET f = CAST('3.9e38' AS DOUBLE);
+SELECT * FROM t_fn;
+DROP TABLE t_fn;
 -- 非关键字类型名与无参类型带参: 均为语法错(类型名为关键字)
 CREATE TABLE t_bad (x foo);
 CREATE TABLE t_bad (x int(5));

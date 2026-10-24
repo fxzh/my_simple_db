@@ -87,6 +87,43 @@ UPDATE t_fd SET f = d WHERE d = 390000000000000000000000000000000000000.0;
 ERROR: 数值超出 numeric 可表示范围
 DROP TABLE t_fd;
 DROP
+-- int 列收 bigint 值: 域内成功, 超界运行期报错
+CREATE TABLE t_ib (i int, b bigint);
+CREATE
+INSERT INTO t_ib VALUES (1, 20000000000);
+INSERT 1
+UPDATE t_ib SET i = b;
+ERROR: 整型值超出 int 可表示范围
+UPDATE t_ib SET i = b / 1000000000;
+UPDATE 1
+SELECT * FROM t_ib;
+ i  |      b
+----+-------------
+ 20 | 20000000000
+(1 行)
+DROP TABLE t_ib;
+DROP
+-- float 列收 numeric 值与 double 值运行期收窄越界
+CREATE TABLE t_fn (f float, n numeric);
+CREATE
+INSERT INTO t_fn VALUES (CAST(2.5 AS NUMERIC), 4);
+INSERT 1
+UPDATE t_fn SET f = n;
+UPDATE 1
+SELECT * FROM t_fn;
+ f | n
+---+---
+ 4 | 4
+(1 行)
+UPDATE t_fn SET f = CAST('3.9e38' AS DOUBLE);
+ERROR: 浮点值超出 float 可表示范围
+SELECT * FROM t_fn;
+ f | n
+---+---
+ 4 | 4
+(1 行)
+DROP TABLE t_fn;
+DROP
 -- 非关键字类型名与无参类型带参: 均为语法错(类型名为关键字)
 CREATE TABLE t_bad (x foo);
 ERROR: 2.23-25: syntax error, unexpected IDENTIFIER
