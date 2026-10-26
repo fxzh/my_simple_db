@@ -5,7 +5,7 @@ ERROR: 值与列类型不匹配
 INSERT INTO t_si VALUES (1.5, 1, 1.0, 1.0, 'a', 'a');
 ERROR: 值与列类型不匹配
 INSERT INTO t_si VALUES (2147483648, 1, 1.0, 1.0, 'a', 'a');
-ERROR: 值与列类型不匹配
+ERROR: 整型值超出 int 可表示范围
 INSERT INTO t_si VALUES (1, 'x', 1.0, 1.0, 'a', 'a');
 ERROR: 值与列类型不匹配
 INSERT INTO t_si VALUES (1, 1, 'x', 1.0, 'a', 'a');
@@ -13,7 +13,7 @@ ERROR: 值与列类型不匹配
 INSERT INTO t_si VALUES (1, 1, 1.0, 'x', 'a', 'a');
 ERROR: 值与列类型不匹配
 INSERT INTO t_si VALUES (1, 1, 1, 1.0, 'a', 'a');
-ERROR: 值与列类型不匹配
+INSERT 1
 INSERT INTO t_si VALUES (1, 1, 1.0, 1.0, 'abcd', 'a');
 ERROR: 值与列类型不匹配
 INSERT INTO t_si VALUES (1, 1, 1.0, 1.0, 'a', 'abcdef');
@@ -30,12 +30,13 @@ INSERT INTO nosuch_si VALUES (1);
 ERROR: 表不存在: public.nosuch_si
 INSERT INTO t_si VALUES (1, 2, 3.0, 4.0, 'ab', 'abcde');
 INSERT 1
-SELECT * FROM t_si ORDER BY a;
+SELECT * FROM t_si ORDER BY a, b;
   a   | b | c | f |  s  |   v
 ------+---+---+---+-----+-------
+ 1    | 1 | 1 | 1 | a   | a
  1    | 2 | 3 | 4 | ab  | abcde
  NULL | 1 | 1 | 1 | a   | a
-(2 行)
+(3 行)
 DROP TABLE t_si;
 DROP
 -- 函数实参与列类型检查

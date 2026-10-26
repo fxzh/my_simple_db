@@ -129,7 +129,7 @@ std::unique_ptr<BoundUpdate> parse_update(ct::Catalog& db, const UpdateStmt& us,
         a.value = bind_expr(*item.value, &row_desc, db, t);
         const st::ColumnSpec& col = b->table.meta.cols[it->second];
         if (has_col_ref(*item.value)) {
-            check_update_type(t, col);
+            check_assignment_type(t, col);
         } else {
             // 纯常量右值: 与插入同构的 NOT NULL/长度/范围检查
             if (col.not_null && may_be_null(*item.value, db)) {

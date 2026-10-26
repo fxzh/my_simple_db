@@ -22,38 +22,41 @@ CREATE
 INSERT INTO t_fd VALUES (0.1, 0.1), (1.0, 1.0), (-2.5, -2.5), (NULL, NULL);
 INSERT 4
 INSERT INTO t_fd VALUES (1, 2.0);
-ERROR: 值与列类型不匹配
+INSERT 1
 INSERT INTO t_fd VALUES (390000000000000000000000000000000000000.0, 1.0);
 ERROR: 数值超出 numeric 可表示范围
-SELECT * FROM t_fd ORDER BY f;
+SELECT * FROM t_fd ORDER BY f, d;
   f   |  d
 ------+------
  -2.5 | -2.5
  0.1  | 0.1
  1    | 1
+ 1    | 2
  NULL | NULL
-(4 行)
+(5 行)
 -- float 列与 double 字面量提升 double 域精确比较: 非精确字面量不命中, 精确字面量与写足位数命中
 SELECT * FROM t_fd WHERE f = 0.1;
  f | d
 (0 行)
-SELECT * FROM t_fd WHERE f = 1.0;
+SELECT * FROM t_fd WHERE f = 1.0 ORDER BY d;
  f | d
 ---+---
  1 | 1
-(1 行)
+ 1 | 2
+(2 行)
 SELECT * FROM t_fd WHERE f = 0.10000000149011612;
   f  |  d
 -----+-----
  0.1 | 0.1
 (1 行)
 -- float 列区间比较同域提升: 0.1f 提升后大于 double 0.1
-SELECT * FROM t_fd WHERE f > 0.1 AND f <= 1.0 ORDER BY f;
+SELECT * FROM t_fd WHERE f > 0.1 AND f <= 1.0 ORDER BY f, d;
   f  |  d
 -----+-----
  0.1 | 0.1
  1   | 1
-(2 行)
+ 1   | 2
+(3 行)
 -- float 域算术(整型字面量)逐运算单精度舍入
 SELECT (f * 3) / 3 FROM t_fd WHERE f > -3.0 ORDER BY f;
  ((f * 3) / 3)
@@ -61,7 +64,8 @@ SELECT (f * 3) / 3 FROM t_fd WHERE f > -3.0 ORDER BY f;
  -2.5
  0.1
  1
-(3 行)
+ 1
+(4 行)
 -- float 与 double 混合算术提升 double 域
 SELECT f + d FROM t_fd WHERE f < 0.5 ORDER BY f;
        (f + d)
@@ -74,7 +78,7 @@ UPDATE t_fd SET f = 390000000000000000000000000000000000000.0 WHERE f = 1.0;
 ERROR: 数值超出 numeric 可表示范围
 -- UPDATE 从 double 表达式取值写入 float 列: 运行期收窄
 UPDATE t_fd SET f = d + 1.5 WHERE f = 1.0;
-UPDATE 1
+UPDATE 2
 SELECT * FROM t_fd WHERE f = 2.5;
   f  | d
 -----+---
@@ -129,3 +133,163 @@ CREATE TABLE t_bad (x foo);
 ERROR: 2.23-25: syntax error, unexpected IDENTIFIER
 CREATE TABLE t_bad (x int(5));
 ERROR: 1.26: syntax error, unexpected '(', expecting ')' or ','
+-- 整型写入浮点列: 常量与列值均按目标精度舍入
+CREATE TABLE t_assign_fp (id int, i int, b bigint, f float, d double);
+CREATE
+INSERT INTO t_assign_fp VALUES (1, 16777217, 9007199254740993, 16777217, 9007199254740993);
+INSERT 1
+INSERT INTO t_assign_fp VALUES (2, 7, 7, CAST(7 AS BIGINT), 7);
+INSERT 1
+SELECT id, f, d FROM t_assign_fp ORDER BY id;
+ id |    f     |        d
+----+----------+------------------
+ 1  | 16777216 | 9007199254740992
+ 2  | 7        | 7
+(2 行)
+UPDATE t_assign_fp SET f = i, d = b;
+UPDATE 2
+SELECT id, f, d FROM t_assign_fp ORDER BY id;
+ id |    f     |        d
+----+----------+------------------
+ 1  | 16777216 | 9007199254740992
+ 2  | 7        | 7
+(2 行)
+UPDATE t_assign_fp SET f = b, d = i;
+UPDATE 2
+SELECT id, f, d FROM t_assign_fp ORDER BY id;
+ id |      f       |    d
+----+--------------+----------
+ 1  | 9.007199e+15 | 16777217
+ 2  | 7            | 7
+(2 行)
+UPDATE t_assign_fp SET f = 1, d = CAST(7 AS BIGINT) WHERE id = 1;
+UPDATE 1
+UPDATE t_assign_fp SET f = NULL, d = NULL WHERE id = 2;
+UPDATE 1
+SELECT id, f, d FROM t_assign_fp ORDER BY id;
+ id |  f   |  d
+----+------+------
+ 1  | 1    | 7
+ 2  | NULL | NULL
+(2 行)
+DROP TABLE t_assign_fp;
+DROP
+-- bigint 写入 int 列: 常量、常量表达式和列值采用相同的 int32 范围检查
+CREATE TABLE t_assign_int (id int, i int, b bigint);
+CREATE
+INSERT INTO t_assign_int VALUES (1, CAST(7 AS BIGINT), 7);
+INSERT 1
+INSERT INTO t_assign_int VALUES (2, 5000000000 / 1000000000, 5);
+INSERT 1
+INSERT INTO t_assign_int VALUES (3, CAST(2147483647 AS BIGINT), 2147483647);
+INSERT 1
+INSERT INTO t_assign_int VALUES (4, CAST(-2147483648 AS BIGINT), -2147483648);
+INSERT 1
+UPDATE t_assign_int SET i = CAST(7 AS BIGINT) WHERE id = 1;
+UPDATE 1
+UPDATE t_assign_int SET i = 5000000000 / 1000000000 WHERE id = 2;
+UPDATE 1
+UPDATE t_assign_int SET i = b;
+UPDATE 4
+SELECT * FROM t_assign_int ORDER BY id;
+ id |      i      |      b
+----+-------------+-------------
+ 1  | 7           | 7
+ 2  | 5           | 5
+ 3  | 2147483647  | 2147483647
+ 4  | -2147483648 | -2147483648
+(4 行)
+INSERT INTO t_assign_int (id, i) VALUES (5, 2147483648);
+ERROR: 整型值超出 int 可表示范围
+INSERT INTO t_assign_int (id, i) VALUES (6, -2147483649);
+ERROR: 整型值超出 int 可表示范围
+UPDATE t_assign_int SET i = CAST(2147483648 AS BIGINT) WHERE id = 1;
+ERROR: 整型值超出 int 可表示范围
+UPDATE t_assign_int SET i = CAST(-2147483649 AS BIGINT) WHERE id = 1;
+ERROR: 整型值超出 int 可表示范围
+UPDATE t_assign_int SET b = 2147483648 WHERE id = 1;
+UPDATE 1
+UPDATE t_assign_int SET i = b WHERE id = 1;
+ERROR: 整型值超出 int 可表示范围
+UPDATE t_assign_int SET b = -2147483649 WHERE id = 1;
+UPDATE 1
+UPDATE t_assign_int SET i = b WHERE id = 1;
+ERROR: 整型值超出 int 可表示范围
+SELECT * FROM t_assign_int ORDER BY id;
+ id |      i      |      b
+----+-------------+-------------
+ 1  | 7           | -2147483649
+ 2  | 5           | 5
+ 3  | 2147483647  | 2147483647
+ 4  | -2147483648 | -2147483648
+(4 行)
+DROP TABLE t_assign_int;
+DROP
+-- 文本赋值: char 目标补空格, char 写入 varchar 去尾空格且保留左空格
+CREATE TABLE t_assign_text (id int, c char(5), v varchar(3), src char(7), sv varchar(7));
+CREATE
+INSERT INTO t_assign_text VALUES (1, CAST('a' AS CHAR(5)), CAST('a  ' AS CHAR(5)), ' a', 'xy');
+INSERT 1
+INSERT INTO t_assign_text VALUES (2, CAST('xy' AS VARCHAR(5)), CAST('   ' AS CHAR(5)), '', '');
+INSERT 1
+SELECT id, c, v, v = 'a' AS trimmed, v = '' AS empty FROM t_assign_text ORDER BY id;
+ id |   c   | v | trimmed | empty
+----+-------+---+---------+-------
+ 1  | a     | a | true    | false
+ 2  | xy    |   | false   | true
+(2 行)
+UPDATE t_assign_text SET c = CAST('b' AS CHAR(5)), v = CAST(' b  ' AS CHAR(5)) WHERE id = 1;
+UPDATE 1
+SELECT id, c, v, v = ' b' AS trimmed FROM t_assign_text ORDER BY id;
+ id |   c   | v  | trimmed
+----+-------+----+---------
+ 1  | b     |  b | true
+ 2  | xy    |    | false
+(2 行)
+UPDATE t_assign_text SET v = src;
+UPDATE 2
+UPDATE t_assign_text SET c = sv;
+UPDATE 2
+UPDATE t_assign_text SET c = c;
+UPDATE 2
+SELECT id, c, v, v = ' a' AS trimmed, v = '' AS empty FROM t_assign_text ORDER BY id;
+ id |   c   | v  | trimmed | empty
+----+-------+----+---------+-------
+ 1  | xy    |  a | true    | false
+ 2  |       |    | false   | true
+(2 行)
+UPDATE t_assign_text SET v = c;
+UPDATE 2
+UPDATE t_assign_text SET c = v;
+UPDATE 2
+SELECT id, c, v, v = 'xy' AS trimmed, v = '' AS empty FROM t_assign_text ORDER BY id;
+ id |   c   | v  | trimmed | empty
+----+-------+----+---------+-------
+ 1  | xy    | xy | true    | false
+ 2  |       |    | false   | true
+(2 行)
+-- 文本超目标长度: 常量与列值均拒绝, 失败后原值保留
+INSERT INTO t_assign_text (id, c) VALUES (3, CAST('abcdef' AS CHAR(7)));
+ERROR: 值与列类型不匹配
+INSERT INTO t_assign_text (id, v) VALUES (4, CAST('abcd' AS CHAR(7)));
+ERROR: 值与列类型不匹配
+UPDATE t_assign_text SET c = CAST('abcdef' AS CHAR(7)) WHERE id = 1;
+ERROR: 值与列类型不匹配
+UPDATE t_assign_text SET v = CAST('abcd' AS CHAR(7)) WHERE id = 1;
+ERROR: 值与列类型不匹配
+UPDATE t_assign_text SET src = 'abcdef', sv = 'abcd' WHERE id = 1;
+UPDATE 1
+UPDATE t_assign_text SET c = src WHERE id = 1;
+ERROR: 值与列类型不匹配
+UPDATE t_assign_text SET v = src WHERE id = 1;
+ERROR: 值与列类型不匹配
+UPDATE t_assign_text SET v = sv WHERE id = 1;
+ERROR: 值与列类型不匹配
+SELECT id, c, v, v = '' AS empty FROM t_assign_text ORDER BY id;
+ id |   c   | v  | empty
+----+-------+----+-------
+ 1  | xy    | xy | false
+ 2  |       |    | true
+(2 行)
+DROP TABLE t_assign_text;
+DROP

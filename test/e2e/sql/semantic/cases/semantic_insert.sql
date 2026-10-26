@@ -14,7 +14,7 @@ INSERT INTO t_si VALUES (NULL, 1, 1.0, 1.0, 'a', 'a');
 INSERT INTO t_si VALUES (a, 1, 1.0, 1.0, 'a', 'a');
 INSERT INTO nosuch_si VALUES (1);
 INSERT INTO t_si VALUES (1, 2, 3.0, 4.0, 'ab', 'abcde');
-SELECT * FROM t_si ORDER BY a;
+SELECT * FROM t_si ORDER BY a, b;
 DROP TABLE t_si;
 -- 函数实参与列类型检查
 CREATE TABLE t_sif (i int, s char(3));

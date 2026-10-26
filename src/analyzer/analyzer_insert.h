@@ -15,11 +15,10 @@ namespace ana {
 // ==================== INSERT 绑定 ====================
 
 // 值类型与列规格匹配(常量上下文): 恒 NULL 常量树免检(NOT NULL 已在前置检查拦截),
-// 家族内匹配, 字面量范围/长度随类型一并校验; 非字面量常量(如 CAST 产物)的范围/长度
-// 由存储编码与 cast 收窄检查
+// 采用统一赋值类型检查, 字面量范围/长度额外静态校验, 其余范围/长度由 cast 与存储编码检查
 void check_value_type(const Expr& expr, st::TypeAttr t, const st::ColumnSpec& col, ct::Catalog& db);
-// 行上下文右值与列的静态类型匹配: 家族内匹配, 无类型放行, 空值/长度/范围留待执行期
-void check_update_type(st::TypeAttr t, const st::ColumnSpec& col);
+// 赋值右值与列的静态类型匹配: 整型可写浮点列, 整型/文本同族可赋值, 无类型放行
+void check_assignment_type(st::TypeAttr t, const st::ColumnSpec& col);
 
 // INSERT 值到列的定位结果: 由列清单一次性解析, 各行共用
 struct InsertTargets {
