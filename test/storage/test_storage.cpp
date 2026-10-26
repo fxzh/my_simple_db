@@ -16,12 +16,36 @@
 #include "common/temp_dir.hpp"
 #include "storage/storage_fixture.hpp"
 #include "btree.h"
+#include "cast.h"
 #include "catalog.h"
 #include "page.h"
 #include "wal.h"
 
 using namespace st;
 using namespace ct;
+
+TEST_F(StorageDb, NumericCastModes)
+{
+    const Value integer = coerce_numeric(int_val(kInt, 12), kNumeric, 6, 2, CastMode::Assignment);
+    EXPECT_EQ(integer.type, kNumeric);
+    EXPECT_EQ(decimal_to_text(std::get<DecimalVal>(integer.box)), "12.00");
+    const Value rounded = coerce_numeric(numeric_val(kNumeric, -1235, 3), kNumeric, 6, 2,
+                                        CastMode::Assignment);
+    EXPECT_EQ(decimal_to_text(std::get<DecimalVal>(rounded.box)), "-1.24");
+
+    // 跨族及浮点转 numeric 仅允许显式模式
+    const std::vector<Value> explicit_values = {
+        bool_val(kBool, true), str_val(kVarChar, "1.25"), double_val(kDouble, 1.25)};
+    const std::vector<std::string> expected = {"1.00", "1.25", "1.25"};
+    for (size_t i = 0; i < explicit_values.size(); ++i) {
+        EXPECT_THROW(coerce_numeric(explicit_values[i], kNumeric, 6, 2, CastMode::Assignment),
+                     db::DbError);
+        const Value converted = coerce_numeric(explicit_values[i], kNumeric, 6, 2,
+                                              CastMode::Explicit);
+        EXPECT_EQ(converted.type, kNumeric);
+        EXPECT_EQ(decimal_to_text(std::get<DecimalVal>(converted.box)), expected[i]);
+    }
+}
 
 TEST(HeapPage, DeleteCompact)
 {

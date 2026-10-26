@@ -54,3 +54,24 @@ CREATE TABLE t_num_bad (a numeric(0));
 CREATE TABLE t_numeric (a numeric());
 CREATE TABLE t_numeric (a numeric(5, 2, 3));
 CREATE TABLE t_numeric (a numeric(-5));
+-- 裸 numeric 与 numeric(p,s) 使用相同的赋值转换规则
+CREATE TABLE t_num_assign (id int, n numeric, np numeric(6,2), flag boolean);
+INSERT INTO t_num_assign VALUES (1, 12, 12, true), (2, -1.235, -1.235, false);
+INSERT INTO t_num_assign (n) VALUES (true);
+INSERT INTO t_num_assign (np) VALUES (true);
+INSERT INTO t_num_assign (n) VALUES (false AND NULL);
+INSERT INTO t_num_assign (np) VALUES (false AND NULL);
+INSERT INTO t_num_assign (n) VALUES ('1.25');
+INSERT INTO t_num_assign (np) VALUES ('1.25');
+INSERT INTO t_num_assign (n) VALUES (1e0);
+INSERT INTO t_num_assign (np) VALUES (1e0);
+UPDATE t_num_assign SET n = flag;
+UPDATE t_num_assign SET np = flag;
+-- 显式 CAST 可先转换为 numeric，写入时按目标标度归一
+INSERT INTO t_num_assign VALUES (3, CAST(true AS numeric), CAST(true AS numeric(6,2)), true);
+INSERT INTO t_num_assign VALUES (4, CAST('1.235' AS numeric), CAST('1.235' AS numeric(6,2)), false);
+INSERT INTO t_num_assign VALUES (5, CAST(1.235e0 AS numeric), CAST(1.235e0 AS numeric(6,2)), true);
+UPDATE t_num_assign SET n = CAST(flag AS numeric), np = CAST(flag AS numeric(6,2)) WHERE id = 1;
+UPDATE t_num_assign SET n = 3.456, np = 3.456 WHERE id = 2;
+SELECT * FROM t_num_assign ORDER BY id;
+DROP TABLE t_num_assign;

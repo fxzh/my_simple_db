@@ -8,8 +8,9 @@ UPDATE t_sem SET no_col = 1;
 ERROR: 列不存在: no_col
 UPDATE t_sem SET id = 1, id = 2;
 ERROR: 更新列清单中列重复: id
+-- 空表更新不产生待检查的列值
 UPDATE t_sem SET id = NULL;
-ERROR: NOT NULL 列不允许 NULL: id
+UPDATE 0
 UPDATE t_sem SET id = 'abc';
 ERROR: 值与列类型不匹配
 UPDATE t_sem SET id = 1.5;
@@ -32,4 +33,87 @@ ERROR: 函数实参个数或类型不符: abs
 UPDATE t_suf SET s = abs(1);
 ERROR: 值与列类型不匹配
 DROP TABLE t_suf;
+DROP
+-- 常量与列引用的 NOT NULL 检查均按实际结果执行
+CREATE TABLE t_null_update (id int, i int, n numeric, np numeric(6,2), flag boolean NOT NULL, src boolean);
+CREATE
+INSERT INTO t_null_update VALUES (1, 10, 1.25, 1.25, false, true), (2, 20, 2.50, 2.50, true, false);
+INSERT 2
+UPDATE t_null_update SET flag = false AND NULL;
+UPDATE 2
+SELECT id, flag FROM t_null_update ORDER BY id;
+ id | flag
+----+-------
+ 1  | false
+ 2  | false
+(2 行)
+UPDATE t_null_update SET flag = true OR NULL;
+UPDATE 2
+UPDATE t_null_update SET flag = NULL AND false WHERE id = 1;
+UPDATE 1
+UPDATE t_null_update SET flag = NULL OR true WHERE id = 2;
+UPDATE 1
+SELECT id, flag FROM t_null_update ORDER BY id;
+ id | flag
+----+-------
+ 1  | false
+ 2  | true
+(2 行)
+UPDATE t_null_update SET flag = true AND NULL;
+ERROR: NOT NULL 列不允许 NULL: flag
+UPDATE t_null_update SET flag = false OR NULL;
+ERROR: NOT NULL 列不允许 NULL: flag
+UPDATE t_null_update SET flag = CAST(NULL AS boolean);
+ERROR: NOT NULL 列不允许 NULL: flag
+UPDATE t_null_update SET flag = src OR NULL;
+ERROR: NOT NULL 列不允许 NULL: flag
+SELECT id, flag FROM t_null_update ORDER BY id;
+ id | flag
+----+-------
+ 1  | false
+ 2  | true
+(2 行)
+UPDATE t_null_update SET flag = src OR NULL WHERE src;
+UPDATE 1
+UPDATE t_null_update SET flag = src AND NULL WHERE NOT src;
+UPDATE 1
+SELECT id, flag FROM t_null_update ORDER BY id;
+ id | flag
+----+-------
+ 1  | true
+ 2  | false
+(2 行)
+-- 常量、有类型 NULL 与列引用均遵循相同的赋值类型规则
+UPDATE t_null_update SET i = true OR NULL;
+ERROR: 值与列类型不匹配
+UPDATE t_null_update SET i = CAST(NULL AS boolean);
+ERROR: 值与列类型不匹配
+UPDATE t_null_update SET i = src OR NULL;
+ERROR: 值与列类型不匹配
+UPDATE t_null_update SET n = true OR NULL;
+ERROR: 值与列类型不匹配
+UPDATE t_null_update SET np = true OR NULL;
+ERROR: 值与列类型不匹配
+UPDATE t_null_update SET n = CAST(NULL AS boolean);
+ERROR: 值与列类型不匹配
+UPDATE t_null_update SET np = CAST(NULL AS boolean);
+ERROR: 值与列类型不匹配
+UPDATE t_null_update SET n = src OR NULL;
+ERROR: 值与列类型不匹配
+UPDATE t_null_update SET np = src OR NULL;
+ERROR: 值与列类型不匹配
+UPDATE t_null_update SET flag = 1 + NULL;
+ERROR: 值与列类型不匹配
+-- 可空列接受裸 NULL 与赋值兼容的有类型 NULL
+UPDATE t_null_update SET i = NULL, n = NULL, np = NULL WHERE id = 1;
+UPDATE 1
+UPDATE t_null_update SET i = CAST(NULL AS int), n = CAST(NULL AS int), np = CAST(NULL AS numeric) WHERE id = 2;
+UPDATE 1
+SELECT * FROM t_null_update ORDER BY id;
+ id |  i   |  n   |  np  | flag  |  src
+----+------+------+------+-------+-------
+ 1  | NULL | NULL | NULL | true  | true
+ 2  | NULL | NULL | NULL | false | false
+(2 行)
+DROP TABLE t_null_update;
 DROP

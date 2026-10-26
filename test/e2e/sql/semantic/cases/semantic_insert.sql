@@ -43,3 +43,32 @@ INSERT INTO t_sn VALUES (2, NULL, 'y'), (NULL, 3, 'z');
 INSERT INTO t_sn VALUES (3, 4, 'ok'), (5, 6, 'no');
 SELECT * FROM t_sn ORDER BY a;
 DROP TABLE t_sn;
+-- 三值逻辑的实际非空结果可写入 NOT NULL 列
+CREATE TABLE t_null_insert (id int, i int, n numeric, np numeric(6,2), flag boolean NOT NULL);
+SELECT false AND NULL, NULL AND false, true OR NULL, NULL OR true;
+INSERT INTO t_null_insert (id, flag) VALUES (1, false AND NULL), (2, true OR NULL);
+INSERT INTO t_null_insert (id, flag) VALUES (3, NULL AND false), (4, NULL OR true);
+INSERT INTO t_null_insert (id, flag) VALUES (5, NOT (false AND NULL));
+INSERT INTO t_null_insert (id, flag) VALUES (6, 2 BETWEEN 3 AND NULL);
+INSERT INTO t_null_insert (id, flag) VALUES (7, CAST(true OR NULL AS boolean));
+-- 实际 NULL 结果拒绝写入 NOT NULL 列，多行写入整体回滚
+INSERT INTO t_null_insert (id, flag) VALUES (8, true AND NULL);
+INSERT INTO t_null_insert (id, flag) VALUES (8, false OR NULL);
+INSERT INTO t_null_insert (id, flag) VALUES (8, CAST(NULL AS boolean));
+INSERT INTO t_null_insert (id, flag) VALUES (8, true), (9, NULL OR false);
+-- 可空表达式仍按静态类型检查赋值兼容性
+INSERT INTO t_null_insert (i, flag) VALUES (true OR NULL, false);
+INSERT INTO t_null_insert (i, flag) VALUES (false AND NULL, false);
+INSERT INTO t_null_insert (i, flag) VALUES (true AND NULL, false);
+INSERT INTO t_null_insert (i, flag) VALUES (CAST(NULL AS boolean), false);
+INSERT INTO t_null_insert (i, flag) VALUES (CAST(NULL AS varchar), false);
+INSERT INTO t_null_insert (n, flag) VALUES (true OR NULL, false);
+INSERT INTO t_null_insert (np, flag) VALUES (true OR NULL, false);
+INSERT INTO t_null_insert (n, flag) VALUES (CAST(NULL AS boolean), false);
+INSERT INTO t_null_insert (np, flag) VALUES (CAST(NULL AS boolean), false);
+INSERT INTO t_null_insert (flag) VALUES (1 + NULL);
+-- 裸 NULL 与赋值兼容的有类型 NULL 可写入可空列
+INSERT INTO t_null_insert VALUES (8, NULL, NULL, NULL, false);
+INSERT INTO t_null_insert VALUES (9, CAST(NULL AS int), CAST(NULL AS int), CAST(NULL AS numeric), true);
+SELECT * FROM t_null_insert ORDER BY id;
+DROP TABLE t_null_insert;

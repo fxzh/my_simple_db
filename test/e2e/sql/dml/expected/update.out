@@ -64,7 +64,7 @@ CREATE
 INSERT INTO t_err VALUES (1, 10, 'alice'), (2, NULL, 'bob');
 INSERT 2
 UPDATE t_err SET id = n;
-ERROR: 值与列类型不匹配
+ERROR: NOT NULL 列不允许 NULL: id
 SELECT * FROM t_err ORDER BY id;
  id |  n   | name
 ----+------+-------

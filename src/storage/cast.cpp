@@ -566,11 +566,11 @@ std::string decimal_to_text(const DecimalVal& d)
     return out;
 }
 
-// numeric 目标归一: 先经分派表转到定点十进制形态, 再四舍五入(远离零)到目标标度;
+// numeric 目标归一: 按指定模式转到定点十进制形态, 再四舍五入(远离零)到目标标度;
 // 精度非 0 时校验结果十进制位数, 放大超界/超精度当场报错
-Value coerce_numeric(const Value& v, TypeAttr to, uint16_t precision, uint8_t scale)
+Value coerce_numeric(const Value& v, TypeAttr to, uint16_t precision, uint8_t scale, CastMode mode)
 {
-    const Value n = cast_value(v, to, CastMode::Explicit);
+    const Value n = cast_value(v, to, mode);
     const DecimalVal d = get_dec(n);
     mp::int256_t u = d.unscaled;
     if (d.scale > scale) {

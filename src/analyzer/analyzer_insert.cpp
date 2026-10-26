@@ -18,11 +18,8 @@ namespace ana {
 
 // ==================== 值与列类型校验 ====================
 
-void check_value_type(const Expr& expr, st::TypeAttr t, const st::ColumnSpec& col, ct::Catalog& db)
+void check_value_type(const Expr& expr, st::TypeAttr t, const st::ColumnSpec& col)
 {
-    if (may_be_null(expr, db)) {
-        return;  // 恒 NULL 常量树免检(NOT NULL 已在前置检查拦截)
-    }
     check_assignment_type(t, col);
     bool ok = true;
     // float 列字面量须可被 float 表示
@@ -125,12 +122,6 @@ std::vector<std::unique_ptr<BoundExpr>> bind_insert_row(
     if (values.size() != t.target.size()) {
         DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER, "值的数量与列数不符");
     }
-    for (size_t i = 0; i < values.size(); ++i) {
-        if (meta.cols[t.target[i]].not_null && may_be_null(*values[i], db)) {
-            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
-                     "NOT NULL 列不允许 NULL: {}", meta.cols[t.target[i]].name);
-        }
-    }
     for (size_t i = 0; i < meta.cols.size(); ++i) {
         if (!t.specified[i] && meta.cols[i].not_null) {
             DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
@@ -138,7 +129,7 @@ std::vector<std::unique_ptr<BoundExpr>> bind_insert_row(
         }
     }
     for (size_t i = 0; i < values.size(); ++i) {
-        check_value_type(*values[i], types[i], meta.cols[t.target[i]], db);
+        check_value_type(*values[i], types[i], meta.cols[t.target[i]]);
     }
     // 归一化为全宽度: 值放到指定列, 其余列补 NULL 常量
     std::vector<std::unique_ptr<BoundExpr>> row(meta.cols.size());

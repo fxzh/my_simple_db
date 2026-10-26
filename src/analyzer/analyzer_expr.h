@@ -54,9 +54,6 @@ std::unique_ptr<BoundExpr> bind_expr(const Expr& expr, const RowDesc* row_desc, 
                                      st::TypeAttr& type);
 // WHERE 条件绑定: 须为布尔(NULL 视为 UNKNOWN 放行), 返回绑定谓词树
 std::unique_ptr<BoundExpr> bind_where(const Expr& where, const RowDesc& row_desc, ct::Catalog& db);
-// 常量表达式求值结果是否可能为 NULL: 树中含 NULL 字面量即可能(IS NULL 结果必为布尔),
-// 函数调用按 db_func 该名重载行分派: 严格则实参可能 NULL 即可能, 非严格静态不可断定
-bool may_be_null(const Expr& expr, ct::Catalog& db);
 // 表达式是否引用列: 含标识符节点即非纯常量, 可空性与字面量长度/范围不再可静态判定
 bool has_col_ref(const Expr& expr);
 

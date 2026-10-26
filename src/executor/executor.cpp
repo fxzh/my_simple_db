@@ -30,18 +30,22 @@ ExecResult tag_result(proto::CommandTag tag, uint64_t count)
 }
 
 // 写入列的值经 cast 分派表赋值模式按列域归一: 恒等/同形式换类型属性/int 与 float 列收窄,
-// NULL 原样; 声明 (精度,标度) 的 numeric 列走标度归一, 裸 numeric 仅域归一(标度随值);
+// NULL 校验 NOT NULL 约束; 声明 (精度,标度) 的 numeric 列走标度归一, 裸 numeric 仅域归一;
 // 收窄不可表示由表项报错, 无转换项即 Internal(值域合法性由语义层保证)
 st::Value coerce_col_value(const st::ColumnSpec& col, st::Value v)
 {
     if (st::value_is_null(v)) {
+        if (col.not_null) {
+            DB_RAISE(db::ErrCode::ValueMismatch, LogModule::EXECUTOR,
+                     "NOT NULL 列不允许 NULL: {}", col.name);
+        }
         return v;
     }
     if (col.type.rep == st::Rep::Dec) {
         if (col.length == 0) {
             return st::cast_value(v, col.type, st::CastMode::Assignment);
         }
-        return st::coerce_numeric(v, col.type, col.length, col.scale);
+        return st::coerce_numeric(v, col.type, col.length, col.scale, st::CastMode::Assignment);
     }
     return st::cast_value(v, col.type, st::CastMode::Assignment);
 }

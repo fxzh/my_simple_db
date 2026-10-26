@@ -398,7 +398,7 @@ st::Value eval_cast(const ana::BoundCast& e, const st::Row* row)
         return v;  // NULL 传播
     }
     if (e.type.rep == st::Rep::Dec && e.length > 0) {
-        return st::coerce_numeric(v, e.type, e.length, e.scale);
+        return st::coerce_numeric(v, e.type, e.length, e.scale, st::CastMode::Explicit);
     }
     const st::Value out = st::cast_value(v, e.type, st::CastMode::Explicit);
     if (e.type.rep == st::Rep::Int64 && e.type.width == 4) {

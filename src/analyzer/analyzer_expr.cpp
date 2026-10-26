@@ -287,64 +287,6 @@ std::unique_ptr<BoundExpr> bind_where(const Expr& where, const RowDesc& row_desc
 
 // ==================== AST 走查 ====================
 
-bool may_be_null(const Expr& expr, ct::Catalog& db)
-{
-    switch (expr.kind()) {
-    case ExprKind::Null: return true;
-    case ExprKind::Int:
-    case ExprKind::Float:
-    case ExprKind::Decimal:
-    case ExprKind::String:
-    case ExprKind::Bool:
-    case ExprKind::Identifier:
-        return false;
-    case ExprKind::BinaryOp: {
-        const auto& e = static_cast<const BinaryOpExpr&>(expr);
-        return may_be_null(*e.left, db) || may_be_null(*e.right, db);
-    }
-    case ExprKind::UnaryOp:
-        return may_be_null(*static_cast<const UnaryOpExpr&>(expr).operand, db);
-    case ExprKind::Compare: {
-        const auto& e = static_cast<const CompareExpr&>(expr);
-        return may_be_null(*e.left, db) || may_be_null(*e.right, db);
-    }
-    case ExprKind::Logic: {
-        const auto& e = static_cast<const LogicExpr&>(expr);
-        return may_be_null(*e.left, db) || may_be_null(*e.right, db);
-    }
-    case ExprKind::Not:
-        return may_be_null(*static_cast<const NotExpr&>(expr).operand, db);
-    case ExprKind::IsNull:
-        return false;
-    case ExprKind::Between: {
-        const auto& e = static_cast<const BetweenExpr&>(expr);
-        return may_be_null(*e.expr, db) || may_be_null(*e.lo, db) || may_be_null(*e.hi, db);
-    }
-    case ExprKind::FuncCall: {
-        const auto& f = static_cast<const FuncCallExpr&>(expr);
-        const std::vector<ct::FuncRow> overloads = db.funcs(f.name);
-        if (overloads.empty()) {
-            DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "db_func 函数名未注册: {}",
-                     f.name);
-        }
-        // 非严格重载的结果是否 NULL 由实现决定, 静态不可断定
-        if (!overloads[0].strict_null) {
-            return false;
-        }
-        for (const auto& arg : f.args) {
-            if (may_be_null(*arg, db)) {
-                return true;
-            }
-        }
-        return false;
-    }
-    case ExprKind::Cast:
-        return may_be_null(*static_cast<const CastExpr&>(expr).operand, db);
-    }
-    // 不可达: 全部表达式种类已在上方穷尽
-    DB_RAISE(db::ErrCode::Internal, LogModule::ANALYZER, "analyzer: 未知表达式节点");
-}
-
 bool has_col_ref(const Expr& expr)
 {
     switch (expr.kind()) {

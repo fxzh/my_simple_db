@@ -131,12 +131,8 @@ std::unique_ptr<BoundUpdate> parse_update(ct::Catalog& db, const UpdateStmt& us,
         if (has_col_ref(*item.value)) {
             check_assignment_type(t, col);
         } else {
-            // 纯常量右值: 与插入同构的 NOT NULL/长度/范围检查
-            if (col.not_null && may_be_null(*item.value, db)) {
-                DB_RAISE(db::ErrCode::ValueMismatch, LogModule::ANALYZER,
-                         "NOT NULL 列不允许 NULL: {}", col.name);
-            }
-            check_value_type(*item.value, t, col, db);
+            // 纯常量右值: 与插入同构的类型/长度/范围检查
+            check_value_type(*item.value, t, col);
         }
         b->assigns.push_back(std::move(a));
     }

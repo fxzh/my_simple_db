@@ -14,9 +14,8 @@ namespace ana {
 
 // ==================== INSERT 绑定 ====================
 
-// 值类型与列规格匹配(常量上下文): 恒 NULL 常量树免检(NOT NULL 已在前置检查拦截),
-// 采用统一赋值类型检查, 字面量范围/长度额外静态校验, 其余范围/长度由 cast 与存储编码检查
-void check_value_type(const Expr& expr, st::TypeAttr t, const st::ColumnSpec& col, ct::Catalog& db);
+// 常量赋值按静态类型检查, 字面量范围/长度额外静态校验, 其余范围/长度由 cast 与存储编码检查
+void check_value_type(const Expr& expr, st::TypeAttr t, const st::ColumnSpec& col);
 // 赋值右值与列的静态类型匹配: 整型可写浮点列, 整型/文本同族可赋值, 无类型放行
 void check_assignment_type(st::TypeAttr t, const st::ColumnSpec& col);
 
@@ -28,7 +27,7 @@ struct InsertTargets {
 // 解析列清单: 空清单按表全列, 指定清单逐名解析并查重
 InsertTargets resolve_insert_targets(const std::vector<std::string>& columns,
                                      const st::TableMeta& meta);
-// 单行 INSERT 值绑定: 推导/个数/NOT NULL/类型匹配;
+// 单行 INSERT 值绑定: 推导/个数/未指定的 NOT NULL 列/类型匹配;
 // 产出与表列等宽的值序列, 未指定列补 NULL
 std::vector<std::unique_ptr<BoundExpr>> bind_insert_row(
     const std::vector<std::unique_ptr<Expr>>& values, const InsertTargets& t,

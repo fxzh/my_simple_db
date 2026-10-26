@@ -24,9 +24,9 @@ DecimalVal parse_decimal_text(std::string_view s);
 // 定点十进制转文本: 按 scale 定点展开, 尾零保留
 std::string decimal_to_text(const DecimalVal& d);
 
-// numeric 目标归一: 先经分派表转到定点十进制形态, 再四舍五入(远离零)到目标标度;
+// numeric 目标归一: 按指定模式转到定点十进制形态, 再四舍五入(远离零)到目标标度;
 // precision 非 0 时校验结果十进制位数, 放大超界/超精度当场报错
-Value coerce_numeric(const Value& v, TypeAttr to, uint16_t precision, uint8_t scale);
+Value coerce_numeric(const Value& v, TypeAttr to, uint16_t precision, uint8_t scale, CastMode mode);
 
 }  // namespace st
 
